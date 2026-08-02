@@ -1,0 +1,12 @@
+{
+	"extends": "@crm/typescript-config/base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"allowImportingTsExtensions": true,
+		"types": ["bun", "node"]
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts"],
+	"exclude": ["dist", "node_modules"]
+}

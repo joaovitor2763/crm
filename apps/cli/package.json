@@ -1,0 +1,26 @@
+{
+	"name": "@crm/cli",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"bin": {
+		"crm": "./dist/main.js"
+	},
+	"scripts": {
+		"build": "bun build src/main.ts --target=bun --outdir=dist",
+		"check-types": "tsc --noEmit",
+		"lint": "biome check .",
+		"test": "bun test",
+		"crm": "bun src/main.ts"
+	},
+	"dependencies": {
+		"@crm/env": "workspace:*",
+		"@modelcontextprotocol/sdk": "^1.30.0"
+	},
+	"devDependencies": {
+		"@crm/typescript-config": "workspace:*",
+		"@types/bun": "^1.3.10",
+		"@types/node": "^24.0.0",
+		"typescript": "^5.9.2"
+	}
+}

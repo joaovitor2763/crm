@@ -87,6 +87,13 @@ and the bearer-authenticated `/api/v1` integration surface. `/mcp` exposes the
 same bounded credential as stateless Streamable HTTP tools for external agents.
 Neither public surface accepts a session cookie as authority.
 
+The `@crm/cli` workspace is the scriptable client for these surfaces. Run it
+from the repository root with `bun run --filter=@crm/cli crm -- help`. It reads
+`CRM_API_URL` and `CRM_API_KEY`, can health-check the API, submit/upsert a
+contact through lead intake, read/search contacts, list MCP tools and call any
+published MCP tool. `--json` produces compact machine output; credentials are
+never included in errors or output.
+
 Lead intake preserves every attempt in `LeadSubmission`, including invalid and
 duplicate payloads. Idempotency keys and external IDs are namespaced by source,
 business unit and team; an omitted team uses a separate unassigned namespace.
