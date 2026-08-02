@@ -8,10 +8,14 @@ import { z } from "zod";
 import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
+import { DashboardService } from "../dashboard/dashboard.service";
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
+import { RevenueAccountsService } from "../revenue-accounts/revenue-accounts.service";
 import { leadIngestionInput } from "./lead-ingestion.contracts";
 import { LeadIngestionService } from "./lead-ingestion.service";
+import { toolError, toolResult } from "./mcp-result";
+import { registerRevenueArchitectureTools } from "./mcp-revenue-tools";
 import { scopedContactUnitStateWhere } from "./scoped-unit-state";
 
 @Controller("mcp")
@@ -26,6 +30,9 @@ export class McpController {
 		private readonly leads: LeadIngestionService,
 		@Inject(FieldsService)
 		private readonly fields: FieldsService,
+		@Inject(RevenueAccountsService)
+		private readonly revenueAccounts: RevenueAccountsService,
+		@Inject(DashboardService) private readonly dashboard: DashboardService,
 		@InjectDatabase() private readonly db: Db,
 	) {}
 
@@ -56,6 +63,13 @@ export class McpController {
 				return toolResult(await this.leads.ingest(input, principal));
 			},
 		);
+
+		registerRevenueArchitectureTools(server, {
+			accounts: this.revenueAccounts,
+			dashboard: this.dashboard,
+			accessControl: this.accessControl,
+			principal,
+		});
 
 		server.registerTool(
 			"get_contact",
@@ -196,23 +210,4 @@ function mcpContactSelect(
 		createdAt: true,
 		updatedAt: true,
 	} as const;
-}
-
-function toolResult(value: unknown) {
-	return {
-		content: [{ type: "text" as const, text: JSON.stringify(value) }],
-		structuredContent: { result: toStructuredValue(value) },
-	};
-}
-
-function toolError(message: string) {
-	return {
-		isError: true,
-		content: [{ type: "text" as const, text: message }],
-	};
-}
-
-function toStructuredValue(value: unknown): object {
-	const serialized = JSON.parse(JSON.stringify(value));
-	return Array.isArray(serialized) ? { items: serialized } : serialized;
 }

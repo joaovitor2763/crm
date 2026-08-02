@@ -90,6 +90,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+	await db.domainEvent.deleteMany({
+		where: { resource: "revenue-accounts", actorId: userId },
+	});
 	await db.revenueAccountMerge.deleteMany({
 		where: {
 			OR: [{ sourceAccountId: sourceId }, { targetAccountId: targetId }],
@@ -166,12 +169,14 @@ describe("RevenueAccount vertical slice", () => {
 			{ sourceAccountId: sourceId, targetAccountId: targetId },
 			principal,
 		);
-		expect(preview.conflicts).toEqual([fieldKey]);
+		expect(preview.conflicts).toEqual(
+			expect.arrayContaining([fieldKey, "system.name"]),
+		);
 		await service.merge(
 			{
 				sourceAccountId: sourceId,
 				targetAccountId: targetId,
-				fieldPolicies: { [fieldKey]: "SOURCE" },
+				fieldPolicies: { [fieldKey]: "SOURCE", "system.name": "TARGET" },
 				operationId: `merge-${suffix}`,
 			},
 			principal,
@@ -184,5 +189,22 @@ describe("RevenueAccount vertical slice", () => {
 			where: { sourceAccountId: sourceId },
 		});
 		expect(merge?.operationId).toBe(`merge-${suffix}`);
+		const events = await db.domainEvent.findMany({
+			where: { resource: "revenue-accounts", actorId: userId },
+			select: { type: true, payload: true },
+		});
+		expect(events.map((event) => event.type)).toEqual(
+			expect.arrayContaining([
+				"revenue-account.created",
+				"revenue-account.merged",
+			]),
+		);
+		expect(
+			events.some(
+				(event) =>
+					event.type === "revenue-account.merged" &&
+					JSON.stringify(event.payload).includes(`merge-${suffix}`),
+			),
+		).toBe(true);
 	});
 });

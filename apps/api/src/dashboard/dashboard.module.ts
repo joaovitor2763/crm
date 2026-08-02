@@ -7,5 +7,6 @@ import { DashboardService } from "./dashboard.service";
 @Module({
 	imports: [TrpcModule, FieldsModule],
 	providers: [DashboardService, DashboardRouter],
+	exports: [DashboardService],
 })
 export class DashboardModule {}

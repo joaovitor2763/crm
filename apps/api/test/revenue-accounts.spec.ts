@@ -1,8 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
+	accountAttributes,
 	changedKeys,
 	mergeValues,
 	normalizeMatch,
+	splitAccountAttributes,
 } from "../src/revenue-accounts/revenue-accounts.helpers";
 
 describe("RevenueAccount core policies", () => {
@@ -34,5 +36,26 @@ describe("RevenueAccount core policies", () => {
 		expect(
 			changedKeys({ score: 1, tags: ["a"] }, { score: 2, tags: ["a", "b"] }),
 		).toEqual(["score", "tags"]);
+	});
+
+	it("round-trips system and custom attributes for merge lineage", () => {
+		const values = accountAttributes({
+			name: "Conta",
+			domain: "example.test",
+			businessUnitId: "unit-1",
+			teamId: null,
+			ownerId: "owner-1",
+			customValues: { tags: ["customer", "priority"] },
+		});
+		expect(splitAccountAttributes(values)).toEqual({
+			system: {
+				name: "Conta",
+				domain: "example.test",
+				businessUnitId: "unit-1",
+				teamId: null,
+				ownerId: "owner-1",
+			},
+			customValues: { tags: ["customer", "priority"] },
+		});
 	});
 });

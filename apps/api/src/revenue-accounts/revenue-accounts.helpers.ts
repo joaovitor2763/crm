@@ -2,6 +2,51 @@ import type { Prisma } from "@crm/db";
 
 export type JsonMap = Record<string, Prisma.InputJsonValue>;
 
+const SYSTEM_PREFIX = "system.";
+
+type AccountAttributes = {
+	name: string;
+	domain: string | null;
+	businessUnitId: string;
+	teamId: string | null;
+	ownerId: string | null;
+	customValues: unknown;
+};
+
+export function accountAttributes(account: AccountAttributes): JsonMap {
+	return {
+		"system.name": account.name,
+		"system.businessUnitId": account.businessUnitId,
+		...(account.domain === null ? {} : { "system.domain": account.domain }),
+		...(account.teamId === null ? {} : { "system.teamId": account.teamId }),
+		...(account.ownerId === null ? {} : { "system.ownerId": account.ownerId }),
+		...asJsonMap(account.customValues),
+	};
+}
+
+export function splitAccountAttributes(values: JsonMap) {
+	const name = values["system.name"];
+	const businessUnitId = values["system.businessUnitId"];
+	if (typeof name !== "string" || !name.trim()) {
+		throw new Error("A merged Account needs a name.");
+	}
+	if (typeof businessUnitId !== "string" || !businessUnitId) {
+		throw new Error("A merged Account needs a business unit.");
+	}
+	return {
+		system: {
+			name,
+			domain: nullableString(values["system.domain"]),
+			businessUnitId,
+			teamId: nullableString(values["system.teamId"]),
+			ownerId: nullableString(values["system.ownerId"]),
+		},
+		customValues: Object.fromEntries(
+			Object.entries(values).filter(([key]) => !key.startsWith(SYSTEM_PREFIX)),
+		) as JsonMap,
+	};
+}
+
 export function normalizeMatch(value: string | null | undefined): string {
 	return value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
 }
@@ -73,4 +118,10 @@ export function relationTable(targetKind: "CONTACT" | "COMPANY" | "DEAL") {
 	if (targetKind === "CONTACT") return "contact" as const;
 	if (targetKind === "COMPANY") return "company" as const;
 	return "deal" as const;
+}
+
+function nullableString(
+	value: Prisma.InputJsonValue | undefined,
+): string | null {
+	return typeof value === "string" ? value : null;
 }

@@ -248,7 +248,40 @@ describe("external CRM API", () => {
 			.expect(200);
 		expect(
 			mcpPayload(tools).result.tools.map((tool: { name: string }) => tool.name),
-		).toEqual(["submit_lead", "get_contact", "search_contacts"]);
+		).toEqual(
+			expect.arrayContaining([
+				"submit_lead",
+				"get_contact",
+				"search_contacts",
+				"search_revenue_accounts",
+				"create_revenue_account",
+				"get_revenue_account",
+				"preview_revenue_account_merge",
+				"merge_revenue_accounts",
+				"read_revenue_analytics",
+			]),
+		);
+	});
+
+	it("exposes scoped Account search and revenue analytics over REST", async () => {
+		const accounts = await request(app.getHttpServer())
+			.post("/api/v1/revenue-accounts/search")
+			.set("authorization", `Bearer ${token}`)
+			.send({ q: "", page: 1, pageSize: 10 })
+			.expect(201);
+		expect(accounts.body).toEqual(
+			expect.objectContaining({
+				rows: expect.any(Array),
+				total: expect.any(Number),
+			}),
+		);
+
+		const analytics = await request(app.getHttpServer())
+			.post("/api/v1/analytics/revenue")
+			.set("authorization", `Bearer ${token}`)
+			.send({ dimensions: ["owner"] })
+			.expect(201);
+		expect(analytics.body.views).toEqual(expect.any(Array));
 	});
 
 	it("rejects an MCP lead that references an unreadable company", async () => {

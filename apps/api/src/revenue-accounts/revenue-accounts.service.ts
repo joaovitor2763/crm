@@ -3,6 +3,7 @@ import {
 	BadRequestException,
 	ConflictException,
 	ForbiddenException,
+	Inject,
 	Injectable,
 	NotFoundException,
 } from "@nestjs/common";
@@ -25,10 +26,12 @@ import type {
 	RevenueAccountUpdateArgs,
 } from "./revenue-accounts.contracts";
 import {
+	accountAttributes,
 	asJsonMap,
 	changedKeys,
 	mergeValues,
 	normalizeMatch,
+	splitAccountAttributes,
 } from "./revenue-accounts.helpers";
 
 const ACCOUNT_SELECT = {
@@ -52,7 +55,9 @@ const ACCOUNT_SELECT = {
 export class RevenueAccountsService {
 	constructor(
 		@InjectDatabase() private readonly db: Db,
+		@Inject(AccessControlService)
 		private readonly accessControl: AccessControlService,
+		@Inject(FieldsService)
 		private readonly fields: FieldsService,
 	) {}
 
@@ -79,6 +84,7 @@ export class RevenueAccountsService {
 				"Only a global administrator can configure Conta.",
 			);
 		}
+		const operationId = crypto.randomUUID();
 		return this.db.$transaction(async (tx) => {
 			const config = await tx.revenueAccountConfig.upsert({
 				where: { id: "revenue-account-config" },
@@ -98,6 +104,14 @@ export class RevenueAccountsService {
 					configId: config.id,
 				})),
 			});
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.configuration.updated",
+				"revenue-account-config",
+				operationId,
+				principal,
+				{ enabled: input.enabled },
+			);
 			return this.loadConfiguration(tx);
 		});
 	}
@@ -249,7 +263,7 @@ export class RevenueAccountsService {
 				account.id,
 				operationId,
 				{},
-				asJsonMap(customValues),
+				accountAttributes(account),
 				principal,
 				"create",
 			);
@@ -259,7 +273,17 @@ export class RevenueAccountsService {
 				operationId,
 				"CREATED",
 				principal,
-				{ fields: Object.keys(customValues) },
+				{ fields: Object.keys(accountAttributes(account)) },
+			);
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.created",
+				account.id,
+				operationId,
+				principal,
+				{},
+				account.businessUnitId,
+				account.teamId,
 			);
 			return account;
 		});
@@ -311,8 +335,8 @@ export class RevenueAccountsService {
 				tx,
 				account.id,
 				operationId,
-				asJsonMap(current.customValues),
-				customValues,
+				accountAttributes(current),
+				accountAttributes(account),
 				principal,
 				"update",
 			);
@@ -322,7 +346,27 @@ export class RevenueAccountsService {
 				operationId,
 				"UPDATED",
 				principal,
-				{ fields: changedKeys(asJsonMap(current.customValues), customValues) },
+				{
+					fields: changedKeys(
+						accountAttributes(current),
+						accountAttributes(account),
+					),
+				},
+			);
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.updated",
+				account.id,
+				operationId,
+				principal,
+				{
+					fields: changedKeys(
+						accountAttributes(current),
+						accountAttributes(account),
+					),
+				},
+				account.businessUnitId,
+				account.teamId,
 			);
 			return account;
 		});
@@ -341,6 +385,16 @@ export class RevenueAccountsService {
 				data: { archivedAt: new Date() },
 			});
 			await this.writeLineage(tx, id, operationId, "ARCHIVED", principal, {});
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.archived",
+				id,
+				operationId,
+				principal,
+				{},
+				current.businessUnitId,
+				current.teamId,
+			);
 			return account;
 		});
 	}
@@ -422,6 +476,16 @@ export class RevenueAccountsService {
 				principal,
 				{ targetKind: input.targetKind, targetId: input.targetId },
 			);
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.relation.attached",
+				account.id,
+				operationId,
+				principal,
+				{ targetKind: input.targetKind, targetId: input.targetId },
+				account.businessUnitId,
+				account.teamId,
+			);
 			return {
 				revenueAccountId: account.id,
 				targetKind: input.targetKind,
@@ -478,6 +542,16 @@ export class RevenueAccountsService {
 				"RELATION_DETACHED",
 				principal,
 				{ targetKind: input.targetKind, targetId: input.targetId },
+			);
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.relation.detached",
+				account.id,
+				operationId,
+				principal,
+				{ targetKind: input.targetKind, targetId: input.targetId },
+				account.businessUnitId,
+				account.teamId,
 			);
 		});
 		return this.byId(account.id, principal);
@@ -549,8 +623,8 @@ export class RevenueAccountsService {
 			this.assertAccountRelationsInScope(target.id, principal),
 		]);
 		const values = mergeValues(
-			asJsonMap(target.customValues),
-			asJsonMap(source.customValues),
+			accountAttributes(target),
+			accountAttributes(source),
 			{},
 		);
 		const [projectedSource, projectedTarget] = await Promise.all([
@@ -599,20 +673,33 @@ export class RevenueAccountsService {
 			this.assertAccountRelationsInScope(source.id, principal),
 			this.assertAccountRelationsInScope(target.id, principal),
 		]);
+		const configuredPolicy = (await this.loadConfiguration())
+			.mergePolicy as Record<string, "TARGET" | "SOURCE" | "UNION" | "SKIP">;
+		const fieldPolicies = { ...configuredPolicy, ...input.fieldPolicies };
 		const merged = mergeValues(
-			asJsonMap(target.customValues),
-			asJsonMap(source.customValues),
-			input.fieldPolicies,
+			accountAttributes(target),
+			accountAttributes(source),
+			fieldPolicies,
 		);
 		if (merged.conflicts.length > 0)
 			throw new BadRequestException(
 				`Choose a merge policy for: ${merged.conflicts.join(", ")}.`,
 			);
+		const mergedAttributes = splitAccountAttributes(merged.values);
+		await this.accessControl.assertAssignment(
+			principal,
+			CRM_RESOURCE.revenueAccounts,
+			PermissionAction.UPDATE,
+			mergedAttributes.system,
+		);
 		const operationId = input.operationId ?? crypto.randomUUID();
 		return this.db.$transaction(async (tx) => {
 			const updatedTarget = await tx.revenueAccount.update({
 				where: { id: target.id },
-				data: { customValues: merged.values },
+				data: {
+					...mergedAttributes.system,
+					customValues: mergedAttributes.customValues,
+				},
 			});
 			await this.transferRelations(tx, source.id, target.id, principal);
 			await tx.revenueAccount.update({
@@ -628,7 +715,7 @@ export class RevenueAccountsService {
 					sourceAccountId: source.id,
 					targetAccountId: target.id,
 					operationId,
-					policy: input.fieldPolicies,
+					policy: fieldPolicies,
 					executedByType: principal.actorType,
 					executedById: principal.actorId,
 				},
@@ -637,8 +724,8 @@ export class RevenueAccountsService {
 				tx,
 				target.id,
 				operationId,
-				asJsonMap(target.customValues),
-				merged.values,
+				accountAttributes(target),
+				accountAttributes(updatedTarget),
 				principal,
 				"merge",
 			);
@@ -648,7 +735,7 @@ export class RevenueAccountsService {
 				operationId,
 				"MERGED_IN",
 				principal,
-				{ sourceAccountId: source.id, fieldPolicies: input.fieldPolicies },
+				{ sourceAccountId: source.id, fieldPolicies },
 			);
 			await this.writeLineage(
 				tx,
@@ -657,6 +744,16 @@ export class RevenueAccountsService {
 				"MERGED_OUT",
 				principal,
 				{ targetAccountId: target.id },
+			);
+			await this.writeDomainEvent(
+				tx,
+				"revenue-account.merged",
+				target.id,
+				operationId,
+				principal,
+				{ sourceAccountId: source.id, targetAccountId: target.id },
+				updatedTarget.businessUnitId,
+				updatedTarget.teamId,
 			);
 			return {
 				...updatedTarget,
@@ -1036,6 +1133,31 @@ export class RevenueAccountsService {
 				actorType: principal.actorType,
 				actorId: principal.actorId,
 				payload: payload as Prisma.InputJsonValue,
+			},
+		});
+	}
+
+	private writeDomainEvent(
+		tx: Prisma.TransactionClient,
+		type: string,
+		recordId: string,
+		operationId: string,
+		principal: EffectivePrincipal,
+		payload: Record<string, Prisma.InputJsonValue>,
+		businessUnitId?: string | null,
+		teamId?: string | null,
+	) {
+		return tx.domainEvent.create({
+			data: {
+				eventKey: `${type}:${recordId}:${operationId}`,
+				type,
+				resource: "revenue-accounts",
+				recordId,
+				businessUnitId: businessUnitId ?? null,
+				teamId: teamId ?? null,
+				actorType: principal.actorType,
+				actorId: principal.actorId,
+				payload: { operationId, ...payload },
 			},
 		});
 	}
