@@ -238,7 +238,9 @@ writeFileSync(
 		 * The route fails closed without `CRON_SECRET`, so this is safe to
 		 * declare unconditionally.
 		 */
-		crons: [{ path: "/internal/sync/google", schedule: "*/5 * * * *" }],
+		// Hobby projects allow daily schedules only. This keeps sync automatic
+		// without requiring a paid plan; Pro deployments can raise the cadence.
+		crons: [{ path: "/internal/sync/google", schedule: "0 9 * * *" }],
 	}),
 );
 
