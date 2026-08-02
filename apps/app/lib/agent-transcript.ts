@@ -61,6 +61,11 @@ const VERBS: Record<string, string> = {
 	schedule_recheck: "Decided when to look again",
 	record_job_change: "Raised a job change",
 	list_outstanding_work: "Looked for outstanding work",
+	read_revenue_account: "Read the revenue account",
+	search_revenue_accounts: "Looked for revenue accounts",
+	suggest_revenue_account_duplicates: "Suggested possible duplicate accounts",
+	preview_revenue_account_merge: "Previewed an account merge",
+	merge_revenue_accounts: "Merged revenue accounts",
 
 	// eve's default harness. Named here for the same reason as the rest: a rep
 	// reading a run should not have to know which of these we wrote.

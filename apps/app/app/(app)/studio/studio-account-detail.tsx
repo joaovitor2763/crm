@@ -41,6 +41,7 @@ import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
 import { type Configuration, labelForTarget } from "./studio-account-config";
 import { StudioAccountMerge } from "./studio-account-merge";
+import { AttributionInspector } from "./studio-attribution";
 import { studioParsers } from "./studio-search-params";
 
 type Account = RouterOutputs["revenueAccounts"]["byId"];
@@ -251,6 +252,11 @@ export function StudioAccountDetail({
 										targetId,
 									})
 								}
+							/>
+							<AttributionInspector
+								compact
+								entityType="REVENUE_ACCOUNT"
+								entityId={accountId}
 							/>
 						</div>
 					) : null}

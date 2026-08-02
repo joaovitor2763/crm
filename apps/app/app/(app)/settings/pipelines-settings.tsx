@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
+import { studioMutationOptions } from "../studio/studio-trpc";
 
 type Pipeline = RouterOutputs["pipelines"]["list"][number];
 type Stage = Pipeline["stages"][number];
@@ -73,7 +74,10 @@ export function PipelinesSettings() {
 		}),
 	);
 	const createStage = useMutation(
-		trpc.pipelines.createStage.mutationOptions({
+		studioMutationOptions<
+			unknown,
+			{ pipelineId: string; name: string; type: "OPEN" }
+		>(trpc.pipelines.createStage, {
 			onSuccess: async (_, variables) => {
 				setNewStages((current) => ({ ...current, [variables.pipelineId]: "" }));
 				await done("Stage created.");

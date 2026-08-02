@@ -24,6 +24,7 @@ import { formatMoney } from "@crm/ui/lib/format";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { parseAsStringLiteral, useQueryState, useQueryStates } from "nuqs";
 import { toast } from "sonner";
+import type { DealStage } from "@/components/crm/deal-stage";
 import { useOpenRecord } from "@/components/crm/record-sheet/record-stack";
 import {
 	closeReasonParams,
@@ -32,12 +33,25 @@ import {
 import { useTableQuery } from "@/components/data-table/use-table-query";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
-import type { RouterOutputs } from "@/lib/trpc/types";
 import { dealsSearchParams } from "./deals-search-params";
 import { DealsTable } from "./deals-table";
 
 const VIEWS = ["table", "kanban"] as const;
-type BoardDeal = RouterOutputs["deals"]["board"]["deals"][number];
+type BoardDeal = {
+	id: string;
+	name: string;
+	amountCents: number | null;
+	currency: string;
+	company: { name: string };
+	stage: DealStage;
+	owner: { name: string };
+	expectedCloseDate: string | null;
+};
+type BoardData = {
+	truncated: boolean;
+	pipeline: { stages: DealStage[] };
+	deals: BoardDeal[];
+};
 
 export function DealsView() {
 	const [view, setView] = useQueryState(
@@ -88,6 +102,7 @@ function DealsKanban() {
 			pipeline: input.pipeline,
 		}),
 	});
+	const boardData = board.data as unknown as BoardData | undefined;
 	const setStage = useMutation(
 		trpc.deals.setStage.mutationOptions({
 			onSuccess: async (_, variables) => cache.deal(variables.id),
@@ -97,7 +112,7 @@ function DealsKanban() {
 
 	const move = (deal: BoardDeal, stageId: string) => {
 		if (deal.stage.id === stageId) return;
-		const target = board.data?.pipeline.stages.find(
+		const target = boardData?.pipeline.stages.find(
 			(stage) => stage.id === stageId,
 		);
 		if (!target) return;
@@ -152,9 +167,9 @@ function DealsKanban() {
 				{board.isFetching ? <Spinner /> : null}
 			</div>
 
-			{board.data ? (
+			{boardData ? (
 				<>
-					{board.data.truncated ? (
+					{boardData.truncated ? (
 						<div
 							role="status"
 							className="rounded-md border bg-muted/40 px-3 py-2 text-sm"
@@ -164,8 +179,8 @@ function DealsKanban() {
 						</div>
 					) : null}
 					<div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
-						{board.data.pipeline.stages.map((stage) => {
-							const deals = board.data.deals.filter(
+						{boardData.pipeline.stages.map((stage) => {
+							const deals = boardData.deals.filter(
 								(deal) => deal.stage.id === stage.id,
 							);
 							return (
@@ -175,9 +190,7 @@ function DealsKanban() {
 									onDragOver={(event) => event.preventDefault()}
 									onDrop={(event) => {
 										const id = event.dataTransfer.getData("text/crm-deal");
-										const deal = board.data.deals.find(
-											(item) => item.id === id,
-										);
+										const deal = boardData.deals.find((item) => item.id === id);
 										if (deal) move(deal, stage.id);
 									}}
 								>

@@ -18,8 +18,10 @@ import { AutomationsSettings } from "../settings/automations-settings";
 import { FieldsSettings } from "../settings/fields-settings";
 import { PipelinesSettings } from "../settings/pipelines-settings";
 import { ProductsSettings } from "../settings/products-settings";
+import { StudioAttribution } from "./studio-attribution";
 import { StudioAccounts, StudioLineage } from "./studio-capabilities";
 import { StudioDashboards } from "./studio-dashboards";
+import { StudioOntology } from "./studio-ontology";
 import { StudioOverview } from "./studio-overview";
 import { StudioRelations } from "./studio-relations";
 import {
@@ -37,6 +39,9 @@ type StudioAccess = {
 	revenueAccountsRead: boolean;
 	revenueAccountsWrite: boolean;
 	revenueAccountsConfigure: boolean;
+	dashboardsRead: boolean;
+	dashboardsManage: boolean;
+	ontologyManage: boolean;
 };
 
 const NAV_ITEMS = [
@@ -93,6 +98,18 @@ const NAV_ITEMS = [
 		label: "Dashboards",
 		description: "Standard and builder",
 		icon: <Icon icon={Dashboard} />,
+	},
+	{
+		id: "ontology",
+		label: "Ontology versions",
+		description: "Schema journal",
+		icon: <Icon icon={Settings} />,
+	},
+	{
+		id: "attribution",
+		label: "Attribution",
+		description: "Conversion lineage",
+		icon: <Icon icon={Archive} />,
 	},
 ] as const;
 
@@ -203,7 +220,21 @@ export function RevenueStudio({ access }: { access: StudioAccess }) {
 						<AccessRequired label="revenue accounts" />
 					)
 				) : null}
-				{view === "dashboards" ? <StudioDashboards /> : null}
+				{view === "dashboards" ? (
+					access.dashboardsRead ? (
+						<StudioDashboards canManage={access.dashboardsManage} />
+					) : (
+						<AccessRequired label="dashboards" />
+					)
+				) : null}
+				{view === "ontology" ? (
+					access.ontologyManage ? (
+						<StudioOntology canManage={access.ontologyManage} />
+					) : (
+						<AccessRequired label="ontology versions" />
+					)
+				) : null}
+				{view === "attribution" ? <StudioAttribution /> : null}
 			</section>
 		</div>
 	);

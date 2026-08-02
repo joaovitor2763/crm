@@ -51,6 +51,9 @@ export default async function StudioPage({
 		// write controls when the principal is a global administrator.
 		revenueAccountsWrite: can("revenue-accounts", "MANAGE"),
 		revenueAccountsConfigure: capabilities.isAdmin,
+		dashboardsRead: can("dashboards", "READ") || can("dashboards", "MANAGE"),
+		dashboardsManage: can("dashboards", "MANAGE"),
+		ontologyManage: capabilities.isAdmin,
 	};
 
 	const prefetches: Promise<void>[] = [
@@ -100,6 +103,23 @@ export default async function StudioPage({
 					pageSize: 50,
 					owner: "all",
 				}),
+			),
+		);
+	}
+	if (access.dashboardsRead) {
+		prefetches.push(
+			queryClient.prefetchQuery(
+				trpc.dashboard.definitionsList.queryOptions({ includeVersions: true }),
+			),
+			queryClient.prefetchQuery(
+				trpc.dashboard.definitionTemplates.queryOptions(),
+			),
+		);
+	}
+	if (access.ontologyManage) {
+		prefetches.push(
+			queryClient.prefetchQuery(
+				trpc.ontology.list.queryOptions({ includeArchived: false }),
 			),
 		);
 	}

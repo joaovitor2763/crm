@@ -56,6 +56,8 @@ export type CrmCache = {
 	google(options?: Options): Promise<void>;
 	pipelines(options?: Options): Promise<void>;
 	products(options?: Options): Promise<void>;
+	dashboardDefinitions(options?: Options): Promise<void>;
+	ontology(options?: Options): Promise<void>;
 	/** An account write changes its detail, relations, lineage and list. */
 	revenueAccounts(id?: string, options?: Options): Promise<void>;
 	marketing(options?: Options): Promise<void>;
@@ -223,6 +225,27 @@ export function useCrmCache(): CrmCache {
 			run(
 				[trpc.products.list.queryKey()],
 				[trpc.deals.byId.queryKey()],
+				options,
+			),
+
+		dashboardDefinitions: (options) =>
+			run(
+				[
+					trpc.dashboard.definitionsList.queryKey(),
+					trpc.dashboard.definition.queryKey(),
+				],
+				[
+					trpc.dashboard.renderDefinition.queryKey(),
+					trpc.dashboard.summary.queryKey(),
+					trpc.dashboard.analytics.queryKey(),
+				],
+				options,
+			),
+
+		ontology: (options) =>
+			run(
+				[trpc.ontology.list.queryKey(), trpc.ontology.detail.queryKey()],
+				[trpc.ontology.impactPreview.queryKey()],
 				options,
 			),
 

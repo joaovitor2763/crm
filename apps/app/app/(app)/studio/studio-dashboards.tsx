@@ -27,6 +27,7 @@ import { OverviewScopeToggle } from "../overview-scope";
 import { overviewParsers } from "../overview-search-params";
 import { SalesDashboard } from "../sales-dashboard";
 import { chartConfig, chartRows, formatMetric } from "./studio-analytics-data";
+import { StudioDashboardDefinitions } from "./studio-dashboard-definitions";
 import { studioParsers } from "./studio-search-params";
 
 const DIMENSIONS = [
@@ -47,7 +48,11 @@ const VIEW_LABELS = {
 	breakdown: "Breakdown",
 } as const;
 
-export function StudioDashboards() {
+export function StudioDashboards({
+	canManage = false,
+}: {
+	canManage?: boolean;
+}) {
 	const trpc = useTRPC();
 	const [scope] = useQueryState("scope", overviewParsers.scope);
 	const [view, setView] = useQueryState(
@@ -218,6 +223,7 @@ export function StudioDashboards() {
 					{selectedView ? <AnalyticsView view={selectedView} /> : null}
 				</CardContent>
 			</Card>
+			<StudioDashboardDefinitions canManage={canManage} />
 		</div>
 	);
 }

@@ -10,6 +10,8 @@ export const STUDIO_VIEWS = [
 	"accounts",
 	"lineage",
 	"dashboards",
+	"ontology",
+	"attribution",
 ] as const;
 
 export type StudioView = (typeof STUDIO_VIEWS)[number];
@@ -44,6 +46,15 @@ export const studioParsers = {
 	] as const).withDefault("channel"),
 	analyticsPipeline: parseAsString.withDefault("all"),
 	analyticsAttribute: parseAsString.withDefault(""),
+	dashboard: parseAsString.withDefault(""),
+	ontology: parseAsString.withDefault(""),
+	attributionType: parseAsStringLiteral([
+		"CONTACT",
+		"COMPANY",
+		"DEAL",
+		"REVENUE_ACCOUNT",
+	] as const).withDefault("CONTACT"),
+	attributionId: parseAsString.withDefault(""),
 };
 
 export const loadStudioSearchParams = createLoader(studioParsers);
