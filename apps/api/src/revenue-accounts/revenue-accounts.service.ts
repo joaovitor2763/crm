@@ -238,6 +238,20 @@ export class RevenueAccountsService {
 		};
 	}
 
+	/** Record services use this narrow projection to authorize ontology events. */
+	async assertReadable(id: string, principal: EffectivePrincipal) {
+		const account = await this.visibleAccount(
+			id,
+			principal,
+			PermissionAction.READ,
+		);
+		return {
+			id: account.id,
+			businessUnitId: account.businessUnitId,
+			teamId: account.teamId,
+		};
+	}
+
 	async create(
 		input: RevenueAccountCreateInput,
 		principal: EffectivePrincipal,

@@ -5,6 +5,7 @@ import { AuthModule as BetterAuthModule } from "@thallesp/nestjs-better-auth";
 import { AccessControlModule } from "./access-control/access-control.module";
 import { ActivitiesModule } from "./activities/activities.module";
 import { ApiCredentialsModule } from "./api-credentials/api-credentials.module";
+import { AttributionModule } from "./attribution/attribution.module";
 import { AuthModule } from "./auth/auth.module";
 import { AutomationsModule } from "./automations/automations.module";
 import { AppCacheModule } from "./cache/cache.module";
@@ -61,6 +62,7 @@ import { UsersModule } from "./users/users.module";
 		RevenueAccountsModule,
 		PublicApiModule,
 		ActivitiesModule,
+		AttributionModule,
 		MarketingModule,
 		DashboardModule,
 		SearchModule,

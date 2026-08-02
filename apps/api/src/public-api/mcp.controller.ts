@@ -8,6 +8,7 @@ import { z } from "zod";
 import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
+import { AttributionService } from "../attribution/attribution.service";
 import { DashboardService } from "../dashboard/dashboard.service";
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
@@ -33,6 +34,8 @@ export class McpController {
 		@Inject(RevenueAccountsService)
 		private readonly revenueAccounts: RevenueAccountsService,
 		@Inject(DashboardService) private readonly dashboard: DashboardService,
+		@Inject(AttributionService)
+		private readonly attribution: AttributionService,
 		@InjectDatabase() private readonly db: Db,
 	) {}
 
@@ -66,6 +69,7 @@ export class McpController {
 
 		registerRevenueArchitectureTools(server, {
 			accounts: this.revenueAccounts,
+			attribution: this.attribution,
 			dashboard: this.dashboard,
 			accessControl: this.accessControl,
 			principal,

@@ -5,6 +5,11 @@ import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import type { AccessControlService } from "../access-control/access-control.service";
 import type { EffectivePrincipal } from "../access-control/access-control.types";
 import {
+	attributionProjectionInput,
+	externalAttributionEventInput,
+} from "../attribution/attribution.contracts";
+import type { AttributionService } from "../attribution/attribution.service";
+import {
 	ANALYTICS_DIMENSIONS,
 	dashboardAnalyticsInput,
 } from "../dashboard/analytics.contracts";
@@ -22,12 +27,35 @@ export function registerRevenueArchitectureTools(
 	server: McpServer,
 	dependencies: {
 		accounts: RevenueAccountsService;
+		attribution: AttributionService;
 		dashboard: DashboardService;
 		accessControl: AccessControlService;
 		principal: EffectivePrincipal;
 	},
 ) {
 	const { accounts, dashboard, accessControl, principal } = dependencies;
+
+	server.registerTool(
+		"record_attribution_event",
+		{
+			description:
+				"Record an append-only attribution touch for a governed revenue element.",
+			inputSchema: externalAttributionEventInput,
+		},
+		async (input) =>
+			toolResult(await dependencies.attribution.record(input, principal)),
+	);
+
+	server.registerTool(
+		"read_attribution_lineage",
+		{
+			description:
+				"Read explainable first/current attribution and recurring conversion history.",
+			inputSchema: attributionProjectionInput,
+		},
+		async (input) =>
+			toolResult(await dependencies.attribution.projection(input, principal)),
+	);
 
 	server.registerTool(
 		"search_revenue_accounts",

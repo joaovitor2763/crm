@@ -15,6 +15,7 @@ const t = initTRPC.create();
 const publicProcedure = t.procedure;
 import { timelineInput, timelineCountsInput, myTasksInput, activityCreateInput, completeInput } from "../activities/activities.contracts";
 import { apiCredentialCreateInput, apiCredentialIdInput } from "../api-credentials/api-credentials.contracts";
+import { attributionEventInput, attributionProjectionInput, attributionHistoryInput } from "../attribution/attribution.contracts";
 import { automationCreateInput, automationUpdateInput, automationIdInput, webhookCreateInput, webhookUpdateInput } from "../automations/automations.contracts";
 import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInput, companyUpdateArgs, setPrimaryContactInput } from "../companies/companies.contracts";
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
@@ -31,6 +32,7 @@ import { productListInput, productCreateInput, productUpdateInput, productIdInpu
 import { revenueAccountConfigurationInput, revenueAccountListInput, revenueAccountIdInput, revenueAccountCreateInput, revenueAccountUpdateArgs, revenueAccountAssociationInput, revenueAccountMergePreviewInput, revenueAccountMergeInput } from "../revenue-accounts/revenue-accounts.contracts";
 import type { ActivitiesRouter } from "../activities/activities.router";
 import type { ApiCredentialsRouter } from "../api-credentials/api-credentials.router";
+import type { AttributionRouter } from "../attribution/attribution.router";
 import type { AutomationsRouter } from "../automations/automations.router";
 import type { CompaniesRouter } from "../companies/companies.router";
 import type { ContactsRouter } from "../contacts/contacts.router";
@@ -74,6 +76,17 @@ const appRouter = t.router({
     revoke: publicProcedure
       .input(apiCredentialIdInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<ApiCredentialsRouter["revoke"]>>)
+    }),
+  attribution: t.router({
+    record: publicProcedure
+      .input(attributionEventInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AttributionRouter["record"]>>),
+    projection: publicProcedure
+      .input(attributionProjectionInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AttributionRouter["projection"]>>),
+    history: publicProcedure
+      .input(attributionHistoryInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AttributionRouter["history"]>>)
     }),
   automations: t.router({
     list: publicProcedure

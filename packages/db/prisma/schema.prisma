@@ -154,6 +154,16 @@ enum ActivityType {
   ENRICHMENT
 }
 
+/// A normalized touch/conversion can belong to any revenue element. Typed
+/// foreign keys preserve referential integrity while entityId keeps history
+/// queries uniform across the ontology.
+enum ConversionEntityType {
+  CONTACT
+  COMPANY
+  DEAL
+  REVENUE_ACCOUNT
+}
+
 enum EnrichmentStatus {
   PENDING
   RUNNING
@@ -333,8 +343,8 @@ model BusinessUnit {
   leader     User?     @relation("BusinessUnitLeader", fields: [leaderId], references: [id], onDelete: SetNull)
   archivedAt DateTime?
 
-  ancestorPaths     BusinessUnitClosure[]       @relation("BusinessUnitAncestor")
-  descendantPaths   BusinessUnitClosure[]       @relation("BusinessUnitDescendant")
+  ancestorPaths     BusinessUnitClosure[]        @relation("BusinessUnitAncestor")
+  descendantPaths   BusinessUnitClosure[]        @relation("BusinessUnitDescendant")
   teams             Team[]
   memberships       BusinessUnitMembership[]
   primaryUsers      UserAccess[]
@@ -342,6 +352,7 @@ model BusinessUnit {
   companyStates     CompanyBusinessUnitState[]
   deals             Deal[]
   activities        Activity[]
+  conversionEvents  ConversionAttributionEvent[] @relation("ConversionBusinessUnit")
   pipelines         Pipeline[]
   products          Product[]
   marketingForms    MarketingForm[]
@@ -397,6 +408,7 @@ model Team {
   companyStates    CompanyBusinessUnitState[]
   deals            Deal[]
   activities       Activity[]
+  conversionEvents ConversionAttributionEvent[] @relation("ConversionTeam")
   customRecords    CustomObjectRecord[]
   leadSubmissions  LeadSubmission[]
   credentialScopes ApiCredentialTeam[]
@@ -787,17 +799,18 @@ model Company {
   /// thing on the page. Maintained through `ActivityStampService`.
   lastActivityAt DateTime?
 
-  contacts            Contact[]                  @relation("CompanyContacts")
+  contacts            Contact[]                    @relation("CompanyContacts")
   conversations       AgentConversation[]
   deals               Deal[]
   revenueAccounts     RevenueAccountCompany[]
   activities          Activity[]
+  conversionEvents    ConversionAttributionEvent[] @relation("ConversionCompany")
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
   unitStates          CompanyBusinessUnitState[]
   indexedCustomValues CustomFieldSearchValue[]
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
 
   @@index([ownerId])
   @@index([name])
@@ -894,14 +907,15 @@ model Contact {
   deals               DealContact[]
   revenueAccounts     RevenueAccountContact[]
   activities          Activity[]
+  conversionEvents    ConversionAttributionEvent[] @relation("ConversionContact")
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
   eventAttendance     CalendarAttendee[]
   unitStates          ContactBusinessUnitState[]
   leadSubmissions     LeadSubmission[]
   indexedCustomValues CustomFieldSearchValue[]
-  createdAt           DateTime                   @default(now())
-  updatedAt           DateTime                   @updatedAt
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
 
   @@index([companyId])
   @@index([ownerId])
@@ -1214,9 +1228,10 @@ model Deal {
   revenueAccounts     RevenueAccountDeal[]
   lineItems           DealLineItem[]
   activities          Activity[]
+  conversionEvents    ConversionAttributionEvent[] @relation("ConversionDeal")
   indexedCustomValues CustomFieldSearchValue[]
-  createdAt           DateTime                 @default(now())
-  updatedAt           DateTime                 @updatedAt
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
 
   @@index([companyId])
   @@index([ownerId])
@@ -1242,6 +1257,7 @@ model Pipeline {
   stages            PipelineStage[]
   deals             Deal[]
   blueprintVersions PipelineBlueprintVersion[]
+  conversionEvents  ConversionAttributionEvent[] @relation("ConversionPipeline")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1266,7 +1282,8 @@ model PipelineStage {
   defaultResponsibleRoleKey String?
   allowedNextStageIds       Json              @default("[]")
 
-  deals Deal[]
+  deals            Deal[]
+  conversionEvents ConversionAttributionEvent[] @relation("ConversionPipelineStage")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1392,6 +1409,7 @@ model RevenueAccount {
   contacts            RevenueAccountContact[]
   companies           RevenueAccountCompany[]
   deals               RevenueAccountDeal[]
+  conversionEvents    ConversionAttributionEvent[]     @relation("ConversionRevenueAccount")
   indexedCustomValues CustomFieldSearchValue[]
   attributeHistory    RevenueAccountAttributeHistory[]
   lineage             RevenueAccountLineageEvent[]
@@ -1540,6 +1558,62 @@ model RevenueAccountMerge {
   @@map("revenueAccountMerge")
 }
 
+/// Append-only normalized attribution history. Existing Activity and
+/// LeadSubmission rows remain source records; the attribution service projects
+/// them alongside these events so first/current touch never overwrite history.
+/// Typed links are nullable on delete; entityType/entityId remain a stable
+/// tombstone so merge and hard-delete never erase lineage.
+model ConversionAttributionEvent {
+  id               String               @id @default(cuid())
+  entityType       ConversionEntityType
+  entityId         String
+  contactId        String?
+  contact          Contact?             @relation("ConversionContact", fields: [contactId], references: [id], onDelete: SetNull)
+  companyId        String?
+  company          Company?             @relation("ConversionCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  dealId           String?
+  deal             Deal?                @relation("ConversionDeal", fields: [dealId], references: [id], onDelete: SetNull)
+  revenueAccountId String?
+  revenueAccount   RevenueAccount?      @relation("ConversionRevenueAccount", fields: [revenueAccountId], references: [id], onDelete: SetNull)
+
+  businessUnitId String
+  businessUnit   BusinessUnit   @relation("ConversionBusinessUnit", fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId         String?
+  team           Team?          @relation("ConversionTeam", fields: [teamId], references: [id], onDelete: SetNull)
+  actorType      AuditActorType
+  actorId        String?
+  operationId    String
+
+  channel          String?
+  source           String?
+  conversionType   String
+  utmSource        String?
+  utmMedium        String?
+  utmCampaign      String?
+  utmTerm          String?
+  utmContent       String?
+  marketingFormId  String?
+  marketingForm    MarketingForm?  @relation("ConversionMarketingForm", fields: [marketingFormId], references: [id], onDelete: SetNull)
+  marketingEventId String?
+  marketingEvent   MarketingEvent? @relation("ConversionMarketingEvent", fields: [marketingEventId], references: [id], onDelete: SetNull)
+  pipelineId       String?
+  pipeline         Pipeline?       @relation("ConversionPipeline", fields: [pipelineId], references: [id], onDelete: SetNull)
+  pipelineStageId  String?
+  pipelineStage    PipelineStage?  @relation("ConversionPipelineStage", fields: [pipelineStageId, pipelineId], references: [id, pipelineId], onDelete: SetNull)
+  metadata         Json?
+  occurredAt       DateTime        @default(now())
+  createdAt        DateTime        @default(now())
+
+  @@unique([entityType, entityId, operationId])
+  @@index([entityType, entityId, occurredAt])
+  @@index([businessUnitId, teamId, occurredAt])
+  @@index([conversionType, occurredAt])
+  @@index([source, occurredAt])
+  @@index([pipelineId, occurredAt])
+  @@index([operationId])
+  @@map("conversionAttributionEvent")
+}
+
 model Activity {
   id      String       @id @default(cuid())
   type    ActivityType
@@ -1608,7 +1682,8 @@ model MarketingForm {
   businessUnitId String?
   businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
 
-  conversions Activity[]
+  conversions      Activity[]
+  conversionEvents ConversionAttributionEvent[] @relation("ConversionMarketingForm")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1628,7 +1703,8 @@ model MarketingEvent {
   businessUnitId String?
   businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
 
-  attendances Activity[]
+  attendances      Activity[]
+  conversionEvents ConversionAttributionEvent[] @relation("ConversionMarketingEvent")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

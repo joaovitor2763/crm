@@ -131,6 +131,17 @@ scoped contact endpoints after ingestion.
   published as immutable `PipelineBlueprintVersion` snapshots. Deals enforce
   the active stage transition and handover policy; legacy snapshots with empty
   role arrays retain the previous permissive behaviour.
+- Attribution lineage is exposed through `attribution.record`,
+  `attribution.projection` and `attribution.history` in tRPC. The credential
+  REST surface provides `POST /api/v1/attribution/events`, `/projection` and
+  `/:entityType/:entityId/history`; MCP mirrors these as
+  `record_attribution_event` and `read_attribution_lineage`. Integration calls
+  must provide an `operationId` for safe retries. Events are append-only and
+  project alongside existing `Activity` and `LeadSubmission` rows into
+  first/current touch, conversion and pipeline-entry counts. The normalized
+  event emits `revenue-conversion.recorded` through the durable outbox, with a
+  stable key based on entity and operation, and nullable typed links preserve a
+  tombstone when an element is merged or hard-deleted.
 - **The router type is generated**, not hand-written:
   `bun run --filter=api trpc:generate` writes `src/generated/server.ts`, which
   the app imports as `type { AppRouter } from "api/app-router"`. `bun run dev`
