@@ -640,11 +640,6 @@ export class RevenueAccountsService {
 			this.assertAccountRelationsInScope(source.id, principal),
 			this.assertAccountRelationsInScope(target.id, principal),
 		]);
-		const values = mergeValues(
-			accountAttributes(target),
-			accountAttributes(source),
-			{},
-		);
 		const [projectedSource, projectedTarget] = await Promise.all([
 			this.fields.projectChannelValues(
 				"revenue-accounts",
@@ -659,10 +654,32 @@ export class RevenueAccountsService {
 				"api",
 			),
 		]);
+		const sourceAttributes = accountAttributes({
+			...source,
+			customValues: projectedSource,
+		});
+		const targetAttributes = accountAttributes({
+			...target,
+			customValues: projectedTarget,
+		});
+		const values = mergeValues(targetAttributes, sourceAttributes, {});
 		return {
 			source: { ...source, customValues: projectedSource },
 			target: { ...target, customValues: projectedTarget },
 			conflicts: values.conflicts,
+			fieldGuide: changedKeys(targetAttributes, sourceAttributes).map(
+				(fieldKey) => ({
+					fieldKey,
+					targetValue: targetAttributes[fieldKey],
+					sourceValue: sourceAttributes[fieldKey],
+					valueKind:
+						Array.isArray(targetAttributes[fieldKey]) ||
+						Array.isArray(sourceAttributes[fieldKey])
+							? "LIST"
+							: "SCALAR",
+					requiresPolicy: values.conflicts.includes(fieldKey),
+				}),
+			),
 			relationCounts: {
 				source: await this.relationCounts(source.id),
 				target: await this.relationCounts(target.id),
@@ -704,6 +721,24 @@ export class RevenueAccountsService {
 				`Choose a merge policy for: ${merged.conflicts.join(", ")}.`,
 			);
 		const mergedAttributes = splitAccountAttributes(merged.values);
+		const requestedCustomValues = Object.fromEntries(
+			Object.keys(input.fieldPolicies)
+				.filter((fieldKey) => !fieldKey.startsWith("system."))
+				.map((fieldKey) => [
+					fieldKey,
+					merged.values[fieldKey] ??
+						asJsonMap(target.customValues)[fieldKey] ??
+						asJsonMap(source.customValues)[fieldKey],
+				])
+				.filter((entry) => entry[1] !== undefined),
+		);
+		await this.fields.validateChannelValues(
+			"revenue-accounts",
+			mergedAttributes.system.businessUnitId,
+			requestedCustomValues,
+			principal,
+			"api",
+		);
 		await this.accessControl.assertAssignment(
 			principal,
 			CRM_RESOURCE.revenueAccounts,

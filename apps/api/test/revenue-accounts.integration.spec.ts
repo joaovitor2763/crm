@@ -172,6 +172,15 @@ describe("RevenueAccount vertical slice", () => {
 		expect(preview.conflicts).toEqual(
 			expect.arrayContaining([fieldKey, "system.name"]),
 		);
+		expect(preview.fieldGuide).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					fieldKey,
+					valueKind: "SCALAR",
+					requiresPolicy: true,
+				}),
+			]),
+		);
 		await service.merge(
 			{
 				sourceAccountId: sourceId,
