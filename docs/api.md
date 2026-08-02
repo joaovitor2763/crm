@@ -88,9 +88,19 @@ same bounded credential as stateless Streamable HTTP tools for external agents.
 Neither public surface accepts a session cookie as authority.
 
 Lead intake preserves every attempt in `LeadSubmission`, including invalid and
-duplicate payloads. Accepted contacts emit a durable `DomainEvent`; automations
+duplicate payloads. Idempotency keys and external IDs are namespaced by source,
+business unit and team; an omitted team uses a separate unassigned namespace.
+If a team is deleted, its historical `team:<id>` namespace is retained even
+though the foreign key becomes null, preventing collisions with new unassigned
+submissions.
+Accepted contacts emit a durable `DomainEvent`; automations
 and webhooks lease from that outbox with idempotent run/delivery records and
 bounded retry. Never put webhook secrets, payloads or bearer tokens in logs.
+`POST /api/v1/leads` returns a submission receipt rather than a canonical
+contact identifier (`contactId` is always `null`). This keeps a scoped
+credential from using globally unique identity fields as a cross-unit existence
+oracle. A credential with `contacts:READ` can resolve contacts through the
+scoped contact endpoints after ingestion.
 
 - **One router per module**, named `*.router.ts` so the codegen glob finds it,
   carrying `@Router({ alias: "…" })` and `@UseMiddlewares(AuthMiddleware)`.

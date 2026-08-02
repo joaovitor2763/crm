@@ -86,7 +86,7 @@ export class DealsRouter {
 			PermissionAction.READ,
 			input.companyId,
 		);
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.deals,
 			PermissionAction.CREATE,
@@ -108,7 +108,7 @@ export class DealsRouter {
 		const scope = this.writeScope(ctx);
 		const assignment = await this.deals.assignment(input.id, scope);
 		if (input.data.ownerId !== undefined) {
-			this.accessControl.assertAssignment(
+			await this.accessControl.assertAssignment(
 				ctx.principal,
 				CRM_RESOURCE.deals,
 				PermissionAction.UPDATE,

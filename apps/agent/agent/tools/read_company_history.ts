@@ -48,6 +48,7 @@ export default defineTool({
 			people,
 			contactWhere: access.contactWhere,
 			dealWhere: access.dealWhere,
+			activityWhere: access.activityWhere,
 		});
 		if (!history) return { found: false as const, reason: "No such company." };
 

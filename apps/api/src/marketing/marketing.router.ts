@@ -55,13 +55,13 @@ export class MarketingRouter {
 	}
 
 	@Mutation({ input: marketingFormCreateInput })
-	createForm(
+	async createForm(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof marketingFormCreateInput>,
 	) {
 		const businessUnitId =
 			input.businessUnitId ?? ctx.principal.primaryBusinessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.marketingForms,
 			PermissionAction.MANAGE,
@@ -82,13 +82,13 @@ export class MarketingRouter {
 	}
 
 	@Mutation({ input: marketingEventCreateInput })
-	createEvent(
+	async createEvent(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof marketingEventCreateInput>,
 	) {
 		const businessUnitId =
 			input.businessUnitId ?? ctx.principal.primaryBusinessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.marketingEvents,
 			PermissionAction.MANAGE,

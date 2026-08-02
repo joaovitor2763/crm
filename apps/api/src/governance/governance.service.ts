@@ -1,16 +1,22 @@
 import {
+	AccessScope,
 	BusinessUnitMembershipType,
 	type Db,
+	PermissionAction,
 	type Prisma,
 	UserAccessStatus,
 } from "@crm/db";
 import {
 	BadRequestException,
 	ConflictException,
+	ForbiddenException,
 	Injectable,
 	NotFoundException,
 } from "@nestjs/common";
-import { DEFAULT_BUSINESS_UNIT_ID } from "../access-control/access-control.constants";
+import {
+	CRM_RESOURCE,
+	DEFAULT_BUSINESS_UNIT_ID,
+} from "../access-control/access-control.constants";
 import type { EffectivePrincipal } from "../access-control/access-control.types";
 import { InjectDatabase } from "../database/database.constants";
 import type {
@@ -23,19 +29,100 @@ import type {
 	TeamUpdateInput,
 	UserAccessUpdateInput,
 } from "./governance.contracts";
+import {
+	assertBusinessUnitInScope,
+	assertCurrentUserInScope,
+	assertRoleAssignable,
+	assertTeamBusinessUnitInScope,
+	assertTeamInScope,
+	businessUnitIdsForScope,
+	effectiveScope,
+	teamIdsForScope,
+} from "./governance-scope";
 
 @Injectable()
 export class GovernanceService {
 	constructor(@InjectDatabase() private readonly db: Db) {}
 
-	async overview() {
+	async overview(principal: EffectivePrincipal) {
+		const scoped = !principal.isAdmin;
+		const businessUnitScope = effectiveScope(
+			principal,
+			CRM_RESOURCE.businessUnits,
+			PermissionAction.MANAGE,
+		);
+		const teamScope = effectiveScope(
+			principal,
+			CRM_RESOURCE.teams,
+			PermissionAction.MANAGE,
+		);
+		const userScope = effectiveScope(
+			principal,
+			CRM_RESOURCE.users,
+			PermissionAction.MANAGE,
+		);
+		const businessUnitIds = businessUnitIdsForScope(
+			principal,
+			businessUnitScope,
+		);
+		const teamBusinessUnitIds = businessUnitIdsForScope(principal, teamScope);
+		const teamIds = teamIdsForScope(principal, teamScope, teamBusinessUnitIds);
+		const userBusinessUnitIds = businessUnitIdsForScope(principal, userScope);
+		const userTeamIds = teamIdsForScope(
+			principal,
+			userScope,
+			userBusinessUnitIds,
+		);
+		const businessUnitWhere: Prisma.BusinessUnitWhereInput =
+			businessUnitIds === null
+				? {}
+				: {
+						id: { in: businessUnitIds },
+						archivedAt: null,
+					};
+		const teamWhere: Prisma.TeamWhereInput = {
+			archivedAt: null,
+			...(teamIds === null ? {} : { id: { in: teamIds } }),
+		};
+		const roleWhere: Prisma.RoleWhereInput = {
+			archivedAt: null,
+			...(scoped ? { isAdmin: false } : {}),
+		};
+		const userWhere: Prisma.UserWhereInput | undefined = scoped
+			? {
+					OR: [
+						{
+							access: null,
+							businessUnitMemberships: { none: {} },
+							teamMemberships: { none: {} },
+						},
+						{
+							AND: [
+								userWhereForScope(
+									userScope,
+									userBusinessUnitIds,
+									userTeamIds,
+									principal,
+								),
+								{
+									OR: [
+										{ access: null },
+										{ access: { is: { role: { isAdmin: false } } } },
+									],
+								},
+							],
+						},
+					],
+				}
+			: undefined;
 		const [businessUnits, roles, users] = await Promise.all([
 			this.db.businessUnit.findMany({
+				where: businessUnitWhere,
 				orderBy: [{ parentId: "asc" }, { name: "asc" }],
 				include: {
 					leader: { select: { id: true, name: true, email: true } },
 					teams: {
-						where: { archivedAt: null },
+						where: teamWhere,
 						orderBy: { name: "asc" },
 						include: {
 							leader: { select: { id: true, name: true, email: true } },
@@ -53,7 +140,7 @@ export class GovernanceService {
 				},
 			}),
 			this.db.role.findMany({
-				where: { archivedAt: null },
+				where: roleWhere,
 				orderBy: [{ isAdmin: "desc" }, { name: "asc" }],
 				include: {
 					permissions: { orderBy: [{ resource: "asc" }, { action: "asc" }] },
@@ -63,6 +150,7 @@ export class GovernanceService {
 				},
 			}),
 			this.db.user.findMany({
+				where: userWhere,
 				orderBy: [{ name: "asc" }, { email: "asc" }],
 				select: {
 					id: true,
@@ -79,9 +167,25 @@ export class GovernanceService {
 						},
 					},
 					businessUnitMemberships: {
+						...(scoped && userBusinessUnitIds !== null
+							? {
+									where: {
+										businessUnitId: { in: userBusinessUnitIds },
+									},
+								}
+							: {}),
 						select: { businessUnitId: true, type: true },
 					},
-					teamMemberships: { select: { teamId: true, isLead: true } },
+					teamMemberships: {
+						...(scoped && userTeamIds !== null
+							? {
+									where: {
+										teamId: { in: userTeamIds },
+									},
+								}
+							: {}),
+						select: { teamId: true, isLead: true },
+					},
 				},
 			}),
 		]);
@@ -125,8 +229,17 @@ export class GovernanceService {
 		input: BusinessUnitCreateInput,
 		actor: EffectivePrincipal,
 	) {
+		if (input.parentId) {
+			assertBusinessUnitInScope(actor, input.parentId);
+		} else if (!actor.isAdmin) {
+			throw new ForbiddenException(
+				"A scoped administrator can only create a child business unit within its scope.",
+			);
+		}
 		return this.db.$transaction(async (tx) => {
 			if (input.parentId) await this.requireBusinessUnit(tx, input.parentId);
+			if (input.leaderId)
+				await this.requireUserInScope(tx, actor, input.leaderId);
 			const unit = await tx.businessUnit.create({
 				data: {
 					name: input.name,
@@ -157,12 +270,23 @@ export class GovernanceService {
 				"The root business unit cannot have a parent.",
 			);
 		}
+		if (!actor.isAdmin) {
+			assertBusinessUnitInScope(actor, input.id);
+			if (input.parentId === null) {
+				throw new ForbiddenException(
+					"A scoped administrator cannot move a business unit outside its scope.",
+				);
+			}
+			if (input.parentId) assertBusinessUnitInScope(actor, input.parentId);
+		}
 		return this.db.$transaction(async (tx) => {
 			await this.requireBusinessUnit(tx, input.id);
 			if (input.parentId === input.id) {
 				throw new BadRequestException("A business unit cannot parent itself.");
 			}
 			if (input.parentId) await this.requireBusinessUnit(tx, input.parentId);
+			if (input.leaderId)
+				await this.requireUserInScope(tx, actor, input.leaderId);
 			const unit = await tx.businessUnit.update({
 				where: { id: input.id },
 				data: {
@@ -185,8 +309,11 @@ export class GovernanceService {
 	}
 
 	async createTeam(input: TeamCreateInput, actor: EffectivePrincipal) {
+		assertTeamBusinessUnitInScope(actor, input.businessUnitId);
 		return this.db.$transaction(async (tx) => {
 			await this.requireBusinessUnit(tx, input.businessUnitId);
+			if (input.leaderId)
+				await this.requireUserInScope(tx, actor, input.leaderId);
 			const team = await tx.team.create({
 				data: {
 					name: input.name,
@@ -210,6 +337,9 @@ export class GovernanceService {
 				select: { id: true, businessUnitId: true },
 			});
 			if (!current) throw new NotFoundException(`No team with id ${input.id}.`);
+			assertTeamInScope(actor, current);
+			if (input.leaderId)
+				await this.requireUserInScope(tx, actor, input.leaderId);
 			const team = await tx.team.update({
 				where: { id: input.id },
 				data: {
@@ -226,6 +356,7 @@ export class GovernanceService {
 	}
 
 	async createRole(input: RoleCreateInput, actor: EffectivePrincipal) {
+		this.assertGlobalAdmin(actor);
 		return this.db.$transaction(async (tx) => {
 			const role = await tx.role.create({
 				data: {
@@ -241,10 +372,11 @@ export class GovernanceService {
 	}
 
 	async updateRole(input: RoleUpdateInput, actor: EffectivePrincipal) {
+		this.assertGlobalAdmin(actor);
 		return this.db.$transaction(async (tx) => {
 			const current = await tx.role.findUnique({
 				where: { id: input.id },
-				select: { id: true, isAdmin: true },
+				select: { id: true },
 			});
 			if (!current) throw new NotFoundException(`No role with id ${input.id}.`);
 			const role = await tx.role.update({
@@ -266,6 +398,7 @@ export class GovernanceService {
 		input: RolePermissionInput,
 		actor: EffectivePrincipal,
 	) {
+		this.assertGlobalAdmin(actor);
 		return this.db.$transaction(async (tx) => {
 			const role = await tx.role.findUnique({
 				where: { id: input.roleId },
@@ -310,11 +443,33 @@ export class GovernanceService {
 			const [user, role, teams] = await Promise.all([
 				tx.user.findUnique({
 					where: { id: input.userId },
-					select: { id: true },
+					select: {
+						id: true,
+						access: {
+							select: {
+								status: true,
+								role: { select: { isAdmin: true } },
+								primaryBusinessUnitId: true,
+								primaryTeamId: true,
+							},
+						},
+						businessUnitMemberships: { select: { businessUnitId: true } },
+						teamMemberships: { select: { teamId: true } },
+					},
 				}),
 				tx.role.findUnique({
 					where: { id: input.roleId },
-					select: { id: true, isAdmin: true, archivedAt: true },
+					select: {
+						id: true,
+						isAdmin: true,
+						archivedAt: true,
+						permissions: {
+							select: { resource: true, action: true, scope: true },
+						},
+						fieldPermissions: {
+							select: { fieldId: true, canRead: true, canUpdate: true },
+						},
+					},
 				}),
 				tx.team.findMany({
 					where: { id: { in: input.teamIds } },
@@ -325,6 +480,10 @@ export class GovernanceService {
 				throw new NotFoundException(`No user with id ${input.userId}.`);
 			if (!role || role.archivedAt) {
 				throw new NotFoundException(`No active role with id ${input.roleId}.`);
+			}
+			if (!actor.isAdmin) {
+				assertCurrentUserInScope(actor, user, true);
+				assertRoleAssignable(actor, role);
 			}
 			if (teams.length !== new Set(input.teamIds).size) {
 				throw new BadRequestException(
@@ -375,6 +534,36 @@ export class GovernanceService {
 				...teams.map((team) => team.businessUnitId),
 				...(input.primaryBusinessUnitId ? [input.primaryBusinessUnitId] : []),
 			]);
+			if (!actor.isAdmin) {
+				if (businessUnitIds.length === 0 && input.teamIds.length === 0) {
+					throw new ForbiddenException(
+						"A scoped administrator must assign the user to a business unit or team within its scope.",
+					);
+				}
+				for (const businessUnitId of businessUnitIds) {
+					assertBusinessUnitInScope(actor, businessUnitId);
+				}
+				for (const team of teams) assertTeamInScope(actor, team);
+				assertCurrentUserInScope(actor, {
+					id: input.userId,
+					access: {
+						role: { isAdmin: role.isAdmin },
+						primaryBusinessUnitId: input.primaryBusinessUnitId,
+						primaryTeamId: input.primaryTeamId,
+					},
+					businessUnitMemberships: businessUnitIds.map((businessUnitId) => ({
+						businessUnitId,
+					})),
+					teamMemberships: input.teamIds.map((teamId) => ({ teamId })),
+				});
+				for (const managedTeamId of input.managedTeamIds) {
+					if (!input.teamIds.includes(managedTeamId)) {
+						throw new BadRequestException(
+							"Managed teams must also be team memberships.",
+						);
+					}
+				}
+			}
 			const foundUnits = await tx.businessUnit.count({
 				where: { id: { in: businessUnitIds }, archivedAt: null },
 			});
@@ -437,6 +626,39 @@ export class GovernanceService {
 
 			return { userId: input.userId };
 		});
+	}
+
+	private async requireUserInScope(
+		tx: Prisma.TransactionClient,
+		principal: EffectivePrincipal,
+		userId: string,
+	): Promise<void> {
+		const user = await tx.user.findUnique({
+			where: { id: userId },
+			select: {
+				id: true,
+				access: {
+					select: {
+						status: true,
+						role: { select: { isAdmin: true } },
+						primaryBusinessUnitId: true,
+						primaryTeamId: true,
+					},
+				},
+				businessUnitMemberships: { select: { businessUnitId: true } },
+				teamMemberships: { select: { teamId: true } },
+			},
+		});
+		if (!user) throw new NotFoundException(`No user with id ${userId}.`);
+		assertCurrentUserInScope(principal, user);
+	}
+
+	private assertGlobalAdmin(actor: EffectivePrincipal): void {
+		if (!actor.isAdmin) {
+			throw new ForbiddenException(
+				"Only Global Admin can manage shared role definitions.",
+			);
+		}
 	}
 
 	private async requireBusinessUnit(
@@ -510,4 +732,43 @@ async function rebuildBusinessUnitClosure(
 
 function unique(values: string[]): string[] {
 	return [...new Set(values)];
+}
+
+function userWhereForScope(
+	scope: AccessScope,
+	unitIds: string[] | null,
+	teamIds: string[] | null,
+	principal: EffectivePrincipal,
+): Prisma.UserWhereInput {
+	if (scope === AccessScope.ALL) return {};
+	if (scope === AccessScope.OWNED) {
+		return principal.userId ? { id: principal.userId } : { id: { in: [] } };
+	}
+	if (
+		scope === AccessScope.BUSINESS_UNIT ||
+		scope === AccessScope.BUSINESS_UNIT_TREE
+	) {
+		return unitIds && unitIds.length > 0
+			? {
+					OR: [
+						{
+							businessUnitMemberships: {
+								some: { businessUnitId: { in: unitIds } },
+							},
+						},
+						{
+							teamMemberships: {
+								some: { team: { businessUnitId: { in: unitIds } } },
+							},
+						},
+					],
+				}
+			: { id: { in: [] } };
+	}
+	if (scope === AccessScope.TEAM || scope === AccessScope.MANAGED_TEAMS) {
+		return teamIds && teamIds.length > 0
+			? { teamMemberships: { some: { teamId: { in: teamIds } } } }
+			: { id: { in: [] } };
+	}
+	return { id: { in: [] } };
 }

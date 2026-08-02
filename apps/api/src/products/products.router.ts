@@ -42,13 +42,13 @@ export class ProductsRouter {
 	}
 
 	@Mutation({ input: productCreateInput })
-	create(
+	async create(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof productCreateInput>,
 	) {
 		const businessUnitId =
 			input.businessUnitId ?? ctx.principal.primaryBusinessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.products,
 			PermissionAction.MANAGE,

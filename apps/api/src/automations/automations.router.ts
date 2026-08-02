@@ -39,7 +39,7 @@ export class AutomationsRouter {
 	}
 
 	@Mutation({ input: automationCreateInput })
-	create(
+	async create(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof automationCreateInput>,
 	): Promise<{ id: string }> {
@@ -48,7 +48,7 @@ export class AutomationsRouter {
 			input.businessUnitId === undefined
 				? ctx.principal.primaryBusinessUnitId
 				: input.businessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.automations,
 			PermissionAction.MANAGE,
@@ -58,23 +58,16 @@ export class AutomationsRouter {
 	}
 
 	@Mutation({ input: automationUpdateInput })
-	update(
+	async update(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof automationUpdateInput>,
 	): Promise<{ id: string }> {
 		this.manage(ctx, CRM_RESOURCE.automations);
-		if (input.businessUnitId !== undefined || input.teamId !== undefined) {
-			this.accessControl.assertAssignment(
-				ctx.principal,
-				CRM_RESOURCE.automations,
-				PermissionAction.MANAGE,
-				{
-					businessUnitId: input.businessUnitId,
-					teamId: input.teamId,
-				},
-			);
-		}
-		return this.automations.update(input, this.automationScope(ctx, false));
+		return this.automations.update(
+			input,
+			this.automationScope(ctx, false),
+			ctx.principal,
+		);
 	}
 
 	@Mutation({ input: automationIdInput })
@@ -93,7 +86,7 @@ export class AutomationsRouter {
 	}
 
 	@Mutation({ input: webhookCreateInput })
-	createWebhook(
+	async createWebhook(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof webhookCreateInput>,
 	): Promise<{ id: string; secret: string; secretLastFour: string }> {
@@ -102,7 +95,7 @@ export class AutomationsRouter {
 			input.businessUnitId === undefined
 				? ctx.principal.primaryBusinessUnitId
 				: input.businessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.webhooks,
 			PermissionAction.MANAGE,

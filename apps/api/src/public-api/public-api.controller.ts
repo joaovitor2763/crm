@@ -17,6 +17,7 @@ import { ApiCredentialsService } from "../api-credentials/api-credentials.servic
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { LeadIngestionService } from "./lead-ingestion.service";
+import { scopedContactUnitStateWhere } from "./scoped-unit-state";
 
 @Controller("api/v1")
 @AllowAnonymous()
@@ -49,7 +50,7 @@ export class PublicApiController {
 			PermissionAction.CREATE,
 		);
 		if (typeof input.businessUnitId === "string") {
-			this.accessControl.assertAssignment(
+			await this.accessControl.assertAssignment(
 				principal,
 				CRM_RESOURCE.contacts,
 				PermissionAction.CREATE,
@@ -80,7 +81,14 @@ export class PublicApiController {
 		);
 		const contact = await this.db.contact.findFirstOrThrow({
 			where: { AND: [{ id, archivedAt: null }, scope] },
-			select: publicContactSelect(principal),
+			select: publicContactSelect(
+				principal,
+				this.accessControl.permission(
+					principal,
+					CRM_RESOURCE.contacts,
+					PermissionAction.READ,
+				),
+			),
 		});
 		return {
 			...contact,
@@ -116,7 +124,14 @@ export class PublicApiController {
 			},
 			take: limit,
 			orderBy: { createdAt: "desc" },
-			select: publicContactSelect(principal),
+			select: publicContactSelect(
+				principal,
+				this.accessControl.permission(
+					principal,
+					CRM_RESOURCE.contacts,
+					PermissionAction.READ,
+				),
+			),
 		});
 		return Promise.all(
 			contacts.map(async (contact) => ({
@@ -139,6 +154,7 @@ export class PublicApiController {
 
 function publicContactSelect(
 	principal: Awaited<ReturnType<AccessControlService["forApiCredential"]>>,
+	scope: ReturnType<AccessControlService["permission"]>,
 ) {
 	return {
 		id: true,
@@ -154,7 +170,7 @@ function publicContactSelect(
 		utmCampaign: true,
 		customValues: true,
 		unitStates: {
-			where: { businessUnitId: { in: principal.businessUnitTreeIds } },
+			where: scopedContactUnitStateWhere(principal, scope),
 			select: {
 				businessUnitId: true,
 				teamId: true,

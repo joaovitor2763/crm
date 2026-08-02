@@ -71,7 +71,7 @@ export class CompaniesRouter {
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof companyCreateInput>,
 	) {
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.companies,
 			PermissionAction.CREATE,
@@ -99,7 +99,7 @@ export class CompaniesRouter {
 						(state.teamId && ctx.principal.teamIds.includes(state.teamId)) ||
 						ctx.principal.businessUnitTreeIds.includes(state.businessUnitId),
 				) ?? current.unitStates[0];
-			this.accessControl.assertAssignment(
+			await this.accessControl.assertAssignment(
 				ctx.principal,
 				CRM_RESOURCE.companies,
 				PermissionAction.UPDATE,

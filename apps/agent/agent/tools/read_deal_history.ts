@@ -34,7 +34,9 @@ export default defineTool({
 		const access = await assertDeal(ctx, dealId, PermissionAction.READ);
 		const history = await readDealHistory(dealId, {
 			threads,
+			dealWhere: access.dealWhere,
 			contactWhere: access.contactWhere,
+			activityWhere: access.activityWhere,
 		});
 		if (!history) return { found: false as const, reason: "No such deal." };
 

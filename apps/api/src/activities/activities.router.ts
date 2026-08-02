@@ -91,7 +91,7 @@ export class ActivitiesRouter {
 			ctx.principal.primaryBusinessUnitId,
 			ctx.principal.primaryTeamId,
 		);
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.activities,
 			PermissionAction.CREATE,

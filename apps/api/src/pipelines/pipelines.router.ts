@@ -46,13 +46,13 @@ export class PipelinesRouter {
 	}
 
 	@Mutation({ input: pipelineCreateInput })
-	create(
+	async create(
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof pipelineCreateInput>,
 	) {
 		const businessUnitId =
 			input.businessUnitId ?? ctx.principal.primaryBusinessUnitId;
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.pipelines,
 			PermissionAction.MANAGE,

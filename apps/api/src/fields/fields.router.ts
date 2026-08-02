@@ -112,7 +112,6 @@ export class FieldsRouter {
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof customRecordCreateInput>,
 	) {
-		this.manage(ctx);
 		return this.fields.createCustomRecord(input, ctx.principal);
 	}
 

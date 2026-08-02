@@ -1,4 +1,4 @@
-import { AuditActorType, type Db, PermissionAction } from "@crm/db";
+import { type Db, PermissionAction } from "@crm/db";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { Controller, Headers, Inject, Post, Req, Res } from "@nestjs/common";
@@ -12,6 +12,7 @@ import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { leadIngestionInput } from "./lead-ingestion.contracts";
 import { LeadIngestionService } from "./lead-ingestion.service";
+import { scopedContactUnitStateWhere } from "./scoped-unit-state";
 
 @Controller("mcp")
 @AllowAnonymous()
@@ -35,12 +36,7 @@ export class McpController {
 		@Res() response: Response,
 	) {
 		const credentialId = await this.credentials.authenticate(authorization);
-		const credentialPrincipal =
-			await this.accessControl.forApiCredential(credentialId);
-		const principal = {
-			...credentialPrincipal,
-			actorType: AuditActorType.AGENT,
-		};
+		const principal = await this.accessControl.forApiCredential(credentialId);
 		const server = new McpServer({ name: "crm-oss", version: "1.0.0" });
 
 		server.registerTool(
@@ -51,7 +47,7 @@ export class McpController {
 				inputSchema: leadIngestionInput,
 			},
 			async (input) => {
-				this.accessControl.assertAssignment(
+				await this.accessControl.assertAssignment(
 					principal,
 					CRM_RESOURCE.contacts,
 					PermissionAction.CREATE,
@@ -75,7 +71,14 @@ export class McpController {
 				);
 				const contact = await this.db.contact.findFirst({
 					where: { AND: [{ id, archivedAt: null }, scope] },
-					select: mcpContactSelect(principal.businessUnitTreeIds),
+					select: mcpContactSelect(
+						principal,
+						this.accessControl.permission(
+							principal,
+							CRM_RESOURCE.contacts,
+							PermissionAction.READ,
+						),
+					),
 				});
 				return contact
 					? toolResult({
@@ -126,7 +129,14 @@ export class McpController {
 					},
 					take: limit,
 					orderBy: { createdAt: "desc" },
-					select: mcpContactSelect(principal.businessUnitTreeIds),
+					select: mcpContactSelect(
+						principal,
+						this.accessControl.permission(
+							principal,
+							CRM_RESOURCE.contacts,
+							PermissionAction.READ,
+						),
+					),
 				});
 				return toolResult(
 					await Promise.all(
@@ -159,7 +169,10 @@ export class McpController {
 	}
 }
 
-function mcpContactSelect(businessUnitIds: string[]) {
+function mcpContactSelect(
+	principal: Awaited<ReturnType<AccessControlService["forApiCredential"]>>,
+	scope: ReturnType<AccessControlService["permission"]>,
+) {
 	return {
 		id: true,
 		firstName: true,
@@ -171,7 +184,7 @@ function mcpContactSelect(businessUnitIds: string[]) {
 		globalMarketingScore: true,
 		customValues: true,
 		unitStates: {
-			where: { businessUnitId: { in: businessUnitIds } },
+			where: scopedContactUnitStateWhere(principal, scope),
 			select: {
 				businessUnitId: true,
 				teamId: true,

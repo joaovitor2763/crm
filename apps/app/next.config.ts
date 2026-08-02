@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { loadRootEnv } from "@crm/env";
 import type { NextConfig } from "next";
 
@@ -23,6 +24,10 @@ const publicApiUrl =
 	"http://localhost:3001";
 
 const nextConfig: NextConfig = {
+	turbopack: {
+		root: fileURLToPath(new URL("../..", import.meta.url)),
+	},
+
 	env: {
 		NEXT_PUBLIC_API_URL: publicApiUrl,
 	},

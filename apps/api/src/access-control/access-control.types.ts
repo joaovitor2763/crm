@@ -17,6 +17,17 @@ export type EffectiveFieldPermission = {
 	canUpdate: boolean;
 };
 
+export type EffectiveOwnerAssignment = {
+	userId: string;
+	businessUnitIds: string[];
+	teamIds: string[];
+};
+
+export type EffectiveTeamAssignment = {
+	teamId: string;
+	businessUnitId: string;
+};
+
 export type EffectivePrincipal = {
 	actorType: AuditActorType;
 	actorId: string;
@@ -31,6 +42,8 @@ export type EffectivePrincipal = {
 	businessUnitTreeIds: string[];
 	teamIds: string[];
 	managedTeamIds: string[];
+	teamAssignments: EffectiveTeamAssignment[];
+	ownerAssignments: EffectiveOwnerAssignment[];
 	permissions: EffectivePermission[];
 	fieldPermissions: EffectiveFieldPermission[];
 };

@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
+	AccessScope,
+	AuditActorType,
 	AutomationStatus,
 	CustomFieldIndexMode,
 	CustomFieldType,
 	db,
+	LeadSubmissionStatus,
 	LifecycleStage,
+	PermissionAction,
 } from "@crm/db";
 import request from "supertest";
 import { AccessControlService } from "../src/access-control/access-control.service";
@@ -16,9 +20,25 @@ import { FieldsService } from "../src/fields/fields.service";
 const suffix = crypto.randomUUID().slice(0, 8);
 const userId = `external-api-admin-${suffix}`;
 const email = `external-api-lead-${suffix}@example.test`;
+const crossScopeEmail = `external-api-cross-scope-${suffix}@example.test`;
+const mcpOutOfScopeEmail = `external-api-mcp-out-of-scope-${suffix}@example.test`;
+const createOnlyEmail = `external-api-create-only-${suffix}@example.test`;
+const oracleFreshEmail = `external-api-oracle-fresh-${suffix}@example.test`;
+const teamDefaultEmail = `external-api-team-default-${suffix}@example.test`;
+const otherTeamEmail = `external-api-team-other-${suffix}@example.test`;
+const noTeamEmail = `external-api-no-team-${suffix}@example.test`;
+const otherTeamId = `external-api-other-team-${suffix}`;
+const mcpOutOfScopeCompanyId = `external-api-mcp-out-of-scope-company-${suffix}`;
+const createOnlyRoleId = `external-api-create-only-role-${suffix}`;
 let app: Awaited<ReturnType<typeof createApp>>;
 let token: string;
 let credentialId: string;
+let otherTeamBearer: string;
+let otherTeamCredentialId: string;
+let noTeamBearer: string;
+let noTeamCredentialId: string;
+let createOnlyBearer: string;
+let createOnlyCredentialId: string;
 
 async function cleanup() {
 	await db.domainEvent.deleteMany({
@@ -27,16 +47,62 @@ async function cleanup() {
 	await db.leadSubmission.deleteMany({
 		where: { source: `external-test-${suffix}` },
 	});
-	await db.contact.deleteMany({ where: { email } });
-	if (credentialId) {
-		await db.apiCredential.deleteMany({ where: { id: credentialId } });
+	await db.contact.deleteMany({
+		where: {
+			email: {
+				in: [
+					email,
+					crossScopeEmail,
+					mcpOutOfScopeEmail,
+					createOnlyEmail,
+					oracleFreshEmail,
+					teamDefaultEmail,
+					otherTeamEmail,
+					noTeamEmail,
+				],
+			},
+		},
+	});
+	if (
+		credentialId ||
+		otherTeamCredentialId ||
+		noTeamCredentialId ||
+		createOnlyCredentialId
+	) {
+		await db.apiCredential.deleteMany({
+			where: {
+				id: {
+					in: [
+						credentialId,
+						otherTeamCredentialId,
+						noTeamCredentialId,
+						createOnlyCredentialId,
+					].filter(Boolean),
+				},
+			},
+		});
 	}
+	await db.role.deleteMany({ where: { id: createOnlyRoleId } });
 	await db.user.deleteMany({ where: { id: userId } });
+	await db.company.deleteMany({ where: { id: mcpOutOfScopeCompanyId } });
+	await db.team.deleteMany({ where: { id: otherTeamId } });
 }
 
 async function contactIds() {
 	const contacts = await db.contact.findMany({
-		where: { email },
+		where: {
+			email: {
+				in: [
+					email,
+					crossScopeEmail,
+					createOnlyEmail,
+					oracleFreshEmail,
+					teamDefaultEmail,
+					otherTeamEmail,
+					noTeamEmail,
+				],
+			},
+		},
 		select: { id: true },
 	});
 	return contacts.map((contact) => contact.id);
@@ -64,6 +130,14 @@ beforeAll(async () => {
 			},
 		},
 	});
+	await db.team.create({
+		data: {
+			id: otherTeamId,
+			key: otherTeamId,
+			name: "External API Other Team",
+			businessUnitId: "business-unit-default",
+		},
+	});
 	app = await createApp();
 	await app.init();
 	const access = app.get(AccessControlService);
@@ -82,9 +156,69 @@ beforeAll(async () => {
 	credentialId = created.id;
 });
 
+beforeAll(async () => {
+	const access = app.get(AccessControlService);
+	const credentials = app.get(ApiCredentialsService);
+	const principal = await access.forUser(userId);
+	await db.role.create({
+		data: {
+			id: createOnlyRoleId,
+			key: createOnlyRoleId,
+			name: `External API Create Only ${suffix}`,
+			permissions: {
+				create: {
+					resource: "contacts",
+					action: PermissionAction.CREATE,
+					scope: AccessScope.TEAM,
+				},
+			},
+		},
+	});
+	const createOnly = await credentials.create(
+		{
+			name: `External API Create Only ${suffix}`,
+			roleId: createOnlyRoleId,
+			businessUnitIds: ["business-unit-default"],
+			teamIds: ["team-default"],
+		},
+		principal,
+	);
+	createOnlyBearer = createOnly.token;
+	createOnlyCredentialId = createOnly.id;
+});
+
 afterAll(async () => {
 	await cleanup();
 	await app?.close();
+});
+
+beforeAll(async () => {
+	const access = app.get(AccessControlService);
+	const credentials = app.get(ApiCredentialsService);
+	const principal = await access.forUser(userId);
+	const otherTeam = await credentials.create(
+		{
+			name: `External API Other Team ${suffix}`,
+			roleId: "role-sales-representative",
+			businessUnitIds: ["business-unit-default"],
+			teamIds: [otherTeamId],
+		},
+		principal,
+	);
+	otherTeamBearer = otherTeam.token;
+	otherTeamCredentialId = otherTeam.id;
+
+	const noTeam = await credentials.create(
+		{
+			name: `External API Business Unit ${suffix}`,
+			roleId: "role-sales-manager",
+			businessUnitIds: ["business-unit-default"],
+			teamIds: [],
+		},
+		principal,
+	);
+	noTeamBearer = noTeam.token;
+	noTeamCredentialId = noTeam.id;
 });
 
 describe("external CRM API", () => {
@@ -115,6 +249,54 @@ describe("external CRM API", () => {
 		expect(
 			mcpPayload(tools).result.tools.map((tool: { name: string }) => tool.name),
 		).toEqual(["submit_lead", "get_contact", "search_contacts"]);
+	});
+
+	it("rejects an MCP lead that references an unreadable company", async () => {
+		await db.company.create({
+			data: {
+				id: mcpOutOfScopeCompanyId,
+				name: "MCP out-of-scope company",
+				unitStates: {
+					create: {
+						businessUnitId: "business-unit-default",
+						teamId: null,
+					},
+				},
+			},
+		});
+		try {
+			const response = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${token}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 3,
+					method: "tools/call",
+					params: {
+						name: "submit_lead",
+						arguments: {
+							source: `external-test-${suffix}`,
+							idempotencyKey: "mcp-out-of-scope-company-1",
+							businessUnitId: "business-unit-default",
+							teamId: "team-default",
+							firstName: "MCP company scope",
+							email: mcpOutOfScopeEmail,
+							companyId: mcpOutOfScopeCompanyId,
+						},
+					},
+				});
+			expect(response.status).toBe(200);
+			expect(mcpPayload(response).result.isError).toBe(true);
+			expect(
+				await db.contact.findUnique({
+					where: { email: mcpOutOfScopeEmail },
+					select: { id: true },
+				}),
+			).toBeNull();
+		} finally {
+			await db.company.delete({ where: { id: mcpOutOfScopeCompanyId } });
+		}
 	});
 
 	it("validates typed fields and materializes indexed values", async () => {
@@ -290,7 +472,8 @@ describe("external CRM API", () => {
 			.send(body)
 			.expect(201);
 		expect(first.body.status).toBe("ACCEPTED");
-		expect(first.body.contactId).toBeString();
+		expect(first.body.contactId).toBeNull();
+		expect(first.body.reasons).toBeUndefined();
 
 		const repeated = await request(app.getHttpServer())
 			.post("/api/v1/leads")
@@ -298,9 +481,27 @@ describe("external CRM API", () => {
 			.send(body)
 			.expect(201);
 		expect(repeated.body.id).toBe(first.body.id);
+		expect(repeated.body.contactId).toBeNull();
 
+		const duplicate = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send({ ...body, idempotencyKey: "lead-duplicate-1" })
+			.expect(201);
+		expect(duplicate.body.status).toBe("DUPLICATE");
+		expect(duplicate.body.contactId).toBeNull();
+		expect(duplicate.body.reasons).toContainEqual({
+			code: "EMAIL_ALREADY_EXISTS",
+		});
+
+		const contacts = await request(app.getHttpServer())
+			.get("/api/v1/contacts")
+			.set("authorization", `Bearer ${token}`)
+			.query({ email })
+			.expect(200);
+		expect(contacts.body).toHaveLength(1);
 		const contact = await request(app.getHttpServer())
-			.get(`/api/v1/contacts/${first.body.contactId}`)
+			.get(`/api/v1/contacts/${contacts.body[0].id}`)
 			.set("authorization", `Bearer ${token}`)
 			.expect(200);
 		expect(contact.body.email).toBe(email);
@@ -309,20 +510,351 @@ describe("external CRM API", () => {
 		);
 	});
 
+	it("allows a create-only credential to submit a lead", async () => {
+		const body = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "create-only-1",
+			businessUnitId: "business-unit-default",
+			teamId: "team-default",
+			firstName: "Create only",
+			email: createOnlyEmail,
+		};
+		const first = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${createOnlyBearer}`)
+			.send(body)
+			.expect(201);
+		expect(first.body.status).toBe("ACCEPTED");
+		expect(first.body.contactId).toBeNull();
+		expect(first.body.reasons).toBeUndefined();
+
+		const contact = await db.contact.findUnique({
+			where: { email: createOnlyEmail },
+			select: { id: true },
+		});
+		expect(contact).not.toBeNull();
+
+		const repeated = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${createOnlyBearer}`)
+			.send(body)
+			.expect(201);
+		expect(repeated.body).toEqual(first.body);
+	});
+
+	it("isolates idempotency by team and by the unassigned namespace", async () => {
+		const common = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "team-isolation-1",
+			businessUnitId: "business-unit-default",
+			firstName: "Team isolated",
+		};
+		const defaultTeam = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send({ ...common, teamId: "team-default", email: teamDefaultEmail })
+			.expect(201);
+		const otherTeam = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${otherTeamBearer}`)
+			.send({ ...common, teamId: otherTeamId, email: otherTeamEmail })
+			.expect(201);
+		const unassigned = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${noTeamBearer}`)
+			.send({ ...common, email: noTeamEmail })
+			.expect(201);
+
+		expect(
+			new Set([defaultTeam.body.id, otherTeam.body.id, unassigned.body.id])
+				.size,
+		).toBe(3);
+		const stored = await db.leadSubmission.findMany({
+			where: {
+				source: common.source,
+				idempotencyKey: common.idempotencyKey,
+			},
+			select: { id: true, teamId: true, idempotencyScopeKey: true },
+			orderBy: { id: "asc" },
+		});
+		expect(stored).toHaveLength(3);
+		expect(stored).toEqual(
+			expect.arrayContaining([
+				{
+					id: defaultTeam.body.id,
+					teamId: "team-default",
+					idempotencyScopeKey: "team:team-default",
+				},
+				{
+					id: otherTeam.body.id,
+					teamId: otherTeamId,
+					idempotencyScopeKey: `team:${otherTeamId}`,
+				},
+				{ id: unassigned.body.id, teamId: null, idempotencyScopeKey: "none" },
+			]),
+		);
+
+		const replay = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${otherTeamBearer}`)
+			.send({ ...common, teamId: otherTeamId, email: otherTeamEmail })
+			.expect(201);
+		expect(replay.body.id).toBe(otherTeam.body.id);
+	});
+
+	it("preserves team namespaces when teams are deleted", async () => {
+		const source = `external-team-tombstone-${suffix}`;
+		const idempotencyKey = "same-key";
+		const tombstoneTeamIds = [
+			`${otherTeamId}-tombstone-a`,
+			`${otherTeamId}-tombstone-b`,
+		];
+		try {
+			await db.team.createMany({
+				data: tombstoneTeamIds.map((id) => ({
+					id,
+					key: id,
+					name: id,
+					businessUnitId: "business-unit-default",
+				})),
+			});
+			await Promise.all(
+				[...tombstoneTeamIds, null].map((teamId) =>
+					db.leadSubmission.create({
+						data: {
+							source,
+							idempotencyKey,
+							status: LeadSubmissionStatus.REJECTED,
+							payload: { source },
+							businessUnitId: "business-unit-default",
+							teamId,
+							receivedByType: AuditActorType.SYSTEM,
+						},
+					}),
+				),
+			);
+			const reassigned = await db.leadSubmission.create({
+				data: {
+					source,
+					idempotencyKey: "reassigned-key",
+					status: LeadSubmissionStatus.REJECTED,
+					payload: { source },
+					businessUnitId: "business-unit-default",
+					receivedByType: AuditActorType.SYSTEM,
+				},
+			});
+			const reassignedWithTeam = await db.leadSubmission.update({
+				where: { id: reassigned.id },
+				data: { teamId: tombstoneTeamIds[0] },
+				select: { idempotencyScopeKey: true },
+			});
+			expect(reassignedWithTeam.idempotencyScopeKey).toBe(
+				`team:${tombstoneTeamIds[0]}`,
+			);
+
+			await db.team.deleteMany({ where: { id: { in: tombstoneTeamIds } } });
+			const stored = await db.leadSubmission.findMany({
+				where: { source, idempotencyKey },
+				select: { teamId: true, idempotencyScopeKey: true },
+			});
+			expect(stored).toHaveLength(3);
+			expect(stored).toEqual(
+				expect.arrayContaining([
+					{ teamId: null, idempotencyScopeKey: `team:${tombstoneTeamIds[0]}` },
+					{ teamId: null, idempotencyScopeKey: `team:${tombstoneTeamIds[1]}` },
+					{ teamId: null, idempotencyScopeKey: "none" },
+				]),
+			);
+		} finally {
+			await db.leadSubmission.deleteMany({ where: { source } });
+			await db.team.deleteMany({ where: { id: { in: tombstoneTeamIds } } });
+		}
+	});
+
+	it("recovers the primary team scope for malformed routing hints", async () => {
+		const body = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "malformed-team-scope-1",
+			teamId: otherTeamId,
+			firstName: "Missing channel",
+		};
+		const response = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send(body)
+			.expect(201);
+		const stored = await db.leadSubmission.findUniqueOrThrow({
+			where: { id: response.body.id },
+			select: { businessUnitId: true, teamId: true, idempotencyScopeKey: true },
+		});
+		expect(stored).toEqual({
+			businessUnitId: "business-unit-default",
+			teamId: "team-default",
+			idempotencyScopeKey: "team:team-default",
+		});
+
+		const replay = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send({ ...body, teamId: undefined })
+			.expect(201);
+		expect(replay.body.id).toBe(response.body.id);
+	});
+
+	it("returns one durable receipt for concurrent invalid submissions", async () => {
+		const body = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "invalid-race-1",
+			businessUnitId: "business-unit-default",
+			teamId: "team-default",
+			firstName: "Missing channel",
+		};
+		const responses = await Promise.all(
+			Array.from({ length: 4 }, () =>
+				request(app.getHttpServer())
+					.post("/api/v1/leads")
+					.set("authorization", `Bearer ${token}`)
+					.send(body),
+			),
+		);
+		expect(new Set(responses.map((response) => response.body.id)).size).toBe(1);
+		expect(responses.every((response) => response.status === 201)).toBe(true);
+		expect(
+			await db.leadSubmission.count({
+				where: {
+					source: body.source,
+					idempotencyKey: body.idempotencyKey,
+					idempotencyScopeKey: "team:team-default",
+				},
+			}),
+		).toBe(1);
+	});
+
+	it("returns one durable receipt for concurrent custom-field rejections", async () => {
+		const body = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "custom-field-race-1",
+			businessUnitId: "business-unit-default",
+			teamId: "team-default",
+			firstName: "Invalid custom field",
+			email: `external-api-custom-race-${suffix}@example.test`,
+			customValues: { unknownField: true },
+		};
+		const responses = await Promise.all(
+			Array.from({ length: 4 }, () =>
+				request(app.getHttpServer())
+					.post("/api/v1/leads")
+					.set("authorization", `Bearer ${token}`)
+					.send(body),
+			),
+		);
+		expect(new Set(responses.map((response) => response.body.id)).size).toBe(1);
+		expect(responses.every((response) => response.status === 201)).toBe(true);
+		expect(
+			await db.leadSubmission.count({
+				where: {
+					source: body.source,
+					idempotencyKey: body.idempotencyKey,
+					idempotencyScopeKey: "team:team-default",
+				},
+			}),
+		).toBe(1);
+	});
+
 	it("preserves a rejected submission without creating a contact", async () => {
+		const body = {
+			source: `external-test-${suffix}`,
+			idempotencyKey: "invalid-1",
+			businessUnitId: "business-unit-default",
+			teamId: "team-default",
+			firstName: "Missing channel",
+		};
+		const response = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send(body)
+			.expect(201);
+		expect(response.body.status).toBe("REJECTED");
+		expect(response.body.reasons).toBeArray();
+
+		const repeated = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send(body)
+			.expect(201);
+		expect(repeated.body.id).toBe(response.body.id);
+	});
+
+	it("does not associate a duplicate that exists outside the credential scope", async () => {
+		await db.contact.create({
+			data: {
+				firstName: "Scoped elsewhere",
+				email: crossScopeEmail,
+				unitStates: {
+					create: {
+						businessUnitId: "business-unit-default",
+						teamId: otherTeamId,
+					},
+				},
+			},
+		});
+
 		const response = await request(app.getHttpServer())
 			.post("/api/v1/leads")
 			.set("authorization", `Bearer ${token}`)
 			.send({
 				source: `external-test-${suffix}`,
-				idempotencyKey: "invalid-1",
+				idempotencyKey: "cross-scope-1",
 				businessUnitId: "business-unit-default",
 				teamId: "team-default",
-				firstName: "Missing channel",
+				firstName: "Cross scope",
+				email: crossScopeEmail,
 			})
 			.expect(201);
-		expect(response.body.status).toBe("REJECTED");
-		expect(response.body.reasons).toBeArray();
+
+		expect(response.body.status).toBe("ACCEPTED");
+		expect(response.body.contactId).toBeNull();
+		expect(response.body.reasons).toBeUndefined();
+
+		const fresh = await request(app.getHttpServer())
+			.post("/api/v1/leads")
+			.set("authorization", `Bearer ${token}`)
+			.send({
+				source: `external-test-${suffix}`,
+				idempotencyKey: "cross-scope-fresh-1",
+				businessUnitId: "business-unit-default",
+				teamId: "team-default",
+				firstName: "Fresh lead",
+				email: oracleFreshEmail,
+			})
+			.expect(201);
+		expect({
+			status: response.body.status,
+			contactId: response.body.contactId,
+			reasons: response.body.reasons,
+		}).toEqual({
+			status: fresh.body.status,
+			contactId: fresh.body.contactId,
+			reasons: fresh.body.reasons,
+		});
+
+		const hiddenContacts = await db.contact.findMany({
+			where: { email: crossScopeEmail },
+			select: { id: true },
+		});
+		expect(hiddenContacts).toHaveLength(1);
+		const unresolved = await db.leadSubmission.findUnique({
+			where: { id: response.body.id },
+			select: { status: true, contactId: true, normalizedPayload: true },
+		});
+		expect(unresolved).toEqual({
+			status: "NEEDS_REVIEW",
+			contactId: null,
+			normalizedPayload: expect.objectContaining({
+				firstName: "Cross scope",
+				email: crossScopeEmail,
+			}),
+		});
 	});
 });
 
@@ -338,6 +870,7 @@ function mcpPayload(response: request.Response) {
 		result: {
 			serverInfo: { name: string };
 			tools: Array<{ name: string }>;
+			isError?: boolean;
 		};
 	};
 }

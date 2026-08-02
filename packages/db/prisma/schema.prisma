@@ -1391,20 +1391,22 @@ model LeadSubmission {
   normalizedPayload Json?
   reasons           Json?
 
-  businessUnitId String         @default("business-unit-default")
-  businessUnit   BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
-  teamId         String?
-  team           Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  contactId      String?
-  contact        Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  receivedByType AuditActorType
-  receivedById   String?
+  businessUnitId      String         @default("business-unit-default")
+  businessUnit        BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId              String?
+  team                Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  /// New unassigned rows use `none`; deleted teams retain `team:<id>` as a tombstone namespace.
+  idempotencyScopeKey String         @default(dbgenerated("'none'"))
+  contactId           String?
+  contact             Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  receivedByType      AuditActorType
+  receivedById        String?
 
   receivedAt  DateTime  @default(now())
   processedAt DateTime?
 
-  @@unique([source, externalId])
-  @@unique([source, idempotencyKey])
+  @@unique([source, businessUnitId, idempotencyScopeKey, externalId])
+  @@unique([source, businessUnitId, idempotencyScopeKey, idempotencyKey])
   @@index([businessUnitId, status, receivedAt])
   @@index([teamId, status, receivedAt])
   @@index([contactId])

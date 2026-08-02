@@ -15,6 +15,7 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import type { EffectivePrincipal } from "../access-control/access-control.types";
 import type { EnvironmentVariables } from "../config/env.validation";
@@ -26,6 +27,7 @@ import type {
 	WebhookCreateInput,
 	WebhookUpdateInput,
 } from "./automations.contracts";
+import { assertPublicWebhookUrl, postPublicWebhook } from "./webhook-url";
 
 const LEASE_MS = 60_000;
 const MAX_DEPTH = 10;
@@ -84,13 +86,31 @@ export class AutomationsService {
 	async update(
 		input: AutomationUpdateInput,
 		scope: Prisma.AutomationWhereInput = {},
+		actor: EffectivePrincipal,
 	) {
 		const { id } = input;
 		const current = await this.db.automation.findFirst({
 			where: { AND: [{ id }, scope] },
-			select: { id: true, version: true },
+			select: {
+				id: true,
+				version: true,
+				businessUnitId: true,
+				teamId: true,
+			},
 		});
 		if (!current) throw new NotFoundException("Automation not found.");
+		await this.accessControl.assertAssignment(
+			actor,
+			CRM_RESOURCE.automations,
+			PermissionAction.MANAGE,
+			{
+				businessUnitId:
+					input.businessUnitId !== undefined
+						? input.businessUnitId
+						: current.businessUnitId,
+				teamId: input.teamId !== undefined ? input.teamId : current.teamId,
+			},
+		);
 		if (input.roleId) await this.assertDelegateRole(input.roleId);
 		return this.db.automation.update({
 			where: { id },
@@ -133,6 +153,7 @@ export class AutomationsService {
 		if (!actor.userId)
 			throw new BadRequestException("A user must create webhooks.");
 		this.requireWebhookSecret();
+		await assertPublicWebhookUrl(input.url);
 		const provisionalLastFour = "pending";
 		const endpoint = await this.db.webhookEndpoint.create({
 			data: {
@@ -155,6 +176,7 @@ export class AutomationsService {
 		scope: Prisma.WebhookEndpointWhereInput = {},
 	) {
 		await this.requireWebhook(input.id, scope);
+		if (input.url) await assertPublicWebhookUrl(input.url);
 		const { id, ...data } = input;
 		return this.db.webhookEndpoint.update({
 			where: { id },
@@ -399,7 +421,7 @@ export class AutomationsService {
 				event.recordId,
 			);
 			if (action.type === "set_lifecycle" && action.lifecycleStage) {
-				this.accessControl.assertAssignment(
+				await this.accessControl.assertAssignment(
 					principal,
 					"contacts",
 					PermissionAction.UPDATE,
@@ -422,7 +444,7 @@ export class AutomationsService {
 					{ causationId: event.id, depth: event.depth + 1 },
 				);
 			} else if (action.type === "assign_contact") {
-				this.accessControl.assertAssignment(
+				await this.accessControl.assertAssignment(
 					principal,
 					"contacts",
 					PermissionAction.UPDATE,
@@ -460,6 +482,7 @@ export class AutomationsService {
 		if (!this.webhookMasterSecret) return 0;
 		const deliveries = await this.db.webhookDelivery.findMany({
 			where: {
+				endpoint: { isActive: true },
 				status: {
 					in: [WebhookDeliveryStatus.PENDING, WebhookDeliveryStatus.FAILED],
 				},
@@ -473,7 +496,11 @@ export class AutomationsService {
 		let processed = 0;
 		for (const delivery of deliveries) {
 			const claimed = await this.db.webhookDelivery.updateMany({
-				where: { id: delivery.id, status: delivery.status },
+				where: {
+					id: delivery.id,
+					status: delivery.status,
+					endpoint: { isActive: true },
+				},
 				data: {
 					status: WebhookDeliveryStatus.LEASED,
 					attempts: { increment: 1 },
@@ -483,8 +510,7 @@ export class AutomationsService {
 			if (claimed.count !== 1) continue;
 			const body = JSON.stringify(delivery.payload);
 			try {
-				const response = await fetch(delivery.endpoint.url, {
-					method: "POST",
+				const response = await postPublicWebhook(delivery.endpoint.url, {
 					headers: {
 						"content-type": "application/json",
 						"x-crm-event": delivery.eventType,

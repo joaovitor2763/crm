@@ -18,6 +18,7 @@ export type AgentAccess = {
 	contactWhere: Prisma.ContactWhereInput;
 	companyWhere: Prisma.CompanyWhereInput;
 	dealWhere: Prisma.DealWhereInput;
+	activityWhere: Prisma.ActivityWhereInput;
 };
 
 /**
@@ -43,6 +44,7 @@ export async function crmAccess(
 				contactWhere: {},
 				companyWhere: {},
 				dealWhere: {},
+				activityWhere: {},
 			};
 		}
 		throw new Error("An authenticated CRM identity is required.");
@@ -71,6 +73,7 @@ export async function crmAccess(
 			contactWhere: {},
 			companyWhere: {},
 			dealWhere: {},
+			activityWhere: {},
 		};
 	}
 	const permissions = new Map(
@@ -137,6 +140,14 @@ export async function crmAccess(
 		dealWhere: dealWhere(
 			userId,
 			permissions.get("deals") ?? AccessScope.NONE,
+			unitIds,
+			treeIds,
+			teamIds,
+			managedTeamIds,
+		),
+		activityWhere: activityWhere(
+			userId,
+			permissions.get("activities") ?? AccessScope.NONE,
 			unitIds,
 			treeIds,
 			teamIds,
@@ -242,6 +253,28 @@ function dealWhere(
 	if (scope === AccessScope.NONE) return { id: "__denied__" };
 	if (scope === AccessScope.ALL) return {};
 	if (scope === AccessScope.OWNED) return { ownerId: userId };
+	if (scope === AccessScope.TEAM) return { teamId: { in: teamIds } };
+	if (scope === AccessScope.MANAGED_TEAMS) {
+		return { teamId: { in: managedTeamIds } };
+	}
+	return {
+		businessUnitId: {
+			in: scope === AccessScope.BUSINESS_UNIT_TREE ? treeIds : unitIds,
+		},
+	};
+}
+
+function activityWhere(
+	userId: string,
+	scope: AccessScope,
+	unitIds: string[],
+	treeIds: string[],
+	teamIds: string[],
+	managedTeamIds: string[],
+): Prisma.ActivityWhereInput {
+	if (scope === AccessScope.NONE) return { id: "__denied__" };
+	if (scope === AccessScope.ALL) return {};
+	if (scope === AccessScope.OWNED) return { createdById: userId };
 	if (scope === AccessScope.TEAM) return { teamId: { in: teamIds } };
 	if (scope === AccessScope.MANAGED_TEAMS) {
 		return { teamId: { in: managedTeamIds } };

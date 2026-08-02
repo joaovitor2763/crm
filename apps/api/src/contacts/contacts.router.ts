@@ -89,7 +89,7 @@ export class ContactsRouter {
 				input.companyId,
 			);
 		}
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.contacts,
 			PermissionAction.CREATE,
@@ -108,7 +108,7 @@ export class ContactsRouter {
 		@Ctx() ctx: AuthedTrpcContext,
 		@Input() input: z.infer<typeof contactLifecycleInput>,
 	) {
-		this.accessControl.assertAssignment(
+		await this.accessControl.assertAssignment(
 			ctx.principal,
 			CRM_RESOURCE.contacts,
 			PermissionAction.UPDATE,
@@ -147,7 +147,7 @@ export class ContactsRouter {
 						(state.teamId && ctx.principal.teamIds.includes(state.teamId)) ||
 						ctx.principal.businessUnitTreeIds.includes(state.businessUnitId),
 				) ?? current.unitStates[0];
-			this.accessControl.assertAssignment(
+			await this.accessControl.assertAssignment(
 				ctx.principal,
 				CRM_RESOURCE.contacts,
 				PermissionAction.UPDATE,

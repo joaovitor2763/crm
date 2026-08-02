@@ -41,7 +41,7 @@ export class GovernanceRouter {
 			CRM_RESOURCE.businessUnits,
 			PermissionAction.MANAGE,
 		);
-		return this.governance.overview();
+		return this.governance.overview(ctx.principal);
 	}
 
 	@Query()

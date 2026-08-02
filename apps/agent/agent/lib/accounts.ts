@@ -1,4 +1,11 @@
-import { ActivityType, db, EmailDirection, type Prisma } from "@crm/db";
+import { ActivityType, db, EmailDirection } from "@crm/db";
+import {
+	type HistoryScope,
+	scopedActivityWhere,
+	scopedAttendeeWhere,
+	scopedMeetingWhere,
+	scopedThreadWhere,
+} from "./account-scope";
 import { isDerivedName } from "./names";
 
 /**
@@ -111,12 +118,10 @@ export type CompanyHistory = {
  */
 export async function readCompanyHistory(
 	companyId: string,
-	options: {
+	options: HistoryScope & {
 		threads?: number;
 		messagesPerThread?: number;
 		people?: number;
-		contactWhere?: Prisma.ContactWhereInput;
-		dealWhere?: Prisma.DealWhereInput;
 	} = {},
 ): Promise<CompanyHistory | null> {
 	const company = await db.company.findUnique({
@@ -138,11 +143,9 @@ export async function readCompanyHistory(
 
 	if (!company) return null;
 
-	// A thread or a meeting is stamped with the company when the sync can
-	// resolve one, but it is only ever stamped with the contact when the
-	// counterparty was already on file — so both paths are checked. Missing the
-	// second reads as an account nobody has ever emailed.
-	const belongsToCompany = { OR: [{ companyId }, { contact: { companyId } }] };
+	const threadWhere = scopedThreadWhere(companyId, options);
+	const meetingWhere = scopedMeetingWhere(companyId, options);
+	const attendeeWhere = scopedAttendeeWhere(options.contactWhere);
 
 	const [people, deals, threads, meetings, notes, lastInbound, counts] =
 		await Promise.all([
@@ -178,7 +181,11 @@ export async function readCompanyHistory(
 					expectedCloseDate: true,
 					lastActivityAt: true,
 					contacts: {
-						where: { contact: { archivedAt: null } },
+						where: {
+							contact: {
+								AND: [{ archivedAt: null }, options.contactWhere ?? {}],
+							},
+						},
 						select: {
 							role: true,
 							contact: {
@@ -189,7 +196,7 @@ export async function readCompanyHistory(
 				},
 			}),
 			db.emailThread.findMany({
-				where: belongsToCompany,
+				where: threadWhere,
 				orderBy: { lastMessageAt: "desc" },
 				take: options.threads ?? 5,
 				select: {
@@ -212,38 +219,35 @@ export async function readCompanyHistory(
 				},
 			}),
 			db.calendarEvent.findMany({
-				where: {
-					OR: [
-						{ companyId },
-						{ contact: { companyId } },
-						{ attendees: { some: { contact: { companyId } } } },
-					],
-				},
+				where: meetingWhere,
 				orderBy: { startsAt: "desc" },
 				take: 10,
 				select: {
 					title: true,
 					startsAt: true,
-					attendees: { select: { email: true, name: true } },
+					attendees: {
+						where: attendeeWhere,
+						select: { email: true, name: true },
+					},
 				},
 			}),
-			recentNotes({ companyId }),
+			recentNotes({ companyId }, options),
 			db.emailMessage.findFirst({
 				where: {
 					direction: EmailDirection.INBOUND,
-					thread: belongsToCompany,
+					thread: threadWhere,
 				},
 				orderBy: { sentAt: "desc" },
 				select: { sentAt: true, fromEmail: true, fromName: true },
 			}),
 			Promise.all([
-				db.contact.count({ where: { companyId, archivedAt: null } }),
-				db.emailMessage.count({ where: { thread: belongsToCompany } }),
-				db.calendarEvent.count({
+				db.contact.count({
 					where: {
-						OR: [{ companyId }, { contact: { companyId } }],
+						AND: [{ companyId, archivedAt: null }, options.contactWhere ?? {}],
 					},
 				}),
+				db.emailMessage.count({ where: { thread: threadWhere } }),
+				db.calendarEvent.count({ where: meetingWhere }),
 			]),
 		]);
 
@@ -352,14 +356,13 @@ export type DealHistory = {
  */
 export async function readDealHistory(
 	dealId: string,
-	options: {
+	options: HistoryScope & {
 		threads?: number;
 		messagesPerThread?: number;
-		contactWhere?: Prisma.ContactWhereInput;
 	} = {},
 ): Promise<DealHistory | null> {
-	const deal = await db.deal.findUnique({
-		where: { id: dealId },
+	const deal = await db.deal.findFirst({
+		where: { AND: [{ id: dealId }, options.dealWhere ?? {}] },
 		select: {
 			id: true,
 			name: true,
@@ -398,33 +401,28 @@ export async function readDealHistory(
 
 	if (!deal) return null;
 
-	const contactIds = deal.contacts.map(({ contact }) => contact.id);
-
-	// Email and calendar are filed against a person and a company, never against
-	// a deal — Google has no idea our deals exist. So the correspondence here is
-	// the account's, narrowed to the people on the deal where there are any. The
-	// return says so rather than letting the agent infer that every thread it is
-	// reading was about this deal.
-	const relatedThreads =
-		contactIds.length > 0
-			? {
-					OR: [
-						{ contactId: { in: contactIds } },
-						{ companyId: deal.company.id },
-					],
-				}
-			: { companyId: deal.company.id };
+	const hasDealContacts = deal.contacts.length > 0;
+	const dealHistoryScope = {
+		...options,
+		contactIds: deal.contacts.map(({ contact }) => contact.id),
+	};
+	const threadWhere = scopedThreadWhere(deal.company.id, dealHistoryScope);
+	const meetingWhere = scopedMeetingWhere(deal.company.id, dealHistoryScope);
+	const attendeeWhere = scopedAttendeeWhere(options.contactWhere);
 
 	const [stageChanges, threads, meetings, notes, lastInbound] =
 		await Promise.all([
 			db.activity.findMany({
-				where: { dealId, type: ActivityType.STAGE_CHANGE },
+				where: scopedActivityWhere(
+					{ dealId, type: ActivityType.STAGE_CHANGE },
+					options,
+				),
 				orderBy: { createdAt: "asc" },
 				take: 25,
 				select: { meta: true, createdAt: true },
 			}),
 			db.emailThread.findMany({
-				where: relatedThreads,
+				where: threadWhere,
 				orderBy: { lastMessageAt: "desc" },
 				take: options.threads ?? 5,
 				select: {
@@ -447,27 +445,21 @@ export async function readDealHistory(
 				},
 			}),
 			db.calendarEvent.findMany({
-				where:
-					contactIds.length > 0
-						? {
-								OR: [
-									{ contactId: { in: contactIds } },
-									{ attendees: { some: { contactId: { in: contactIds } } } },
-									{ companyId: deal.company.id },
-								],
-							}
-						: { companyId: deal.company.id },
+				where: meetingWhere,
 				orderBy: { startsAt: "desc" },
 				take: 10,
 				select: {
 					title: true,
 					startsAt: true,
-					attendees: { select: { email: true, name: true } },
+					attendees: {
+						where: attendeeWhere,
+						select: { email: true, name: true },
+					},
 				},
 			}),
-			recentNotes({ dealId }),
+			recentNotes({ dealId }, options),
 			db.emailMessage.findFirst({
-				where: { direction: EmailDirection.INBOUND, thread: relatedThreads },
+				where: { direction: EmailDirection.INBOUND, thread: threadWhere },
 				orderBy: { sentAt: "desc" },
 				select: { sentAt: true, fromEmail: true, fromName: true },
 			}),
@@ -525,10 +517,9 @@ export async function readDealHistory(
 				? daysSince(deal.lastActivityAt, now)
 				: null,
 		},
-		note:
-			contactIds.length > 0
-				? "Email and meetings are filed against people and companies, never against a deal. The correspondence here is with the people on this deal and with the rest of the account — read the subjects before treating any of it as being about this deal."
-				: "Nobody is attached to this deal, so the correspondence here is the whole account's. Attaching the people on it would make this answer sharper.",
+		note: hasDealContacts
+			? "Email and meetings are filed against people and companies, never against a deal. The correspondence here is with the people on this deal and with the rest of the account — read the subjects before treating any of it as being about this deal."
+			: "Nobody is attached to this deal, so the correspondence here is the whole account's. Attaching the people on it would make this answer sharper.",
 	};
 }
 
@@ -546,19 +537,23 @@ function isOpen(type: string): boolean {
  */
 async function recentNotes(
 	where: { companyId: string } | { dealId: string },
+	options: HistoryScope = {},
 ): Promise<AccountNote[]> {
 	const rows = await db.activity.findMany({
-		where: {
-			...where,
-			type: {
-				in: [
-					ActivityType.NOTE,
-					ActivityType.CALL,
-					ActivityType.TASK,
-					ActivityType.ENRICHMENT,
-				],
+		where: scopedActivityWhere(
+			{
+				...where,
+				type: {
+					in: [
+						ActivityType.NOTE,
+						ActivityType.CALL,
+						ActivityType.TASK,
+						ActivityType.ENRICHMENT,
+					],
+				},
 			},
-		},
+			options,
+		),
 		orderBy: { createdAt: "desc" },
 		take: 10,
 		select: {

@@ -17,12 +17,20 @@ import {
 	DEFAULT_ROLE_ID,
 	DEFAULT_TEAM_ID,
 } from "./access-control.constants";
-import type { EffectivePrincipal } from "./access-control.types";
+import type {
+	EffectivePrincipal,
+	EffectiveTeamAssignment,
+} from "./access-control.types";
 
 type ScopedAssignment = {
 	businessUnitId?: string | null;
 	teamId?: string | null;
 	ownerId?: string | null;
+};
+
+type AssignmentCandidates = {
+	team: { businessUnitId: string } | null;
+	owner: { businessUnitIds: string[]; teamIds: string[] } | null;
 };
 
 @Injectable()
@@ -100,6 +108,15 @@ export class AccessControlService {
 				select: { id: true },
 			}),
 		]);
+		const businessUnitTreeIds = unique([
+			...businessUnitIds,
+			...descendants.map((path) => path.descendantId),
+		]);
+		const managedTeamIds = managedTeams.map((team) => team.id);
+		const teamAssignments = await this.loadTeamAssignments(
+			businessUnitTreeIds,
+			[...teamIds, ...managedTeamIds],
+		);
 
 		return {
 			actorType: AuditActorType.USER,
@@ -112,12 +129,11 @@ export class AccessControlService {
 			primaryBusinessUnitId: access.primaryBusinessUnitId,
 			primaryTeamId: access.primaryTeamId,
 			businessUnitIds,
-			businessUnitTreeIds: unique([
-				...businessUnitIds,
-				...descendants.map((path) => path.descendantId),
-			]),
+			businessUnitTreeIds,
 			teamIds,
-			managedTeamIds: managedTeams.map((team) => team.id),
+			managedTeamIds,
+			teamAssignments,
+			ownerAssignments: [{ userId, businessUnitIds, teamIds }],
 			permissions: access.role.permissions,
 			fieldPermissions: access.role.fieldPermissions,
 		};
@@ -153,6 +169,15 @@ export class AccessControlService {
 						select: { descendantId: true },
 					})
 				: [];
+		const businessUnitTreeIds = unique([
+			...businessUnitIds,
+			...descendants.map((path) => path.descendantId),
+		]);
+		const teamIds = credential.teams.map((scope) => scope.teamId);
+		const teamAssignments = await this.loadTeamAssignments(
+			businessUnitTreeIds,
+			teamIds,
+		);
 
 		return {
 			actorType: AuditActorType.API_KEY,
@@ -166,14 +191,13 @@ export class AccessControlService {
 			isAdmin: false,
 			status: UserAccessStatus.ACTIVE,
 			primaryBusinessUnitId: businessUnitIds[0] ?? null,
-			primaryTeamId: credential.teams[0]?.teamId ?? null,
+			primaryTeamId: teamIds[0] ?? null,
 			businessUnitIds,
-			businessUnitTreeIds: unique([
-				...businessUnitIds,
-				...descendants.map((path) => path.descendantId),
-			]),
-			teamIds: credential.teams.map((scope) => scope.teamId),
+			businessUnitTreeIds,
+			teamIds,
 			managedTeamIds: [],
+			teamAssignments,
+			ownerAssignments: [],
 			permissions: credential.role.permissions,
 			fieldPermissions: credential.role.fieldPermissions,
 		};
@@ -206,6 +230,15 @@ export class AccessControlService {
 						select: { descendantId: true },
 					})
 				: [];
+		const businessUnitTreeIds = unique([
+			...businessUnitIds,
+			...descendants.map((path) => path.descendantId),
+		]);
+		const teamIds = automation.teamId ? [automation.teamId] : [];
+		const teamAssignments = await this.loadTeamAssignments(
+			businessUnitTreeIds,
+			teamIds,
+		);
 		return {
 			actorType: AuditActorType.AUTOMATION,
 			actorId: automation.id,
@@ -218,12 +251,11 @@ export class AccessControlService {
 			primaryBusinessUnitId: automation.businessUnitId,
 			primaryTeamId: automation.teamId,
 			businessUnitIds,
-			businessUnitTreeIds: unique([
-				...businessUnitIds,
-				...descendants.map((path) => path.descendantId),
-			]),
-			teamIds: automation.teamId ? [automation.teamId] : [],
+			businessUnitTreeIds,
+			teamIds,
 			managedTeamIds: [],
+			teamAssignments,
+			ownerAssignments: [],
 			permissions: automation.role.permissions,
 			fieldPermissions: automation.role.fieldPermissions,
 		};
@@ -264,16 +296,45 @@ export class AccessControlService {
 		return scope;
 	}
 
-	assertAssignment(
+	async assertAssignment(
 		principal: EffectivePrincipal,
 		resource: string,
 		action: PermissionAction,
 		assignment: ScopedAssignment,
-	): void {
+	): Promise<void> {
 		const scope = this.assert(principal, resource, action);
-		if (scope === AccessScope.ALL) return;
-
-		const allowed = this.assignmentAllowed(principal, scope, assignment);
+		const [team, owner] = await Promise.all([
+			assignment.teamId
+				? this.db.team.findFirst({
+						where: { id: assignment.teamId, archivedAt: null },
+						select: { businessUnitId: true },
+					})
+				: Promise.resolve(null),
+			assignment.ownerId
+				? this.db.user.findUnique({
+						where: { id: assignment.ownerId },
+						select: {
+							businessUnitMemberships: {
+								select: { businessUnitId: true },
+							},
+							teamMemberships: { select: { teamId: true } },
+						},
+					})
+				: Promise.resolve(null),
+		]);
+		const allowed = this.assignmentAllowed(principal, scope, assignment, {
+			team,
+			owner: owner
+				? {
+						businessUnitIds: owner.businessUnitMemberships.map(
+							(membership) => membership.businessUnitId,
+						),
+						teamIds: owner.teamMemberships.map(
+							(membership) => membership.teamId,
+						),
+					}
+				: null,
+		});
 		if (!allowed) {
 			throw new ForbiddenException(
 				"That owner, team or business unit is outside your permitted scope.",
@@ -289,10 +350,11 @@ export class AccessControlService {
 		const scope = this.assert(principal, resource, action);
 		if (scope === AccessScope.ALL) return {};
 		if (scope === AccessScope.OWNED) {
+			if (!principal.userId) return { id: { in: [] } };
 			return {
 				OR: [
-					{ ownerId: principal.userId ?? undefined },
-					{ unitStates: { some: { ownerId: principal.userId ?? undefined } } },
+					{ ownerId: principal.userId },
+					{ unitStates: { some: { ownerId: principal.userId } } },
 				],
 			};
 		}
@@ -307,10 +369,11 @@ export class AccessControlService {
 		const scope = this.assert(principal, resource, action);
 		if (scope === AccessScope.ALL) return {};
 		if (scope === AccessScope.OWNED) {
+			if (!principal.userId) return { id: { in: [] } };
 			return {
 				OR: [
-					{ ownerId: principal.userId ?? undefined },
-					{ unitStates: { some: { ownerId: principal.userId ?? undefined } } },
+					{ ownerId: principal.userId },
+					{ unitStates: { some: { ownerId: principal.userId } } },
 				],
 			};
 		}
@@ -325,7 +388,9 @@ export class AccessControlService {
 		const scope = this.assert(principal, resource, action);
 		if (scope === AccessScope.ALL) return {};
 		if (scope === AccessScope.OWNED) {
-			return { ownerId: principal.userId ?? undefined };
+			return principal.userId
+				? { ownerId: principal.userId }
+				: { id: { in: [] } };
 		}
 		if (scope === AccessScope.TEAM) {
 			return { teamId: { in: principal.teamIds } };
@@ -351,7 +416,9 @@ export class AccessControlService {
 		const scope = this.assert(principal, resource, action);
 		if (scope === AccessScope.ALL) return {};
 		if (scope === AccessScope.OWNED) {
-			return { createdById: principal.userId ?? undefined };
+			return principal.userId
+				? { createdById: principal.userId }
+				: { id: { in: [] } };
 		}
 		if (scope === AccessScope.TEAM) {
 			return { teamId: { in: principal.teamIds } };
@@ -456,7 +523,56 @@ export class AccessControlService {
 		principal: EffectivePrincipal,
 		scope: AccessScope,
 		assignment: ScopedAssignment,
+		candidates: AssignmentCandidates,
 	): boolean {
+		if (scope === AccessScope.OWNED && !principal.userId) return false;
+		if (assignment.teamId) {
+			if (scope !== AccessScope.ALL && !candidates.team) return false;
+			if (
+				candidates.team &&
+				assignment.businessUnitId &&
+				candidates.team.businessUnitId !== assignment.businessUnitId
+			) {
+				return false;
+			}
+			if (
+				scope === AccessScope.OWNED &&
+				!principal.teamAssignments.some(
+					(candidate) => candidate.teamId === assignment.teamId,
+				)
+			) {
+				return false;
+			}
+		}
+		const ownerId = assignment.ownerId;
+		if (ownerId !== undefined && ownerId !== null) {
+			if (
+				scope !== AccessScope.ALL &&
+				scope === AccessScope.OWNED &&
+				ownerId !== principal.userId
+			) {
+				return false;
+			}
+			if (scope !== AccessScope.ALL && !candidates.owner) {
+				return false;
+			}
+			if (candidates.owner) {
+				if (
+					assignment.teamId &&
+					!candidates.owner.teamIds.includes(assignment.teamId)
+				) {
+					return false;
+				}
+				if (
+					assignment.businessUnitId &&
+					!candidates.owner.businessUnitIds.includes(assignment.businessUnitId)
+				) {
+					return false;
+				}
+			}
+		}
+		if (scope === AccessScope.ALL) return true;
+
 		if (scope === AccessScope.OWNED) {
 			return (
 				assignment.ownerId === undefined ||
@@ -487,6 +603,32 @@ export class AccessControlService {
 			);
 		}
 		return false;
+	}
+
+	private loadTeamAssignments(
+		businessUnitTreeIds: string[],
+		teamIds: string[],
+	): Promise<EffectiveTeamAssignment[]> {
+		const filters: Prisma.TeamWhereInput[] = [];
+		if (businessUnitTreeIds.length > 0) {
+			filters.push({ businessUnitId: { in: businessUnitTreeIds } });
+		}
+		if (teamIds.length > 0) {
+			filters.push({ id: { in: unique(teamIds) } });
+		}
+		if (filters.length === 0) return Promise.resolve([]);
+
+		return this.db.team
+			.findMany({
+				where: { archivedAt: null, OR: filters },
+				select: { id: true, businessUnitId: true },
+			})
+			.then((teams) =>
+				teams.map((team) => ({
+					teamId: team.id,
+					businessUnitId: team.businessUnitId,
+				})),
+			);
 	}
 
 	private unitStateWhere(
