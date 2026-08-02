@@ -16,6 +16,11 @@ import type { EffectivePrincipal } from "../access-control/access-control.types"
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { type ListResult, paginate } from "../trpc/list-input";
+import {
+	writeAccountDomainEvent,
+	writeAccountHistory,
+	writeAccountLineage,
+} from "./revenue-account-events";
 import type {
 	RevenueAccountAssociationInput,
 	RevenueAccountConfigurationInput,
@@ -104,7 +109,7 @@ export class RevenueAccountsService {
 					configId: config.id,
 				})),
 			});
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.configuration.updated",
 				"revenue-account-config",
@@ -258,7 +263,7 @@ export class RevenueAccountsService {
 					customValues,
 				},
 			});
-			await this.writeHistory(
+			await writeAccountHistory(
 				tx,
 				account.id,
 				operationId,
@@ -267,7 +272,7 @@ export class RevenueAccountsService {
 				principal,
 				"create",
 			);
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				account.id,
 				operationId,
@@ -275,7 +280,7 @@ export class RevenueAccountsService {
 				principal,
 				{ fields: Object.keys(accountAttributes(account)) },
 			);
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.created",
 				account.id,
@@ -331,7 +336,7 @@ export class RevenueAccountsService {
 					customValues,
 				},
 			});
-			await this.writeHistory(
+			await writeAccountHistory(
 				tx,
 				account.id,
 				operationId,
@@ -340,7 +345,7 @@ export class RevenueAccountsService {
 				principal,
 				"update",
 			);
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				account.id,
 				operationId,
@@ -353,7 +358,7 @@ export class RevenueAccountsService {
 					),
 				},
 			);
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.updated",
 				account.id,
@@ -384,8 +389,8 @@ export class RevenueAccountsService {
 				where: { id },
 				data: { archivedAt: new Date() },
 			});
-			await this.writeLineage(tx, id, operationId, "ARCHIVED", principal, {});
-			await this.writeDomainEvent(
+			await writeAccountLineage(tx, id, operationId, "ARCHIVED", principal, {});
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.archived",
 				id,
@@ -468,7 +473,7 @@ export class RevenueAccountsService {
 						attachedById: principal.actorId,
 					},
 				});
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				account.id,
 				operationId,
@@ -476,7 +481,7 @@ export class RevenueAccountsService {
 				principal,
 				{ targetKind: input.targetKind, targetId: input.targetId },
 			);
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.relation.attached",
 				account.id,
@@ -535,7 +540,7 @@ export class RevenueAccountsService {
 					},
 					data: { archivedAt: new Date() },
 				});
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				account.id,
 				operationId,
@@ -543,7 +548,7 @@ export class RevenueAccountsService {
 				principal,
 				{ targetKind: input.targetKind, targetId: input.targetId },
 			);
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.relation.detached",
 				account.id,
@@ -720,7 +725,7 @@ export class RevenueAccountsService {
 					executedById: principal.actorId,
 				},
 			});
-			await this.writeHistory(
+			await writeAccountHistory(
 				tx,
 				target.id,
 				operationId,
@@ -729,7 +734,7 @@ export class RevenueAccountsService {
 				principal,
 				"merge",
 			);
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				target.id,
 				operationId,
@@ -737,7 +742,7 @@ export class RevenueAccountsService {
 				principal,
 				{ sourceAccountId: source.id, fieldPolicies },
 			);
-			await this.writeLineage(
+			await writeAccountLineage(
 				tx,
 				source.id,
 				operationId,
@@ -745,7 +750,7 @@ export class RevenueAccountsService {
 				principal,
 				{ targetAccountId: target.id },
 			);
-			await this.writeDomainEvent(
+			await writeAccountDomainEvent(
 				tx,
 				"revenue-account.merged",
 				target.id,
@@ -1083,83 +1088,6 @@ export class RevenueAccountsService {
 				},
 				update: { archivedAt: null },
 			});
-	}
-
-	private writeHistory(
-		tx: Prisma.TransactionClient,
-		id: string,
-		operationId: string,
-		before: Record<string, unknown>,
-		after: Record<string, unknown>,
-		principal: EffectivePrincipal,
-		source: string,
-	) {
-		const rows = changedKeys(asJsonMap(before), asJsonMap(after));
-		if (rows.length === 0) return Promise.resolve();
-		return tx.revenueAccountAttributeHistory.createMany({
-			data: rows.map((fieldKey) => ({
-				revenueAccountId: id,
-				operationId,
-				fieldKey,
-				previousValue: before[fieldKey] as Prisma.InputJsonValue,
-				nextValue: after[fieldKey] as Prisma.InputJsonValue,
-				changedByType: principal.actorType,
-				changedById: principal.actorId,
-				source,
-			})),
-		});
-	}
-
-	private writeLineage(
-		tx: Prisma.TransactionClient,
-		id: string,
-		operationId: string,
-		type:
-			| "CREATED"
-			| "UPDATED"
-			| "ARCHIVED"
-			| "RELATION_ATTACHED"
-			| "RELATION_DETACHED"
-			| "MERGED_IN"
-			| "MERGED_OUT",
-		principal: EffectivePrincipal,
-		payload: Record<string, unknown>,
-	) {
-		return tx.revenueAccountLineageEvent.create({
-			data: {
-				revenueAccountId: id,
-				operationId,
-				type,
-				actorType: principal.actorType,
-				actorId: principal.actorId,
-				payload: payload as Prisma.InputJsonValue,
-			},
-		});
-	}
-
-	private writeDomainEvent(
-		tx: Prisma.TransactionClient,
-		type: string,
-		recordId: string,
-		operationId: string,
-		principal: EffectivePrincipal,
-		payload: Record<string, Prisma.InputJsonValue>,
-		businessUnitId?: string | null,
-		teamId?: string | null,
-	) {
-		return tx.domainEvent.create({
-			data: {
-				eventKey: `${type}:${recordId}:${operationId}`,
-				type,
-				resource: "revenue-accounts",
-				recordId,
-				businessUnitId: businessUnitId ?? null,
-				teamId: teamId ?? null,
-				actorType: principal.actorType,
-				actorId: principal.actorId,
-				payload: { operationId, ...payload },
-			},
-		});
 	}
 
 	private searchWhere(q: string): Prisma.RevenueAccountWhereInput {
