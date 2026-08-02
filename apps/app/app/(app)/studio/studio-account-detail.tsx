@@ -443,7 +443,21 @@ function RelationTable({
 function HistoryPanel({
 	history,
 }: {
-	history: RouterOutputs["revenueAccounts"]["history"] | undefined;
+	history:
+		| [
+				Array<{
+					changedAt: Date | string;
+					fieldKey: string;
+					previousValue: unknown;
+					nextValue: unknown;
+				}>,
+				Array<{
+					createdAt: Date | string;
+					type: string;
+					sourceId: string | null;
+				}>,
+		  ]
+		| undefined;
 }) {
 	if (!history)
 		return (
