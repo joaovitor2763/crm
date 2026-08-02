@@ -24,6 +24,7 @@ import {
 	type DashboardDefinitionUpdateInput,
 	dashboardDefinitionSpec,
 } from "./dashboard-definition.contracts";
+import { writeDashboardDefinitionEvent } from "./dashboard-definition-events";
 import {
 	analyticsInputForDefinition,
 	latestVersions,
@@ -210,6 +211,19 @@ export class DashboardDefinitionService {
 		this.assertDraft(current);
 		const spec = dashboardDefinitionSpec.parse(current.spec);
 		const row = await this.db.$transaction(async (tx) => {
+			const previous = await tx.dashboardDefinition.findMany({
+				where: {
+					key: current.key,
+					status: DashboardDefinitionStatus.PUBLISHED,
+				},
+				select: {
+					id: true,
+					key: true,
+					version: true,
+					businessUnitId: true,
+				},
+			});
+			const publishedAt = new Date();
 			await tx.dashboardDefinition.updateMany({
 				where: {
 					key: current.key,
@@ -217,20 +231,35 @@ export class DashboardDefinitionService {
 				},
 				data: {
 					status: DashboardDefinitionStatus.ARCHIVED,
-					archivedAt: new Date(),
+					archivedAt: publishedAt,
 				},
 			});
-			return tx.dashboardDefinition.update({
+			const published = await tx.dashboardDefinition.update({
 				where: { id: current.id },
 				data: {
 					status: DashboardDefinitionStatus.PUBLISHED,
-					publishedAt: new Date(),
+					publishedAt,
 					archivedAt: null,
 					spec: spec as Prisma.InputJsonValue,
 					updatedByType: principal.actorType,
 					updatedById: principal.actorId,
 				},
 			});
+			for (const definition of previous) {
+				await writeDashboardDefinitionEvent(
+					tx,
+					definition,
+					"archived",
+					principal,
+				);
+			}
+			await writeDashboardDefinitionEvent(
+				tx,
+				published,
+				"published",
+				principal,
+			);
+			return published;
 		});
 		return serializeDefinition(row);
 	}
@@ -241,14 +270,18 @@ export class DashboardDefinitionService {
 			principal,
 			PermissionAction.MANAGE,
 		);
-		const row = await this.db.dashboardDefinition.update({
-			where: { id: current.id },
-			data: {
-				status: DashboardDefinitionStatus.ARCHIVED,
-				archivedAt: new Date(),
-				updatedByType: principal.actorType,
-				updatedById: principal.actorId,
-			},
+		const row = await this.db.$transaction(async (tx) => {
+			const archived = await tx.dashboardDefinition.update({
+				where: { id: current.id },
+				data: {
+					status: DashboardDefinitionStatus.ARCHIVED,
+					archivedAt: new Date(),
+					updatedByType: principal.actorType,
+					updatedById: principal.actorId,
+				},
+			});
+			await writeDashboardDefinitionEvent(tx, archived, "archived", principal);
+			return archived;
 		});
 		return serializeDefinition(row);
 	}
@@ -318,10 +351,17 @@ export class DashboardDefinitionService {
 		if (scope === AccessScope.OWNED) {
 			return { createdById: principal.userId ?? "__none__" };
 		}
+		if (scope === AccessScope.TEAM || scope === AccessScope.MANAGED_TEAMS) {
+			return { id: { in: [] } };
+		}
+		const businessUnitIds =
+			scope === AccessScope.BUSINESS_UNIT
+				? principal.businessUnitIds
+				: principal.businessUnitTreeIds;
 		return {
 			OR: [
 				{ businessUnitId: null },
-				{ businessUnitId: { in: principal.businessUnitTreeIds } },
+				{ businessUnitId: { in: businessUnitIds } },
 			],
 		};
 	}
