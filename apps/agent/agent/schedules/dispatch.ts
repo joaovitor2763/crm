@@ -24,7 +24,9 @@ const BATCH = 5;
  * mode cannot.
  */
 export default defineSchedule({
-	cron: "* * * * *",
+	// Vercel Hobby allows daily schedules only. Interactive agent conversations
+	// are unaffected; the autonomous enrichment queue runs once each morning.
+	cron: "0 10 * * *",
 	async run({ receive, waitUntil, appAuth }) {
 		waitUntil(
 			(async () => {

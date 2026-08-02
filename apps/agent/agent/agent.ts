@@ -1,20 +1,23 @@
 import "@crm/env/load";
 
-import { defineAgent } from "eve";
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { type AgentDefinition, defineAgent } from "eve";
 import { capabilities } from "./lib/capabilities";
 
 /**
  * The people-research agent.
  *
- * Sonnet rather than a frontier model: the hard part here is not reasoning, it
- * is refusing to accept a plausible-looking wrong answer, and that is enforced
- * by the tools and the skill rather than by model strength. Revisit if the
- * identity-matching evals say otherwise.
- *
- * A plain model id routes through the Vercel AI Gateway, authenticated by
- * project OIDC — so on Vercel there is no provider key to manage. Elsewhere,
- * set `AI_GATEWAY_API_KEY`.
+ * OpenRouter is configured directly as an AI SDK provider so this deployment
+ * uses the install owner's OpenRouter balance rather than Vercel AI Gateway.
+ * The model remains environment-selectable, with DeepSeek V4 Flash 0731 as the
+ * tested default for fast, inexpensive tool-using work.
  */
+const openrouter = createOpenRouter({
+	apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+const model =
+	process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
 
 /**
  * Says which outside sources are on, once, at startup.
@@ -31,6 +34,7 @@ for (const capability of capabilities()) {
 	);
 }
 
-export default defineAgent({
-	model: "anthropic/claude-sonnet-5",
-});
+export default defineAgent<AgentDefinition>({
+	model: openrouter(model),
+	modelContextWindowTokens: 1_048_576,
+}) as AgentDefinition;
