@@ -535,7 +535,7 @@ async function seedDeals(
 					id,
 					name:
 						n === 0
-							? `${company.name} — Comp AI`
+							? `${company.name} — Sales Ontology`
 							: `${company.name} — expansion`,
 					companyId: company.id,
 					ownerId,

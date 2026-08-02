@@ -62,7 +62,7 @@ export function DealStageMenu({
 }: {
 	dealId: string;
 	stage: DealStage;
-	variant?: "inline" | "control";
+	variant?: "inline" | "control" | "icon";
 }) {
 	const trpc = useTRPC();
 	const pipelines = useQuery(
@@ -74,7 +74,17 @@ export function DealStageMenu({
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				{variant === "control" ? (
+				{variant === "icon" ? (
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						disabled={setStage.isPending}
+						aria-label={`Move deal from ${stage.name}`}
+						onClick={(event) => event.stopPropagation()}
+					>
+						<Icon icon={ChevronDown} />
+					</Button>
+				) : variant === "control" ? (
 					<Button
 						variant="outline"
 						size="sm"
@@ -96,7 +106,7 @@ export function DealStageMenu({
 				)}
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
-				align={variant === "control" ? "end" : "start"}
+				align={variant === "inline" ? "start" : "end"}
 				className="min-w-56"
 				onClick={(event) => event.stopPropagation()}
 			>

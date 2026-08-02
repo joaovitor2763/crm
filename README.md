@@ -1,8 +1,12 @@
-<h1 align="center">CRM</h1>
+<h1 align="center">Sales Ontology</h1>
 
 <p align="center">
   <strong>An open-source, agentic-first CRM.</strong><br>
   A durable research agent is the product. The database is just where it writes things down.
+</p>
+
+<p align="center">
+  Inspired by <a href="https://github.com/trycompai/crm">Comp AI's original open-source CRM</a>.
 </p>
 
 <p align="center">
@@ -228,7 +232,7 @@ Written up where the work happens, not in a style guide:
 You need [Bun](https://bun.com) and Docker.
 
 ```sh
-git clone https://github.com/trycompai/crm.git && cd crm
+git clone https://github.com/joaovitor2763/crm.git && cd crm
 bun install
 
 docker compose up -d          # Postgres on :5432

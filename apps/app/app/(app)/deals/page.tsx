@@ -13,7 +13,10 @@ import { requireSession } from "@/lib/session";
 import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
 import { CreateDealSheet } from "./create-deal-sheet";
-import { dealsSearchParams } from "./deals-search-params";
+import {
+	dealsSearchParams,
+	loadDealsViewSearchParams,
+} from "./deals-search-params";
 import { DealsView } from "./deals-view";
 
 export const metadata: Metadata = {
@@ -27,16 +30,27 @@ export default async function DealsPage({
 }) {
 	await requireSession();
 
-	const values = await dealsSearchParams.load(searchParams);
+	const [values, viewValues] = await Promise.all([
+		dealsSearchParams.load(searchParams),
+		loadDealsViewSearchParams(searchParams),
+	]);
+	const input = dealsSearchParams.toInput(values);
 
 	const trpc = getServerTrpc();
 	const queryClient = getServerQueryClient();
 	// The rows are awaited so the first paint is the filtered, sorted, correct
 	// page rather than a spinner. The owner and company pickers behind the facet
 	// dropdowns are not — the table draws fine without them.
-	await queryClient.prefetchQuery(
-		trpc.deals.list.queryOptions(dealsSearchParams.toInput(values)),
-	);
+	await queryClient.prefetchQuery(trpc.deals.list.queryOptions(input));
+	if (viewValues.view === "kanban") {
+		await queryClient.prefetchQuery(
+			trpc.deals.board.queryOptions({
+				q: input.q,
+				owner: input.owner,
+				pipeline: input.pipeline,
+			}),
+		);
+	}
 	void queryClient.prefetchQuery(trpc.users.list.queryOptions());
 	void queryClient.prefetchQuery(
 		trpc.companies.options.queryOptions({ q: "" }),

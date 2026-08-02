@@ -30,13 +30,13 @@ export default async function SignInPage() {
 		<AuthShell>
 			<AuthHeading
 				title="Welcome back"
-				description="Sign in with your CRM credentials to continue."
+				description="Sign in to Sales Ontology to continue."
 			/>
 
 			<EmailSignIn />
 
 			<p className="text-center text-muted-foreground text-sm/5">
-				Comp AI CRM is private. Only allow-listed accounts can sign in.
+				Sales Ontology is private. Only allow-listed accounts can sign in.
 			</p>
 		</AuthShell>
 	);

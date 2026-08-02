@@ -42,7 +42,9 @@ export function TRPCReactProvider({ children }: { children: ReactNode }) {
 			<TRPCProvider trpcClient={trpcClient} queryClient={queryClient}>
 				{children}
 				{process.env.NODE_ENV === "development" ? (
-					<ReactQueryDevtools initialIsOpen={false} />
+					<div className="hidden md:block">
+						<ReactQueryDevtools initialIsOpen={false} />
+					</div>
 				) : null}
 			</TRPCProvider>
 		</QueryClientProvider>

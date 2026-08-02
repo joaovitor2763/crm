@@ -3,7 +3,6 @@
 import Asleep from "@carbon/icons-react/es/Asleep";
 import Light from "@carbon/icons-react/es/Light";
 import Logout from "@carbon/icons-react/es/Logout";
-import Menu from "@carbon/icons-react/es/Menu";
 import UserAvatar from "@carbon/icons-react/es/UserAvatar";
 import { signOut } from "@crm/auth/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@crm/ui/components/avatar";
@@ -21,13 +20,10 @@ import { Separator } from "@crm/ui/components/separator";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
-import { useMobileNav } from "@/components/mobile-nav";
 
 type User = { name: string; email: string; image: string | null };
 
 export function AppHeader({ user }: { user: User }) {
-	const { setOpen: setMobileNavOpen } = useMobileNav();
-
 	async function handleSignOut() {
 		const { error } = await signOut();
 
@@ -48,24 +44,18 @@ export function AppHeader({ user }: { user: User }) {
 	return (
 		<header className="flex h-12 shrink-0 items-center gap-2 border-b px-3 [view-transition-name:app-header]">
 			<div className="flex shrink-0 items-center gap-1">
-				<Button
-					variant="ghost"
-					size="icon"
-					className="md:hidden"
-					aria-label="Open navigation"
-					onClick={() => setMobileNavOpen(true)}
-				>
-					<Menu />
-				</Button>
 				<Link
 					href="/"
 					aria-label="Homepage"
-					className="hidden size-8 items-center justify-center text-primary md:flex"
+					className="flex size-8 items-center justify-center text-primary"
 				>
 					<Logo className="size-5" />
 				</Link>
 				<Separator orientation="vertical" className="mx-1 h-5 bg-transparent" />
-				<span className="font-medium text-sm">Comp AI CRM</span>
+				<span className="font-medium text-sm">Sales Ontology</span>
+				<span className="hidden text-muted-foreground text-xs sm:inline">
+					Inspired by Comp AI
+				</span>
 			</div>
 
 			<div className="ml-auto flex shrink-0 items-center gap-1.5">

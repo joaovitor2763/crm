@@ -38,7 +38,7 @@ export default async function GrantAccessPage() {
 		<AuthShell>
 			<AuthHeading
 				title="One more step"
-				description="Comp AI CRM reads your Gmail and Calendar so meetings and email threads show up on the right company. It is read-only — nothing is ever sent on your behalf."
+				description="Sales Ontology reads your Gmail and Calendar so meetings and email threads show up on the right company. It is read-only — nothing is ever sent on your behalf."
 			/>
 
 			<GrantAccess />

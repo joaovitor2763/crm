@@ -27,7 +27,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
 				</div>
 
 				<p className="relative font-mono text-xs/4 text-muted-foreground">
-					Comp AI · staff access only
+					Sales Ontology · Inspired by Comp AI
 				</p>
 			</section>
 

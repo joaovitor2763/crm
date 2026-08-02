@@ -52,7 +52,7 @@ if (env.google) {
 }
 
 export const auth = betterAuth({
-	appName: "CRM",
+	appName: "Sales Ontology",
 
 	database: prismaAdapter(db, {
 		provider: "postgresql",
@@ -127,8 +127,8 @@ export const auth = betterAuth({
 						const domain = primaryWorkspaceDomain();
 						throw new APIError("FORBIDDEN", {
 							message: domain
-								? `This CRM is private. Sign in with your @${domain} account.`
-								: "This CRM is private. That address is not on the allow-list.",
+								? `Sales Ontology is private. Sign in with your @${domain} account.`
+								: "Sales Ontology is private. That address is not on the allow-list.",
 						});
 					}
 
