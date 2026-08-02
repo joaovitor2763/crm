@@ -485,7 +485,9 @@ export class RevenueAccountsService {
 
 	async history(id: string, principal: EffectivePrincipal) {
 		const account = await this.db.revenueAccount.findFirst({
-			where: { AND: [{ id }, this.accountWhere(principal, PermissionAction.READ)] },
+			where: {
+				AND: [{ id }, this.accountWhere(principal, PermissionAction.READ)],
+			},
 			select: { id: true },
 		});
 		if (!account) throw new NotFoundException("Conta not found in your scope.");
