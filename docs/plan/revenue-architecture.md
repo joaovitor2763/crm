@@ -181,6 +181,34 @@ lineage context for a consumer to reconcile a merge.
 The first public surface covers account/association upsert, conversion events,
 deal transitions, merge preview/execution and dashboard-definition export.
 
+## Implemented architecture
+
+`RevenueAccount` is the optional commercial Conta. It remains distinct from the
+Better Auth `Account` credential model. `RevenueAccountConfig` governs whether
+the capability is enabled and the contact, company and deal cardinalities.
+Native values and Fields-backed scalar/list attributes share the same history,
+permission and indexed-projection rules.
+
+The current service surfaces are:
+
+- `revenueAccounts` tRPC plus credential REST/MCP for configuration, records,
+  relations, history, duplicate suggestions, merge preview and approved merge;
+- versioned pipeline blueprints with full/left/right bowtie and custom motion,
+  semantic stages, role responsibility, transition and handover rules;
+- append-only attribution events and projections for Contact, Company, Deal and
+  Revenue Account, combined with existing Activity and LeadSubmission history;
+- authorized revenue analytics and versioned dashboard definitions with
+  standard templates and provider-neutral Chart.js/ChartCDN rendering payloads;
+- the `ontology` journal for immutable draft/published/archived snapshots,
+  deterministic checksums and impact previews around the live Fields schema;
+- Revenue Architecture Studio and governed Eve tools for human and agent use;
+- public CLI/MCP/API operations and durable DomainEvent webhooks with stable
+  operation identifiers.
+
+The ontology journal is an immutable contract and audit layer. Publishing a
+snapshot does not create a second record store: the existing Fields tables stay
+the runtime schema and their APIs remain the bounded customization surface.
+
 ## Delivery checkpoints
 
 1. **Foundation:** versioned definitions, Revenue Account graph, scalar/list
