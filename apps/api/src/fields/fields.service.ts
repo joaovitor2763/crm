@@ -741,6 +741,12 @@ export class FieldsService {
 				select: { customValues: true },
 			});
 		}
+		if (systemModel === "RevenueAccount") {
+			return tx.revenueAccount.findUnique({
+				where: { id: recordId },
+				select: { customValues: true },
+			});
+		}
 		return tx.customObjectRecord.findUnique({
 			where: { id: recordId },
 			select: { customValues: true },
@@ -767,6 +773,12 @@ export class FieldsService {
 		}
 		if (systemModel === "Deal") {
 			return tx.deal.update({
+				where: { id: recordId },
+				data: { customValues },
+			});
+		}
+		if (systemModel === "RevenueAccount") {
+			return tx.revenueAccount.update({
 				where: { id: recordId },
 				data: { customValues },
 			});
@@ -892,6 +904,7 @@ function projectionTarget(systemModel: string | null, recordId: string) {
 	if (systemModel === "Contact") return { contactId: recordId };
 	if (systemModel === "Company") return { companyId: recordId };
 	if (systemModel === "Deal") return { dealId: recordId };
+	if (systemModel === "RevenueAccount") return { revenueAccountId: recordId };
 	return { customObjectRecordId: recordId };
 }
 

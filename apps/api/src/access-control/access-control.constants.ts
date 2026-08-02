@@ -16,6 +16,7 @@ export const CRM_RESOURCE = {
 	marketingForms: "marketing-forms",
 	pipelines: "pipelines",
 	products: "products",
+	revenueAccounts: "revenue-accounts",
 	roles: "roles",
 	teams: "teams",
 	users: "users",

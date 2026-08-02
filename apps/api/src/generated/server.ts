@@ -28,6 +28,7 @@ import { businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, team
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
 import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
+import { revenueAccountConfigurationInput, revenueAccountListInput, revenueAccountIdInput, revenueAccountCreateInput, revenueAccountUpdateArgs, revenueAccountAssociationInput, revenueAccountMergePreviewInput, revenueAccountMergeInput } from "../revenue-accounts/revenue-accounts.contracts";
 import type { ActivitiesRouter } from "../activities/activities.router";
 import type { ApiCredentialsRouter } from "../api-credentials/api-credentials.router";
 import type { AutomationsRouter } from "../automations/automations.router";
@@ -42,6 +43,7 @@ import type { GovernanceRouter } from "../governance/governance.router";
 import type { MarketingRouter } from "../marketing/marketing.router";
 import type { PipelinesRouter } from "../pipelines/pipelines.router";
 import type { ProductsRouter } from "../products/products.router";
+import type { RevenueAccountsRouter } from "../revenue-accounts/revenue-accounts.router";
 import type { SearchRouter } from "../search/search.router";
 import type { UsersRouter } from "../users/users.router";
 
@@ -390,6 +392,46 @@ const appRouter = t.router({
     restore: publicProcedure
       .input(productIdInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<ProductsRouter["restore"]>>)
+    }),
+  revenueAccounts: t.router({
+    configuration: publicProcedure
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["configuration"]>>),
+    updateConfiguration: publicProcedure
+      .input(revenueAccountConfigurationInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["updateConfiguration"]>>),
+    list: publicProcedure
+      .input(revenueAccountListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["list"]>>),
+    byId: publicProcedure
+      .input(revenueAccountIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["byId"]>>),
+    create: publicProcedure
+      .input(revenueAccountCreateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["create"]>>),
+    update: publicProcedure
+      .input(revenueAccountUpdateArgs)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["update"]>>),
+    archive: publicProcedure
+      .input(revenueAccountIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["archive"]>>),
+    associate: publicProcedure
+      .input(revenueAccountAssociationInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["associate"]>>),
+    detach: publicProcedure
+      .input(revenueAccountAssociationInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["detach"]>>),
+    history: publicProcedure
+      .input(revenueAccountIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["history"]>>),
+    mergeCandidates: publicProcedure
+      .input(revenueAccountListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["mergeCandidates"]>>),
+    mergePreview: publicProcedure
+      .input(revenueAccountMergePreviewInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["mergePreview"]>>),
+    merge: publicProcedure
+      .input(revenueAccountMergeInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<RevenueAccountsRouter["merge"]>>)
     }),
   search: t.router({
     quick: publicProcedure

@@ -49,6 +49,7 @@ model User {
   createdApiCredentials    ApiCredential[]            @relation("ApiCredentialCreator")
   createdAutomations       Automation[]               @relation("AutomationCreator")
   createdWebhookEndpoints  WebhookEndpoint[]          @relation("WebhookEndpointCreator")
+  ownedRevenueAccounts     RevenueAccount[]           @relation("RevenueAccountOwner")
 
   @@unique([email])
   @@map("user")
@@ -245,6 +246,29 @@ enum RelationCardinality {
   MANY_TO_MANY
 }
 
+enum RevenueAccountTargetKind {
+  CONTACT
+  COMPANY
+  DEAL
+}
+
+enum RevenueAccountMergeFieldPolicy {
+  TARGET
+  SOURCE
+  UNION
+  SKIP
+}
+
+enum RevenueAccountLineageEventType {
+  CREATED
+  UPDATED
+  ARCHIVED
+  RELATION_ATTACHED
+  RELATION_DETACHED
+  MERGED_IN
+  MERGED_OUT
+}
+
 enum LeadSubmissionStatus {
   ACCEPTED
   REJECTED
@@ -323,6 +347,7 @@ model BusinessUnit {
   domainEvents      DomainEvent[]
   webhookEndpoints  WebhookEndpoint[]
   auditEvents       AuditEvent[]
+  revenueAccounts   RevenueAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -370,6 +395,7 @@ model Team {
   domainEvents     DomainEvent[]
   webhookEndpoints WebhookEndpoint[]
   auditEvents      AuditEvent[]
+  revenueAccounts  RevenueAccount[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -584,6 +610,8 @@ model CustomFieldSearchValue {
   contactBusinessUnitState   ContactBusinessUnitState? @relation(fields: [contactBusinessUnitStateId], references: [id], onDelete: Cascade)
   dealId                     String?
   deal                       Deal?                     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  revenueAccountId           String?
+  revenueAccount             RevenueAccount?           @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
   customObjectRecordId       String?
   customObjectRecord         CustomObjectRecord?       @relation(fields: [customObjectRecordId], references: [id], onDelete: Cascade)
 
@@ -605,6 +633,7 @@ model CustomFieldSearchValue {
   @@unique([fieldId, companyBusinessUnitStateId])
   @@unique([fieldId, contactBusinessUnitStateId])
   @@unique([fieldId, dealId])
+  @@unique([fieldId, revenueAccountId])
   @@unique([fieldId, customObjectRecordId])
   @@index([fieldId, normalizedTextValue])
   @@index([fieldId, numberValue])
@@ -752,6 +781,7 @@ model Company {
   contacts            Contact[]                  @relation("CompanyContacts")
   conversations       AgentConversation[]
   deals               Deal[]
+  revenueAccounts     RevenueAccountCompany[]
   activities          Activity[]
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
@@ -853,6 +883,7 @@ model Contact {
   lastActivityAt DateTime?
 
   deals               DealContact[]
+  revenueAccounts     RevenueAccountContact[]
   activities          Activity[]
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
@@ -1171,6 +1202,7 @@ model Deal {
   lastActivityAt DateTime?
 
   contacts            DealContact[]
+  revenueAccounts     RevenueAccountDeal[]
   lineItems           DealLineItem[]
   activities          Activity[]
   indexedCustomValues CustomFieldSearchValue[]
@@ -1278,6 +1310,176 @@ model DealContact {
   @@id([dealId, contactId])
   @@index([contactId])
   @@map("dealContact")
+}
+
+/// Commercial account (product label: "Conta"). This is deliberately not the
+/// Better Auth `Account` model above: that model stores OAuth credentials.
+model RevenueAccount {
+  id             String           @id @default(cuid())
+  name           String
+  domain         String?
+  businessUnitId String           @default("business-unit-default")
+  businessUnit   BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId         String?
+  team           Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId        String?
+  owner          User?            @relation("RevenueAccountOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  customValues   Json             @default("{}")
+  archivedAt     DateTime?
+  mergedAt       DateTime?
+  mergedIntoId   String?
+  mergedInto     RevenueAccount?  @relation("RevenueAccountMergeLink", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedSources  RevenueAccount[] @relation("RevenueAccountMergeLink")
+
+  contacts            RevenueAccountContact[]
+  companies           RevenueAccountCompany[]
+  deals               RevenueAccountDeal[]
+  indexedCustomValues CustomFieldSearchValue[]
+  attributeHistory    RevenueAccountAttributeHistory[]
+  lineage             RevenueAccountLineageEvent[]
+  mergeSources        RevenueAccountMerge[]            @relation("RevenueAccountMergeSource")
+  mergeTargets        RevenueAccountMerge[]            @relation("RevenueAccountMergeTarget")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessUnitId, teamId, archivedAt])
+  @@index([ownerId, archivedAt])
+  @@index([domain])
+  @@index([mergedIntoId])
+  @@map("revenueAccount")
+}
+
+/// Tenant-wide switch and relation policy catalogue. The singleton keeps the
+/// feature optional while leaving room for per-business-unit policy later.
+model RevenueAccountConfig {
+  id               String                         @id @default("revenue-account-config")
+  enabled          Boolean                        @default(false)
+  mergePolicy      Json                           @default("{}")
+  relationPolicies RevenueAccountRelationPolicy[]
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+
+  @@map("revenueAccountConfig")
+}
+
+model RevenueAccountRelationPolicy {
+  id            String                   @id @default(cuid())
+  configId      String
+  config        RevenueAccountConfig     @relation(fields: [configId], references: [id], onDelete: Cascade)
+  targetKind    RevenueAccountTargetKind
+  cardinality   RelationCardinality
+  attachEnabled Boolean                  @default(true)
+  detachEnabled Boolean                  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([configId, targetKind])
+  @@map("revenueAccountRelationPolicy")
+}
+
+model RevenueAccountContact {
+  revenueAccountId String
+  revenueAccount   RevenueAccount @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
+  contactId        String
+  contact          Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  attachedByType   AuditActorType
+  attachedById     String?
+  archivedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@id([revenueAccountId, contactId])
+  @@index([contactId, archivedAt])
+  @@map("revenueAccountContact")
+}
+
+model RevenueAccountCompany {
+  revenueAccountId String
+  revenueAccount   RevenueAccount @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
+  companyId        String
+  company          Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  attachedByType   AuditActorType
+  attachedById     String?
+  archivedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@id([revenueAccountId, companyId])
+  @@index([companyId, archivedAt])
+  @@map("revenueAccountCompany")
+}
+
+model RevenueAccountDeal {
+  revenueAccountId String
+  revenueAccount   RevenueAccount @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
+  dealId           String
+  deal             Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  attachedByType   AuditActorType
+  attachedById     String?
+  archivedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@id([revenueAccountId, dealId])
+  @@index([dealId, archivedAt])
+  @@map("revenueAccountDeal")
+}
+
+model RevenueAccountAttributeHistory {
+  id               String         @id @default(cuid())
+  revenueAccountId String
+  revenueAccount   RevenueAccount @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
+  operationId      String
+  fieldKey         String
+  previousValue    Json?
+  nextValue        Json?
+  changedByType    AuditActorType
+  changedById      String?
+  source           String?
+  changedAt        DateTime       @default(now())
+
+  @@index([revenueAccountId, fieldKey, changedAt])
+  @@index([operationId])
+  @@map("revenueAccountAttributeHistory")
+}
+
+model RevenueAccountLineageEvent {
+  id               String                         @id @default(cuid())
+  revenueAccountId String
+  revenueAccount   RevenueAccount                 @relation(fields: [revenueAccountId], references: [id], onDelete: Cascade)
+  operationId      String
+  type             RevenueAccountLineageEventType
+  sourceType       String?
+  sourceId         String?
+  actorType        AuditActorType
+  actorId          String?
+  payload          Json                           @default("{}")
+  createdAt        DateTime                       @default(now())
+
+  @@index([revenueAccountId, createdAt])
+  @@index([sourceType, sourceId])
+  @@index([operationId])
+  @@map("revenueAccountLineageEvent")
+}
+
+model RevenueAccountMerge {
+  id              String         @id @default(cuid())
+  sourceAccountId String
+  sourceAccount   RevenueAccount @relation("RevenueAccountMergeSource", fields: [sourceAccountId], references: [id], onDelete: Restrict)
+  targetAccountId String
+  targetAccount   RevenueAccount @relation("RevenueAccountMergeTarget", fields: [targetAccountId], references: [id], onDelete: Restrict)
+  operationId     String
+  policy          Json
+  executedByType  AuditActorType
+  executedById    String?
+  createdAt       DateTime       @default(now())
+
+  @@index([sourceAccountId, createdAt])
+  @@index([targetAccountId, createdAt])
+  @@index([operationId])
+  @@map("revenueAccountMerge")
 }
 
 model Activity {

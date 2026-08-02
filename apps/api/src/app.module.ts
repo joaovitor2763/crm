@@ -26,6 +26,7 @@ import { MarketingModule } from "./marketing/marketing.module";
 import { PipelinesModule } from "./pipelines/pipelines.module";
 import { ProductsModule } from "./products/products.module";
 import { PublicApiModule } from "./public-api/public-api.module";
+import { RevenueAccountsModule } from "./revenue-accounts/revenue-accounts.module";
 import { SearchModule } from "./search/search.module";
 import { TrpcModule } from "./trpc/trpc.module";
 import { UsersModule } from "./users/users.module";
@@ -57,6 +58,7 @@ import { UsersModule } from "./users/users.module";
 		DealsModule,
 		PipelinesModule,
 		ProductsModule,
+		RevenueAccountsModule,
 		PublicApiModule,
 		ActivitiesModule,
 		MarketingModule,
