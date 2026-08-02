@@ -1,3 +1,5 @@
+import type { AnalyticsView } from "./studio-analytics-data";
+
 export const DASHBOARD_METRICS = [
 	"conversionRate",
 	"conversionTime",
@@ -62,6 +64,28 @@ export type DashboardDraft = {
 	name: string;
 	description: string;
 	spec: DashboardSpec;
+};
+
+export type DashboardDefinition = {
+	id: string;
+	key: string;
+	name: string;
+	description: string | null;
+	version: number;
+	status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
+	spec: unknown;
+};
+
+export type DashboardTemplate = {
+	key: string;
+	name: string;
+	description: string;
+	spec: unknown;
+};
+
+export type DashboardRendered = {
+	view: AnalyticsView;
+	comparisonSupport: { supported: boolean; reason?: string };
 };
 
 export const DEFAULT_DASHBOARD_SPEC: DashboardSpec = {
@@ -131,4 +155,35 @@ export function withAttributeFilter(
 				],
 			}
 		: { ...value, filters };
+}
+
+export function latestDefinitions(rows: DashboardDefinition[]) {
+	const latest = new Map<string, DashboardDefinition>();
+	for (const row of rows) {
+		const current = latest.get(row.key);
+		if (!current || row.version > current.version) latest.set(row.key, row);
+	}
+	return [...latest.values()].sort((left, right) =>
+		left.key.localeCompare(right.key),
+	);
+}
+
+export function templateDraft(template: DashboardTemplate): DashboardDraft {
+	return dashboardDraft({
+		key: template.key,
+		name: template.name,
+		description: template.description,
+		spec: template.spec as DashboardSpec,
+	});
+}
+
+export function definitionDraft(
+	definition: DashboardDefinition,
+): DashboardDraft {
+	return dashboardDraft({
+		key: definition.key,
+		name: definition.name,
+		description: definition.description ?? "",
+		spec: definition.spec as DashboardSpec,
+	});
 }

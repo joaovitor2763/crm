@@ -19,39 +19,22 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
 import { useState } from "react";
 import { toast } from "sonner";
-import { BarTrend } from "@/components/dashboard-charts";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
-import type { AnalyticsView } from "./studio-analytics-data";
-import { chartConfig, chartRows, formatMetric } from "./studio-analytics-data";
 import {
+	type DashboardDefinition,
 	type DashboardDraft,
+	type DashboardRendered,
 	type DashboardSpec,
 	dashboardDraft,
+	definitionDraft,
+	latestDefinitions,
+	templateDraft,
 } from "./studio-dashboard-definition-data";
+import { DashboardDefinitionDetail } from "./studio-dashboard-definition-detail";
 import { StudioDashboardDefinitionEditor } from "./studio-dashboard-definition-editor";
 import { studioParsers } from "./studio-search-params";
 import { studioMutationOptions } from "./studio-trpc";
-
-type Definition = {
-	id: string;
-	key: string;
-	name: string;
-	description: string | null;
-	version: number;
-	status: "DRAFT" | "PUBLISHED" | "ARCHIVED";
-	spec: unknown;
-};
-type Template = {
-	key: string;
-	name: string;
-	description: string;
-	spec: unknown;
-};
-type Rendered = {
-	view: AnalyticsView;
-	comparisonSupport: { supported: boolean; reason?: string };
-};
 
 export function StudioDashboardDefinitions({
 	canManage,
@@ -80,7 +63,7 @@ export function StudioDashboardDefinitions({
 	});
 	const create = useMutation(
 		studioMutationOptions<
-			Definition,
+			DashboardDefinition,
 			{
 				key: string;
 				name: string;
@@ -100,7 +83,7 @@ export function StudioDashboardDefinitions({
 	);
 	const update = useMutation(
 		studioMutationOptions<
-			Definition,
+			DashboardDefinition,
 			{
 				id: string;
 				name: string;
@@ -119,7 +102,7 @@ export function StudioDashboardDefinitions({
 		}),
 	);
 	const duplicate = useMutation(
-		studioMutationOptions<Definition, { id: string; key: string }>(
+		studioMutationOptions<DashboardDefinition, { id: string; key: string }>(
 			trpc.dashboard.duplicateDefinition,
 			{
 				onSuccess: async (row) => {
@@ -132,7 +115,7 @@ export function StudioDashboardDefinitions({
 		),
 	);
 	const version = useMutation(
-		studioMutationOptions<Definition, { id: string }>(
+		studioMutationOptions<DashboardDefinition, { id: string }>(
 			trpc.dashboard.versionDefinition,
 			{
 				onSuccess: async (row) => {
@@ -145,7 +128,7 @@ export function StudioDashboardDefinitions({
 		),
 	);
 	const publish = useMutation(
-		studioMutationOptions<Definition, { id: string }>(
+		studioMutationOptions<DashboardDefinition, { id: string }>(
 			trpc.dashboard.publishDefinition,
 			{
 				onSuccess: async (row) => {
@@ -158,7 +141,7 @@ export function StudioDashboardDefinitions({
 		),
 	);
 	const archive = useMutation(
-		studioMutationOptions<Definition, { id: string }>(
+		studioMutationOptions<DashboardDefinition, { id: string }>(
 			trpc.dashboard.archiveDefinition,
 			{
 				onSuccess: async () => {
@@ -170,7 +153,7 @@ export function StudioDashboardDefinitions({
 		),
 	);
 	const rows = latestDefinitions(
-		(definitions.data ?? []) as unknown as Definition[],
+		(definitions.data ?? []) as unknown as DashboardDefinition[],
 	);
 	const pending =
 		create.isPending ||
@@ -291,9 +274,9 @@ export function StudioDashboardDefinitions({
 					}}
 				/>
 			) : selected.data ? (
-				<DefinitionDetail
-					definition={selected.data as unknown as Definition}
-					rendered={rendered.data as unknown as Rendered | undefined}
+				<DashboardDefinitionDetail
+					definition={selected.data as unknown as DashboardDefinition}
+					rendered={rendered.data as unknown as DashboardRendered | undefined}
 					canManage={canManage}
 					busy={
 						publish.isPending ||
@@ -302,12 +285,12 @@ export function StudioDashboardDefinitions({
 						version.isPending
 					}
 					onEdit={() => {
-						const definition = selected.data as unknown as Definition;
+						const definition = selected.data as unknown as DashboardDefinition;
 						setEditingId(definition.id);
 						setEditor(definitionDraft(definition));
 					}}
 					onDuplicate={() => {
-						const definition = selected.data as unknown as Definition;
+						const definition = selected.data as unknown as DashboardDefinition;
 						const key = window.prompt(
 							"New definition key",
 							`${definition.key}-copy`,
@@ -316,18 +299,20 @@ export function StudioDashboardDefinitions({
 							duplicate.mutate({ id: definition.id, key: key.trim() });
 					}}
 					onVersion={() =>
-						version.mutate({ id: (selected.data as unknown as Definition).id })
+						version.mutate({
+							id: (selected.data as unknown as DashboardDefinition).id,
+						})
 					}
 					onPublish={() => {
 						if (window.confirm("Publish this dashboard definition?"))
 							publish.mutate({
-								id: (selected.data as unknown as Definition).id,
+								id: (selected.data as unknown as DashboardDefinition).id,
 							});
 					}}
 					onArchive={() => {
 						if (window.confirm("Archive this dashboard definition?"))
 							archive.mutate({
-								id: (selected.data as unknown as Definition).id,
+								id: (selected.data as unknown as DashboardDefinition).id,
 							});
 					}}
 				/>
@@ -343,150 +328,4 @@ export function StudioDashboardDefinitions({
 			)}
 		</div>
 	);
-}
-
-function DefinitionDetail({
-	definition,
-	rendered,
-	canManage,
-	busy,
-	onEdit,
-	onDuplicate,
-	onVersion,
-	onPublish,
-	onArchive,
-}: {
-	definition: Definition;
-	rendered: Rendered | undefined;
-	canManage: boolean;
-	busy: boolean;
-	onEdit: () => void;
-	onDuplicate: () => void;
-	onVersion: () => void;
-	onPublish: () => void;
-	onArchive: () => void;
-}) {
-	const view = rendered?.view as AnalyticsView | undefined;
-	return (
-		<Card>
-			<CardHeader>
-				<div className="flex flex-wrap items-start justify-between gap-3">
-					<div>
-						<CardTitle>{definition.name}</CardTitle>
-						<CardDescription>
-							{definition.key} · version {definition.version} ·{" "}
-							{definition.status}
-						</CardDescription>
-					</div>
-					<div className="flex flex-wrap gap-2">
-						{canManage && definition.status === "DRAFT" ? (
-							<>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									onClick={onEdit}
-								>
-									Edit
-								</Button>
-								<Button
-									type="button"
-									size="sm"
-									disabled={busy}
-									onClick={onPublish}
-								>
-									Publish
-								</Button>
-							</>
-						) : null}
-						{canManage ? (
-							<>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									disabled={busy}
-									onClick={onDuplicate}
-								>
-									Duplicate
-								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									disabled={busy}
-									onClick={onVersion}
-								>
-									New version
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									disabled={busy}
-									onClick={onArchive}
-								>
-									Archive
-								</Button>
-							</>
-						) : null}
-					</div>
-				</div>
-			</CardHeader>
-			<CardContent className="flex flex-col gap-4">
-				{rendered?.comparisonSupport.supported === false ? (
-					<p className="border border-destructive/40 p-3 text-destructive text-xs">
-						Comparison metadata:{" "}
-						{rendered.comparisonSupport.reason ?? "Unsupported"}
-					</p>
-				) : null}
-				{view ? (
-					<div className="border p-3">
-						<p className="mb-3 font-medium text-sm">Rendered view</p>
-						<BarTrend
-							data={chartRows(view)}
-							config={chartConfig(view)}
-							xKey="label"
-							height={260}
-							showXAxis={view.chart.data.labels.length < 12}
-							formatValue={formatMetric}
-						/>
-					</div>
-				) : (
-					<div className="flex justify-center border py-10">
-						<Spinner />
-					</div>
-				)}
-			</CardContent>
-		</Card>
-	);
-}
-
-function latestDefinitions(rows: Definition[]) {
-	const latest = new Map<string, Definition>();
-	for (const row of rows) {
-		const current = latest.get(row.key);
-		if (!current || row.version > current.version) latest.set(row.key, row);
-	}
-	return [...latest.values()].sort((left, right) =>
-		left.key.localeCompare(right.key),
-	);
-}
-
-function templateDraft(template: Template): DashboardDraft {
-	return dashboardDraft({
-		key: template.key,
-		name: template.name,
-		description: template.description,
-		spec: template.spec as unknown as DashboardSpec,
-	});
-}
-
-function definitionDraft(definition: Definition): DashboardDraft {
-	return dashboardDraft({
-		key: definition.key,
-		name: definition.name,
-		description: definition.description ?? "",
-		spec: definition.spec as unknown as DashboardSpec,
-	});
 }
