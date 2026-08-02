@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import type { Evidence, EvidenceKind } from "../lib/evidence";
 import { WEIGHTS } from "../lib/evidence";
 import { FACT_FIELDS, type FactField, recordFact } from "../lib/facts";
@@ -56,7 +58,8 @@ export default defineTool({
 			.optional()
 			.describe("The page a rep should open to check."),
 	}),
-	async execute(input) {
+	async execute(input, ctx) {
+		await assertContact(ctx, input.contactId, PermissionAction.UPDATE);
 		focusOn({ contactId: input.contactId });
 
 		const result = await recordFact({

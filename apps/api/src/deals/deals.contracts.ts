@@ -1,4 +1,3 @@
-import { DealStage } from "@crm/db";
 import { z } from "zod";
 import { listInput } from "../trpc/list-input";
 
@@ -26,24 +25,26 @@ export const dealListInput = listInput.extend({
 	 * same facet language, but a deal always has an owner, so it matches nothing.
 	 */
 	owner: z.string().default("all"),
-	/** A `DealStage`, or `"all"`. */
+	/** A pipeline stage id, or `"all"`. An explicit stage overrides the status tab. */
 	stage: z.string().default("all"),
+	/** A pipeline id, or `"all"`. */
+	pipeline: z.string().default("all"),
 	/** A `ClosingWindow`, or `"all"`. */
 	closing: z.string().default("all"),
 });
 
 export type DealListInput = z.infer<typeof dealListInput>;
 
-const stageEnum = z.enum(
-	Object.values(DealStage) as [DealStage, ...DealStage[]],
-);
-
 export const dealCreateInput = z.object({
 	name: z.string().trim().min(1, "A deal needs a name."),
 	companyId: z.string().min(1, "A deal belongs to a company."),
 	/** Required — every deal has a name against it. */
 	ownerId: z.string().min(1, "A deal needs an owner."),
-	stage: stageEnum.optional(),
+	businessUnitId: z.string().optional(),
+	teamId: z.string().nullable().optional(),
+	customValues: z.record(z.string(), z.unknown()).optional(),
+	pipelineId: z.string().optional(),
+	stageId: z.string().optional(),
 	/** Integer cents, so summing a pipeline is exact. */
 	amountCents: z.number().int().min(0).nullable().optional(),
 	currency: z.string().length(3).optional(),
@@ -75,9 +76,28 @@ export const dealIdInput = z.object({ id: z.string() });
 
 export const setStageInput = z.object({
 	id: z.string(),
-	stage: stageEnum,
+	stageId: z.string(),
 	/** Why it was lost or disqualified. Required for the losing stages. */
 	closedReason: z.string().trim().optional(),
 });
 
 export type SetStageInput = z.infer<typeof setStageInput>;
+
+export const dealBoardInput = dealListInput.pick({
+	q: true,
+	owner: true,
+	pipeline: true,
+});
+
+export const dealLineItemCreateInput = z.object({
+	dealId: z.string(),
+	productId: z.string(),
+	quantity: z.number().int().min(1).default(1),
+});
+
+export const dealLineItemUpdateInput = z.object({
+	id: z.string(),
+	quantity: z.number().int().min(1),
+});
+
+export const dealLineItemIdInput = z.object({ id: z.string() });

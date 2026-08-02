@@ -1,4 +1,4 @@
-import { ActivityType, db, EmailDirection } from "@crm/db";
+import { ActivityType, db, EmailDirection, type Prisma } from "@crm/db";
 import { isDerivedName } from "./names";
 
 /**
@@ -115,6 +115,8 @@ export async function readCompanyHistory(
 		threads?: number;
 		messagesPerThread?: number;
 		people?: number;
+		contactWhere?: Prisma.ContactWhereInput;
+		dealWhere?: Prisma.DealWhereInput;
 	} = {},
 ): Promise<CompanyHistory | null> {
 	const company = await db.company.findUnique({
@@ -145,7 +147,9 @@ export async function readCompanyHistory(
 	const [people, deals, threads, meetings, notes, lastInbound, counts] =
 		await Promise.all([
 			db.contact.findMany({
-				where: { companyId },
+				where: {
+					AND: [{ companyId, archivedAt: null }, options.contactWhere ?? {}],
+				},
 				orderBy: [{ lastActivityAt: "desc" }, { createdAt: "asc" }],
 				take: options.people ?? 25,
 				select: {
@@ -160,18 +164,21 @@ export async function readCompanyHistory(
 				},
 			}),
 			db.deal.findMany({
-				where: { companyId },
+				where: {
+					AND: [{ companyId, archivedAt: null }, options.dealWhere ?? {}],
+				},
 				orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
 				take: 20,
 				select: {
 					id: true,
 					name: true,
-					stage: true,
+					stage: { select: { name: true, type: true } },
 					amount: true,
 					currency: true,
 					expectedCloseDate: true,
 					lastActivityAt: true,
 					contacts: {
+						where: { contact: { archivedAt: null } },
 						select: {
 							role: true,
 							contact: {
@@ -230,7 +237,7 @@ export async function readCompanyHistory(
 				select: { sentAt: true, fromEmail: true, fromName: true },
 			}),
 			Promise.all([
-				db.contact.count({ where: { companyId } }),
+				db.contact.count({ where: { companyId, archivedAt: null } }),
 				db.emailMessage.count({ where: { thread: belongsToCompany } }),
 				db.calendarEvent.count({
 					where: {
@@ -278,7 +285,7 @@ export async function readCompanyHistory(
 		notes,
 		stats: {
 			people: peopleCount,
-			openDeals: deals.filter((deal) => isOpen(deal.stage)).length,
+			openDeals: deals.filter((deal) => isOpen(deal.stage.type)).length,
 			emails: emailCount,
 			meetings: meetingCount,
 			theyReplied: lastInbound !== null,
@@ -345,14 +352,18 @@ export type DealHistory = {
  */
 export async function readDealHistory(
 	dealId: string,
-	options: { threads?: number; messagesPerThread?: number } = {},
+	options: {
+		threads?: number;
+		messagesPerThread?: number;
+		contactWhere?: Prisma.ContactWhereInput;
+	} = {},
 ): Promise<DealHistory | null> {
 	const deal = await db.deal.findUnique({
 		where: { id: dealId },
 		select: {
 			id: true,
 			name: true,
-			stage: true,
+			stage: { select: { name: true, type: true } },
 			stageChangedAt: true,
 			amount: true,
 			currency: true,
@@ -364,6 +375,11 @@ export async function readDealHistory(
 			owner: { select: { name: true, email: true } },
 			company: { select: { id: true, name: true, domain: true } },
 			contacts: {
+				where: {
+					contact: {
+						AND: [{ archivedAt: null }, options.contactWhere ?? {}],
+					},
+				},
 				select: {
 					role: true,
 					contact: {
@@ -463,8 +479,8 @@ export async function readDealHistory(
 		deal: {
 			id: deal.id,
 			name: deal.name,
-			stage: deal.stage,
-			open: isOpen(deal.stage),
+			stage: deal.stage.name,
+			open: isOpen(deal.stage.type),
 			daysInStage: daysSince(deal.stageChangedAt, now),
 			stageChangedAt: deal.stageChangedAt.toISOString(),
 			amount: deal.amount === null ? null : Number(deal.amount),
@@ -517,12 +533,8 @@ export async function readDealHistory(
 }
 
 /** The stages that are still in play. */
-function isOpen(stage: string): boolean {
-	return (
-		stage !== "CLOSED_WON" &&
-		stage !== "CLOSED_LOST" &&
-		stage !== "UNQUALIFIED_TO_BUY"
-	);
+function isOpen(type: string): boolean {
+	return type === "OPEN";
 }
 
 /**
@@ -616,7 +628,7 @@ function toAccountMeeting(
 function toCompanyDeal(deal: {
 	id: string;
 	name: string;
-	stage: string;
+	stage: { name: string; type: string };
 	amount: unknown;
 	currency: string;
 	expectedCloseDate: Date | null;
@@ -629,8 +641,8 @@ function toCompanyDeal(deal: {
 	return {
 		id: deal.id,
 		name: deal.name,
-		stage: deal.stage,
-		open: isOpen(deal.stage),
+		stage: deal.stage.name,
+		open: isOpen(deal.stage.type),
 		amount: deal.amount === null ? null : Number(deal.amount),
 		currency: deal.currency,
 		expectedCloseDate: deal.expectedCloseDate?.toISOString() ?? null,

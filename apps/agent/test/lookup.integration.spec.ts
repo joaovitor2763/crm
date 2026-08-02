@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { DealStage, db } from "@crm/db";
+import { db } from "@crm/db";
 import { searchCrm } from "../agent/lib/lookup";
 
 /**
@@ -78,7 +78,8 @@ beforeAll(async () => {
 			name: `Northwind renewal ${suffix}`,
 			companyId: northwindId,
 			ownerId: user.id,
-			stage: DealStage.QUALIFIED_TO_BUY,
+			pipelineId: "default-pipeline",
+			stageId: "default-stage-qualified",
 			amount: 12_000,
 		},
 		select: { id: true },

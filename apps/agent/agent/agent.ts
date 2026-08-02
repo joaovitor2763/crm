@@ -16,8 +16,7 @@ const openrouter = createOpenRouter({
 	apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const model =
-	process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
+const model = process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731";
 
 /**
  * Says which outside sources are on, once, at startup.

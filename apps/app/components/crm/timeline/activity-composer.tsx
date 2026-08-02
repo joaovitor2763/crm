@@ -5,6 +5,7 @@ import Calendar from "@carbon/icons-react/es/Calendar";
 // the button that opens it.
 import { Calendar as DayPicker } from "@crm/ui/components/calendar";
 import { Icon } from "@crm/ui/components/icon";
+import { Input } from "@crm/ui/components/input";
 import {
 	InputGroup,
 	InputGroupAddon,
@@ -16,9 +17,16 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@crm/ui/components/popover";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@crm/ui/components/select";
 import { Spinner } from "@crm/ui/components/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@crm/ui/components/toggle-group";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
@@ -28,7 +36,16 @@ import type { TimelineAnchor } from "./timeline";
 
 /** Only what a person can log. Stage changes and enrichment write themselves,
  * and the API's create input refuses the other two for the same reason. */
-const TYPES = ["NOTE", "CALL", "EMAIL", "MEETING", "TASK"] as const;
+const TYPES = [
+	"NOTE",
+	"CALL",
+	"EMAIL",
+	"MEETING",
+	"TASK",
+	"MESSAGE",
+	"FORM_CONVERSION",
+	"EVENT_ATTENDANCE",
+] as const;
 
 type ComposableType = (typeof TYPES)[number];
 
@@ -43,6 +60,9 @@ const PLACEHOLDER: Record<ComposableType, string> = {
 	EMAIL: "What was said?",
 	MEETING: "What came out of the meeting?",
 	TASK: "What needs doing?",
+	MESSAGE: "What was sent or received?",
+	FORM_CONVERSION: "What did this conversion tell us?",
+	EVENT_ATTENDANCE: "What happened at the event?",
 };
 
 /**
@@ -81,13 +101,46 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 	const [type, setType] = useState<ComposableType>("NOTE");
 	const [draft, setDraft] = useState("");
 	const [dueAt, setDueAt] = useState<Date | undefined>(undefined);
+	const [messageChannel, setMessageChannel] = useState<"SMS" | "WHATSAPP">(
+		"WHATSAPP",
+	);
+	const [marketingFormId, setMarketingFormId] = useState("");
+	const [marketingEventId, setMarketingEventId] = useState("");
+	const [attribution, setAttribution] = useState({
+		source: "",
+		medium: "",
+		campaign: "",
+		term: "",
+		content: "",
+	});
+	const forms = useQuery(
+		trpc.marketing.forms.queryOptions({ includeArchived: false }),
+	);
+	const events = useQuery(
+		trpc.marketing.events.queryOptions({ includeArchived: false }),
+	);
 
 	const isTask = type === "TASK";
+	const isMarketingActivity =
+		type === "FORM_CONVERSION" || type === "EVENT_ATTENDANCE";
 	const text = draft.trim();
+	const hasTypeContext =
+		(type !== "FORM_CONVERSION" || marketingFormId !== "") &&
+		(type !== "EVENT_ATTENDANCE" || marketingEventId !== "");
+	const canSubmit = text !== "" && hasTypeContext;
 
 	const reset = () => {
 		setDraft("");
 		setDueAt(undefined);
+		setMarketingFormId("");
+		setMarketingEventId("");
+		setAttribution({
+			source: "",
+			medium: "",
+			campaign: "",
+			term: "",
+			content: "",
+		});
 	};
 
 	const create = useMutation(
@@ -101,13 +154,39 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 	);
 
 	const submit = () => {
-		if (text === "" || create.isPending) return;
+		if (!canSubmit || create.isPending) return;
 		create.mutate({
 			...anchor,
 			type,
-			subject: isTask ? text : undefined,
 			body: isTask ? undefined : text,
 			dueAt: isTask ? (dueAt?.toISOString() ?? null) : undefined,
+			messageChannel: type === "MESSAGE" ? messageChannel : undefined,
+			marketingFormId: type === "FORM_CONVERSION" ? marketingFormId : undefined,
+			marketingEventId:
+				type === "EVENT_ATTENDANCE" ? marketingEventId : undefined,
+			utmSource: isMarketingActivity
+				? attribution.source || undefined
+				: undefined,
+			utmMedium: isMarketingActivity
+				? attribution.medium || undefined
+				: undefined,
+			utmCampaign: isMarketingActivity
+				? attribution.campaign || undefined
+				: undefined,
+			utmTerm: isMarketingActivity ? attribution.term || undefined : undefined,
+			utmContent: isMarketingActivity
+				? attribution.content || undefined
+				: undefined,
+			subject:
+				type === "FORM_CONVERSION"
+					? forms.data?.find((form) => form.id === marketingFormId)?.name
+					: type === "EVENT_ATTENDANCE"
+						? events.data?.find((item) => item.id === marketingEventId)?.name
+						: isTask
+							? text
+							: type === "MESSAGE"
+								? `${messageChannel === "WHATSAPP" ? "WhatsApp" : "SMS"} message`
+								: undefined,
 		});
 	};
 
@@ -186,6 +265,56 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 						</Popover>
 					) : null}
 
+					{type === "MESSAGE" ? (
+						<Select
+							value={messageChannel}
+							onValueChange={(value) =>
+								setMessageChannel(value as "SMS" | "WHATSAPP")
+							}
+						>
+							<SelectTrigger size="sm" aria-label="Message channel">
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+								<SelectItem value="SMS">SMS</SelectItem>
+							</SelectContent>
+						</Select>
+					) : null}
+
+					{type === "FORM_CONVERSION" ? (
+						<Select value={marketingFormId} onValueChange={setMarketingFormId}>
+							<SelectTrigger size="sm" aria-label="Marketing form">
+								<SelectValue placeholder="Choose form" />
+							</SelectTrigger>
+							<SelectContent>
+								{(forms.data ?? []).map((form) => (
+									<SelectItem key={form.id} value={form.id}>
+										{form.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					) : null}
+
+					{type === "EVENT_ATTENDANCE" ? (
+						<Select
+							value={marketingEventId}
+							onValueChange={setMarketingEventId}
+						>
+							<SelectTrigger size="sm" aria-label="Marketing event">
+								<SelectValue placeholder="Choose event" />
+							</SelectTrigger>
+							<SelectContent>
+								{(events.data ?? []).map((item) => (
+									<SelectItem key={item.id} value={item.id}>
+										{item.name}
+									</SelectItem>
+								))}
+							</SelectContent>
+						</Select>
+					) : null}
+
 					{/*
 					 * Only once there is something to submit. `--primary` in dark mode
 					 * is near-white, so a permanently-present disabled primary button
@@ -199,7 +328,7 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 							variant="default"
 							size="xs"
 							className="ml-auto"
-							disabled={create.isPending}
+							disabled={create.isPending || !canSubmit}
 						>
 							{create.isPending ? <Spinner /> : null}
 							{isTask ? "Add task" : `Log ${activityLabel(type).toLowerCase()}`}
@@ -207,6 +336,32 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 					)}
 				</InputGroupAddon>
 			</InputGroup>
+			{isMarketingActivity ? (
+				<div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+					{(
+						[
+							["source", "UTM source"],
+							["medium", "UTM medium"],
+							["campaign", "UTM campaign"],
+							["term", "UTM term"],
+							["content", "UTM content"],
+						] as const
+					).map(([field, placeholder]) => (
+						<Input
+							key={field}
+							value={attribution[field]}
+							onChange={(event) =>
+								setAttribution((current) => ({
+									...current,
+									[field]: event.target.value,
+								}))
+							}
+							placeholder={placeholder}
+							aria-label={placeholder}
+						/>
+					))}
+				</div>
+			) : null}
 		</form>
 	);
 }

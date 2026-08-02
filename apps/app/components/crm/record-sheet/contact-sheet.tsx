@@ -22,6 +22,7 @@ import { TableCell } from "@crm/ui/components/table";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AgentPanel } from "@/components/crm/agent-panel";
+import { ArchiveRecordButton } from "@/components/crm/archive-record-button";
 import { contactName } from "@/components/crm/contact-name";
 import {
 	ENRICHMENT_POLL_MS,
@@ -213,6 +214,11 @@ export function ContactSheet({ contactId }: { contactId: string }) {
 								<span className="hidden sm:inline">Make primary</span>
 							</Button>
 						) : null}
+						<ArchiveRecordButton
+							kind="contact"
+							id={contact.id}
+							archived={contact.archivedAt !== null}
+						/>
 					</>
 				) : null
 			}
@@ -422,6 +428,41 @@ function ContactOverview({ contact }: { contact: Contact }) {
 						onSave={(ownerId) =>
 							save({ ownerId: ownerId === NONE ? null : ownerId })
 						}
+					/>
+				</DetailSheetProperties>
+			</DetailSheetSection>
+
+			<DetailSheetSection title="Marketing attribution">
+				<DetailSheetProperties>
+					<InlineField
+						label="UTM source"
+						value={contact.utmSource}
+						saving={isSaving("utmSource")}
+						onSave={(utmSource) => save({ utmSource })}
+					/>
+					<InlineField
+						label="UTM medium"
+						value={contact.utmMedium}
+						saving={isSaving("utmMedium")}
+						onSave={(utmMedium) => save({ utmMedium })}
+					/>
+					<InlineField
+						label="UTM campaign"
+						value={contact.utmCampaign}
+						saving={isSaving("utmCampaign")}
+						onSave={(utmCampaign) => save({ utmCampaign })}
+					/>
+					<InlineField
+						label="UTM term"
+						value={contact.utmTerm}
+						saving={isSaving("utmTerm")}
+						onSave={(utmTerm) => save({ utmTerm })}
+					/>
+					<InlineField
+						label="UTM content"
+						value={contact.utmContent}
+						saving={isSaving("utmContent")}
+						onSave={(utmContent) => save({ utmContent })}
 					/>
 				</DetailSheetProperties>
 			</DetailSheetSection>

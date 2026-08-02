@@ -71,7 +71,7 @@ export function SalesDashboard({ summary }: { summary: Summary }) {
 
 	const stageSlices = pipeline.stages
 		.map((stage) => ({
-			key: stage.stage,
+			key: stage.stage.id,
 			label: dealStageLabel(stage.stage),
 			value: stage.valueCents,
 			color: dealStageColor(stage.stage),

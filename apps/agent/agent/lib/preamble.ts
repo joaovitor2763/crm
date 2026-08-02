@@ -1,4 +1,5 @@
 import { db } from "@crm/db";
+import type { AgentAccess } from "./access";
 import { capabilitiesMarkdown } from "./capabilities";
 
 /**
@@ -45,10 +46,13 @@ export async function sessionPreamble(
 		dealId?: string | null;
 	},
 	opened: Opened,
+	access?: AgentAccess,
 ): Promise<Preamble> {
-	if (record.contactId) return contactPreamble(record.contactId, opened);
-	if (record.companyId) return companyPreamble(record.companyId, opened);
-	if (record.dealId) return dealPreamble(record.dealId, opened);
+	if (record.contactId)
+		return contactPreamble(record.contactId, opened, access);
+	if (record.companyId)
+		return companyPreamble(record.companyId, opened, access);
+	if (record.dealId) return dealPreamble(record.dealId, opened, access);
 	return noRecordPreamble();
 }
 
@@ -87,9 +91,10 @@ function opening(opened: Opened, questions: string): string {
 export async function contactPreamble(
 	contactId: string,
 	opened: Opened,
+	access?: AgentAccess,
 ): Promise<Preamble> {
-	const contact = await db.contact.findUnique({
-		where: { id: contactId },
+	const contact = await db.contact.findFirst({
+		where: { AND: [{ id: contactId }, access?.contactWhere ?? {}] },
 		select: {
 			firstName: true,
 			lastName: true,
@@ -98,11 +103,16 @@ export async function contactPreamble(
 			company: { select: { id: true, name: true, domain: true } },
 			brief: { select: { refreshedAt: true } },
 			deals: {
+				where: {
+					deal: { AND: [{ archivedAt: null }, access?.dealWhere ?? {}] },
+				},
 				orderBy: { deal: { lastActivityAt: "desc" } },
 				take: 5,
 				select: {
 					role: true,
-					deal: { select: { id: true, name: true, stage: true } },
+					deal: {
+						select: { id: true, name: true, stage: { select: { name: true } } },
+					},
 				},
 			},
 			_count: { select: { emailThreads: true, calendarEvents: true } },
@@ -123,7 +133,7 @@ export async function contactPreamble(
 	const deals = contact.deals
 		.map(
 			({ role, deal }) =>
-				`${deal.name} (${deal.stage}${role ? `, ${role}` : ""}) \`${deal.id}\``,
+				`${deal.name} (${deal.stage.name}${role ? `, ${role}` : ""}) \`${deal.id}\``,
 		)
 		.join("; ");
 
@@ -179,25 +189,36 @@ export async function contactPreamble(
 export async function companyPreamble(
 	companyId: string,
 	opened: Opened,
+	access?: AgentAccess,
 ): Promise<Preamble> {
-	const company = await db.company.findUnique({
-		where: { id: companyId },
+	const company = await db.company.findFirst({
+		where: { AND: [{ id: companyId }, access?.companyWhere ?? {}] },
 		select: {
 			name: true,
 			domain: true,
 			industry: true,
 			description: true,
 			contacts: {
+				where: { AND: [{ archivedAt: null }, access?.contactWhere ?? {}] },
 				orderBy: [{ lastActivityAt: "desc" }, { createdAt: "asc" }],
 				take: 12,
 				select: { id: true, firstName: true, lastName: true, title: true },
 			},
 			deals: {
+				where: { AND: [{ archivedAt: null }, access?.dealWhere ?? {}] },
 				orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
 				take: 8,
-				select: { id: true, name: true, stage: true },
+				select: { id: true, name: true, stage: { select: { name: true } } },
 			},
-			_count: { select: { contacts: true } },
+			_count: {
+				select: {
+					contacts: {
+						where: {
+							AND: [{ archivedAt: null }, access?.contactWhere ?? {}],
+						},
+					},
+				},
+			},
 		},
 	});
 
@@ -220,7 +241,7 @@ export async function companyPreamble(
 			: "";
 
 	const deals = company.deals
-		.map((deal) => `${deal.name} (${deal.stage}) \`${deal.id}\``)
+		.map((deal) => `${deal.name} (${deal.stage.name}) \`${deal.id}\``)
 		.join("; ");
 
 	const markdown = [
@@ -265,18 +286,20 @@ export async function companyPreamble(
 export async function dealPreamble(
 	dealId: string,
 	opened: Opened,
+	access?: AgentAccess,
 ): Promise<Preamble> {
-	const deal = await db.deal.findUnique({
-		where: { id: dealId },
+	const deal = await db.deal.findFirst({
+		where: { AND: [{ id: dealId }, access?.dealWhere ?? {}] },
 		select: {
 			name: true,
-			stage: true,
+			stage: { select: { name: true } },
 			amount: true,
 			currency: true,
 			expectedCloseDate: true,
 			lastActivityAt: true,
 			company: { select: { id: true, name: true } },
 			contacts: {
+				where: { contact: access?.contactWhere ?? {} },
 				select: {
 					role: true,
 					contact: {
@@ -308,7 +331,7 @@ export async function dealPreamble(
 		} — deal id \`${dealId}\`${
 			deal.company ? `, company id \`${deal.company.id}\`` : ""
 		}.`,
-		`Stage: **${deal.stage}**${
+		`Stage: **${deal.stage.name}**${
 			deal.amount
 				? `. Amount: ${deal.amount} ${deal.currency ?? ""}`.trim()
 				: ""

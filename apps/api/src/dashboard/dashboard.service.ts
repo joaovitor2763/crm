@@ -1,8 +1,7 @@
-import { ActivityType, type Db, DealStage } from "@crm/db";
+import { ActivityType, type Db, PipelineStageType, type Prisma } from "@crm/db";
 import { Injectable } from "@nestjs/common";
 import { toCents } from "../crm/values";
 import { InjectDatabase } from "../database/database.constants";
-import { OPEN_DEAL_STAGES } from "../deals/deal-stage";
 import type { DashboardSummaryInput } from "./dashboard.contracts";
 
 const OWNER_SELECT = {
@@ -54,9 +53,15 @@ export class DashboardService {
 	 * KPI strip and the chart underneath it on exactly the same month boundaries
 	 * rather than letting SQL's idea of a month drift from JavaScript's.
 	 */
-	async summary(actingUserId: string, input: DashboardSummaryInput) {
+	async summary(
+		actingUserId: string,
+		input: DashboardSummaryInput,
+		dealScope: Prisma.DealWhereInput = {},
+		activityScope: Prisma.ActivityWhereInput = {},
+	) {
 		const mine = input.scope === "me";
-		const owned = mine ? { ownerId: actingUserId } : {};
+		const owned: Prisma.DealWhereInput = mine ? { ownerId: actingUserId } : {};
+		const dealsWhere: Prisma.DealWhereInput = { AND: [owned, dealScope] };
 
 		const now = new Date();
 		const startOfMonth = monthStart(now, 0);
@@ -74,8 +79,10 @@ export class DashboardService {
 			recentActivity,
 		] = await Promise.all([
 			this.db.deal.groupBy({
-				by: ["stage"],
-				where: { ...owned, stage: { in: [...OPEN_DEAL_STAGES] } },
+				by: ["stageId"],
+				where: {
+					AND: [dealsWhere, { archivedAt: null, stage: { type: "OPEN" } }],
+				},
 				_count: { _all: true },
 				_sum: { amount: true },
 			}),
@@ -84,15 +91,22 @@ export class DashboardService {
 			// of them, so this stays cheap even for a busy team.
 			this.db.deal.findMany({
 				where: {
-					...owned,
-					OR: [
-						{ createdAt: { gte: trendStart } },
-						{ closedAt: { gte: trendStart } },
+					AND: [
+						dealsWhere,
+						{ archivedAt: null },
+						{
+							OR: [
+								{ createdAt: { gte: trendStart } },
+								{ closedAt: { gte: trendStart } },
+							],
+						},
 					],
 				},
 				select: {
 					amount: true,
-					stage: true,
+					stage: {
+						select: { id: true, name: true, type: true, position: true },
+					},
 					createdAt: true,
 					closedAt: true,
 				},
@@ -101,15 +115,22 @@ export class DashboardService {
 			// as one figure, and no list on the page shows the deals behind it.
 			this.db.deal.aggregate({
 				where: {
-					...owned,
-					stage: { in: [...OPEN_DEAL_STAGES] },
-					expectedCloseDate: { gte: startOfMonth, lt: startOfNextMonth },
+					AND: [
+						dealsWhere,
+						{
+							archivedAt: null,
+							stage: { type: "OPEN" },
+							expectedCloseDate: { gte: startOfMonth, lt: startOfNextMonth },
+						},
+					],
 				},
 				_count: { _all: true },
 				_sum: { amount: true },
 			}),
 			this.db.deal.findMany({
-				where: { ...owned, stage: { in: [...OPEN_DEAL_STAGES] } },
+				where: {
+					AND: [dealsWhere, { archivedAt: null, stage: { type: "OPEN" } }],
+				},
 				orderBy: [
 					{ amount: { sort: "desc", nulls: "last" } },
 					{ expectedCloseDate: "asc" },
@@ -118,7 +139,9 @@ export class DashboardService {
 				select: {
 					id: true,
 					name: true,
-					stage: true,
+					stage: {
+						select: { id: true, name: true, type: true, position: true },
+					},
 					amount: true,
 					currency: true,
 					expectedCloseDate: true,
@@ -131,10 +154,15 @@ export class DashboardService {
 			// theirs to tick off.
 			this.db.activity.findMany({
 				where: {
-					type: ActivityType.TASK,
-					completedAt: null,
-					dueAt: { lt: now },
-					createdById: actingUserId,
+					AND: [
+						{
+							type: ActivityType.TASK,
+							completedAt: null,
+							dueAt: { lt: now },
+							createdById: actingUserId,
+						},
+						activityScope,
+					],
 				},
 				orderBy: [{ dueAt: "asc" }],
 				take: 10,
@@ -147,7 +175,9 @@ export class DashboardService {
 				},
 			}),
 			this.db.activity.findMany({
-				where: mine ? { createdById: actingUserId } : {},
+				where: {
+					AND: [mine ? { createdById: actingUserId } : {}, activityScope],
+				},
 				orderBy: [{ createdAt: "desc" }],
 				take: 12,
 				select: {
@@ -164,10 +194,15 @@ export class DashboardService {
 			}),
 		]);
 
-		const stages = OPEN_DEAL_STAGES.map((stage) => {
-			const group = openByStage.find((row) => row.stage === stage);
+		const openStageRecords = await this.db.pipelineStage.findMany({
+			where: { type: "OPEN", pipeline: { archivedAt: null } },
+			orderBy: [{ pipeline: { isDefault: "desc" } }, { position: "asc" }],
+			select: { id: true, name: true, type: true, position: true },
+		});
+		const stages = openStageRecords.map((stage) => {
+			const group = openByStage.find((row) => row.stageId === stage.id);
 			return {
-				stage: stage as DealStage,
+				stage,
 				count: group?._count._all ?? 0,
 				valueCents: toCents(group?._sum.amount ?? null) ?? 0,
 			};
@@ -197,7 +232,7 @@ export class DashboardService {
 
 			const { closedAt, stage } = deal;
 			if (!closedAt) continue;
-			const won = stage === DealStage.CLOSED_WON;
+			const won = stage.type === PipelineStageType.WON;
 
 			if (won) {
 				const closed = trend[monthKey(closedAt) - firstBucket];
@@ -217,7 +252,7 @@ export class DashboardService {
 				wins += 1;
 				wonCents += cents;
 				cycleDays += (closedAt.getTime() - deal.createdAt.getTime()) / DAY_MS;
-			} else if (stage === DealStage.CLOSED_LOST) {
+			} else if (stage.type === PipelineStageType.LOST) {
 				// Disqualified deals are deliberately neither: they never reached a
 				// decision, so counting them would turn the win rate into a
 				// measure of lead quality.

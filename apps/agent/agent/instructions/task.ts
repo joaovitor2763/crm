@@ -1,4 +1,6 @@
+import { PermissionAction } from "@crm/db";
 import { defineDynamic, defineInstructions } from "eve/instructions";
+import { crmAccess } from "../lib/access";
 import { focusOn, setBudget } from "../lib/focus";
 import { sessionPreamble } from "../lib/preamble";
 
@@ -29,6 +31,7 @@ export default defineDynamic({
 
 			if (budget) setBudget(budget);
 
+			const access = await crmAccess(ctx, PermissionAction.READ);
 			const { markdown, focus } = await sessionPreamble(
 				{
 					contactId: asString(attributes.contactId),
@@ -43,6 +46,7 @@ export default defineDynamic({
 					reason: asString(attributes.reason),
 					budget,
 				},
+				access,
 			);
 
 			focusOn({ ...focus, sessionId: ctx.session.id });

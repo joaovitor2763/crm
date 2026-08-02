@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertCompany } from "../lib/access";
 import { readCompanyHistory } from "../lib/accounts";
 import { focusOn } from "../lib/focus";
 
@@ -37,10 +39,16 @@ export default defineTool({
 			.default(25)
 			.describe("How many contacts to list."),
 	}),
-	async execute({ companyId, threads, people }) {
+	async execute({ companyId, threads, people }, ctx) {
+		const access = await assertCompany(ctx, companyId, PermissionAction.READ);
 		focusOn({ companyId });
 
-		const history = await readCompanyHistory(companyId, { threads, people });
+		const history = await readCompanyHistory(companyId, {
+			threads,
+			people,
+			contactWhere: access.contactWhere,
+			dealWhere: access.dealWhere,
+		});
 		if (!history) return { found: false as const, reason: "No such company." };
 
 		return {

@@ -33,7 +33,6 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { parseAsBoolean, useQueryState } from "nuqs";
 import { useId, useState } from "react";
 import { toast } from "sonner";
-import { dealStageLabel, OPEN_STAGES } from "@/components/crm/deal-stage";
 import { useOpenRecord } from "@/components/crm/record-sheet/record-stack";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
@@ -58,7 +57,8 @@ export function CreateDealSheet({
 	const [name, setName] = useState("");
 	const [company, setCompany] = useState(companyId ?? UNSET);
 	const [ownerId, setOwnerId] = useState(UNSET);
-	const [stage, setStage] = useState<string>("DEMO_BOOKED");
+	const [pipelineId, setPipelineId] = useState(UNSET);
+	const [stageId, setStageId] = useState(UNSET);
 	const [amount, setAmount] = useState("");
 	const [closeDate, setCloseDate] = useState("");
 
@@ -69,9 +69,20 @@ export function CreateDealSheet({
 	const users = useQuery(trpc.users.list.queryOptions());
 	const companies = useQuery(trpc.companies.options.queryOptions({ q: "" }));
 	const me = useQuery(trpc.users.me.queryOptions());
+	const pipelines = useQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
 
 	// Whoever is adding the deal is almost always the one working it.
 	const resolvedOwner = ownerId || me.data?.id || UNSET;
+	const resolvedPipeline =
+		pipelines.data?.find((pipeline) => pipeline.id === pipelineId) ??
+		pipelines.data?.find((pipeline) => pipeline.isDefault) ??
+		pipelines.data?.[0];
+	const openStages =
+		resolvedPipeline?.stages.filter((stage) => stage.type === "OPEN") ?? [];
+	const resolvedStage =
+		openStages.find((stage) => stage.id === stageId) ?? openStages[0];
 
 	const create = useMutation(
 		trpc.deals.create.mutationOptions({
@@ -89,7 +100,10 @@ export function CreateDealSheet({
 	);
 
 	const ready =
-		name.trim() !== "" && company !== UNSET && resolvedOwner !== UNSET;
+		name.trim() !== "" &&
+		company !== UNSET &&
+		resolvedOwner !== UNSET &&
+		Boolean(resolvedPipeline && resolvedStage);
 
 	return (
 		<Sheet open={open} onOpenChange={(next) => setOpen(next || null)}>
@@ -117,7 +131,8 @@ export function CreateDealSheet({
 							name,
 							companyId: company,
 							ownerId: resolvedOwner,
-							stage: stage as never,
+							pipelineId: resolvedPipeline?.id,
+							stageId: resolvedStage?.id,
 							// Typed in whole currency, stored and summed in cents.
 							amountCents: Number.isFinite(parsed)
 								? Math.round(parsed * 100)
@@ -172,15 +187,40 @@ export function CreateDealSheet({
 						</Field>
 
 						<Field>
+							<FieldLabel htmlFor="create-deal-pipeline">Pipeline</FieldLabel>
+							<Select
+								value={resolvedPipeline?.id ?? UNSET}
+								onValueChange={(value) => {
+									setPipelineId(value);
+									setStageId(UNSET);
+								}}
+							>
+								<SelectTrigger id="create-deal-pipeline">
+									<SelectValue placeholder="Choose a pipeline" />
+								</SelectTrigger>
+								<SelectContent>
+									{(pipelines.data ?? []).map((pipeline) => (
+										<SelectItem key={pipeline.id} value={pipeline.id}>
+											{pipeline.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</Field>
+
+						<Field>
 							<FieldLabel htmlFor="create-deal-stage">Stage</FieldLabel>
-							<Select value={stage} onValueChange={setStage}>
+							<Select
+								value={resolvedStage?.id ?? UNSET}
+								onValueChange={setStageId}
+							>
 								<SelectTrigger id="create-deal-stage">
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{OPEN_STAGES.map((value) => (
-										<SelectItem key={value} value={value}>
-											{dealStageLabel(value)}
+									{openStages.map((stage) => (
+										<SelectItem key={stage.id} value={stage.id}>
+											{stage.name}
 										</SelectItem>
 									))}
 								</SelectContent>

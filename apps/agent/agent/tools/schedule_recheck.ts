@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import { scheduleTask } from "../lib/tasks";
 
 /** Bounds, not opinions: a day is churn, three years is forgetting. */
@@ -45,7 +47,8 @@ export default defineTool({
 			.default(4)
 			.describe("Vendor calls the next run may spend."),
 	}),
-	async execute({ contactId, days, reason, budget }) {
+	async execute({ contactId, days, reason, budget }, ctx) {
+		await assertContact(ctx, contactId, PermissionAction.UPDATE);
 		const dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
 		await scheduleTask({

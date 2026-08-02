@@ -65,23 +65,32 @@ slower than the request that produced it.
 If you are about to add a vendor client to `apps/api`, you want
 `apps/agent/agent/lib` instead.
 
-## There are no organizations
+## Single tenant, with internal governance
 
 This is an internal tool behind Google sign-in, and it is **single tenant**.
 There is no `Organization` model, no `x-organization-slug` header, no org
-context interceptor, and no org-scoped cache keys. "Signed in" is the entire
-authorisation model.
+context interceptor, and no org-scoped cache keys. Business units, their
+hierarchy, teams and one role per user partition visibility *inside* that one
+tenant. They are not billing, identity or data-isolation tenants.
 
-If you are porting something from the Comp AI MVP, delete the org plumbing
-rather than stubbing it — an `organizationId` that is always the same value is
-a column, an index and a `where` clause that buy nothing, and a permissions
-check that always returns `true` reads like a real one at review time.
+`AccessControlService` resolves one principal per request. All list, detail,
+search, dashboard, activity and mutation paths use its record predicates. New
+users start read-only in the root unit; migrated users keep access as Global
+Admin. API credentials and automations use the same roles but never receive the
+Global Admin bypass.
 
-## tRPC is the data surface; REST is for auth and health
+## tRPC is the app surface; REST and MCP are explicit integration surfaces
 
-Everything the app reads or writes goes through `nestjs-trpc` routers under
-`/api/trpc`, wired in `apps/api/src/trpc`. The remaining REST controllers are
-`/api/auth/*` (Better Auth) and `/health`.
+Everything the browser app reads or writes goes through `nestjs-trpc` routers
+under `/api/trpc`. REST also serves `/api/auth/*`, `/health`, internal workers,
+and the bearer-authenticated `/api/v1` integration surface. `/mcp` exposes the
+same bounded credential as stateless Streamable HTTP tools for external agents.
+Neither public surface accepts a session cookie as authority.
+
+Lead intake preserves every attempt in `LeadSubmission`, including invalid and
+duplicate payloads. Accepted contacts emit a durable `DomainEvent`; automations
+and webhooks lease from that outbox with idempotent run/delivery records and
+bounded retry. Never put webhook secrets, payloads or bearer tokens in logs.
 
 - **One router per module**, named `*.router.ts` so the codegen glob finds it,
   carrying `@Router({ alias: "…" })` and `@UseMiddlewares(AuthMiddleware)`.

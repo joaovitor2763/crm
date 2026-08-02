@@ -9,6 +9,9 @@ const COMPOSABLE_TYPES = [
 	ActivityType.EMAIL,
 	ActivityType.MEETING,
 	ActivityType.TASK,
+	ActivityType.MESSAGE,
+	ActivityType.FORM_CONVERSION,
+	ActivityType.EVENT_ATTENDANCE,
 ] as const;
 
 const composableEnum = z.enum(COMPOSABLE_TYPES);
@@ -71,6 +74,14 @@ export const activityCreateInput = z
 		companyId: z.string().optional(),
 		contactId: z.string().optional(),
 		dealId: z.string().optional(),
+		messageChannel: z.enum(["SMS", "WHATSAPP"]).optional(),
+		marketingFormId: z.string().optional(),
+		marketingEventId: z.string().optional(),
+		utmSource: z.string().trim().optional(),
+		utmMedium: z.string().trim().optional(),
+		utmCampaign: z.string().trim().optional(),
+		utmTerm: z.string().trim().optional(),
+		utmContent: z.string().trim().optional(),
 	})
 	.refine((input) => input.companyId || input.contactId || input.dealId, {
 		message: "An activity has to be about a company, a contact or a deal.",
@@ -81,9 +92,78 @@ export const activityCreateInput = z
 			message: "A task needs a subject — it is the thing to do.",
 			path: ["subject"],
 		},
+	)
+	.refine(
+		(input) =>
+			input.type !== ActivityType.MESSAGE || Boolean(input.messageChannel),
+		{
+			message: "Choose SMS or WhatsApp for a message.",
+			path: ["messageChannel"],
+		},
+	)
+	.refine(
+		(input) =>
+			input.type !== ActivityType.FORM_CONVERSION ||
+			Boolean(input.marketingFormId),
+		{
+			message: "Choose the form that converted.",
+			path: ["marketingFormId"],
+		},
+	)
+	.refine(
+		(input) =>
+			input.type !== ActivityType.EVENT_ATTENDANCE ||
+			Boolean(input.marketingEventId),
+		{
+			message: "Choose the event that was attended.",
+			path: ["marketingEventId"],
+		},
+	)
+	.refine(
+		(input) =>
+			!input.marketingFormId || input.type === ActivityType.FORM_CONVERSION,
+		{
+			message: "A form can only be linked to a form conversion.",
+			path: ["marketingFormId"],
+		},
+	)
+	.refine(
+		(input) =>
+			!input.marketingEventId || input.type === ActivityType.EVENT_ATTENDANCE,
+		{
+			message: "An event can only be linked to event attendance.",
+			path: ["marketingEventId"],
+		},
+	)
+	.refine(
+		(input) =>
+			!hasAttribution(input) ||
+			input.type === ActivityType.FORM_CONVERSION ||
+			input.type === ActivityType.EVENT_ATTENDANCE,
+		{
+			message:
+				"UTM attribution is only available for form conversions and event attendance.",
+			path: ["utmSource"],
+		},
 	);
 
 export type ActivityCreateInput = z.infer<typeof activityCreateInput>;
+
+function hasAttribution(input: {
+	utmSource?: string;
+	utmMedium?: string;
+	utmCampaign?: string;
+	utmTerm?: string;
+	utmContent?: string;
+}) {
+	return Boolean(
+		input.utmSource ||
+			input.utmMedium ||
+			input.utmCampaign ||
+			input.utmTerm ||
+			input.utmContent,
+	);
+}
 
 export const completeInput = z.object({
 	id: z.string(),

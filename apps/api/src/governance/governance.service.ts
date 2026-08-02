@@ -1,0 +1,513 @@
+import {
+	BusinessUnitMembershipType,
+	type Db,
+	type Prisma,
+	UserAccessStatus,
+} from "@crm/db";
+import {
+	BadRequestException,
+	ConflictException,
+	Injectable,
+	NotFoundException,
+} from "@nestjs/common";
+import { DEFAULT_BUSINESS_UNIT_ID } from "../access-control/access-control.constants";
+import type { EffectivePrincipal } from "../access-control/access-control.types";
+import { InjectDatabase } from "../database/database.constants";
+import type {
+	BusinessUnitCreateInput,
+	BusinessUnitUpdateInput,
+	RoleCreateInput,
+	RolePermissionInput,
+	RoleUpdateInput,
+	TeamCreateInput,
+	TeamUpdateInput,
+	UserAccessUpdateInput,
+} from "./governance.contracts";
+
+@Injectable()
+export class GovernanceService {
+	constructor(@InjectDatabase() private readonly db: Db) {}
+
+	async overview() {
+		const [businessUnits, roles, users] = await Promise.all([
+			this.db.businessUnit.findMany({
+				orderBy: [{ parentId: "asc" }, { name: "asc" }],
+				include: {
+					leader: { select: { id: true, name: true, email: true } },
+					teams: {
+						where: { archivedAt: null },
+						orderBy: { name: "asc" },
+						include: {
+							leader: { select: { id: true, name: true, email: true } },
+							_count: { select: { memberships: true } },
+						},
+					},
+					_count: {
+						select: {
+							memberships: true,
+							contactStates: true,
+							companyStates: true,
+							deals: true,
+						},
+					},
+				},
+			}),
+			this.db.role.findMany({
+				where: { archivedAt: null },
+				orderBy: [{ isAdmin: "desc" }, { name: "asc" }],
+				include: {
+					permissions: { orderBy: [{ resource: "asc" }, { action: "asc" }] },
+					_count: {
+						select: { users: true, apiCredentials: true, automations: true },
+					},
+				},
+			}),
+			this.db.user.findMany({
+				orderBy: [{ name: "asc" }, { email: "asc" }],
+				select: {
+					id: true,
+					name: true,
+					email: true,
+					image: true,
+					access: {
+						include: {
+							role: {
+								select: { id: true, key: true, name: true, isAdmin: true },
+							},
+							primaryBusinessUnit: { select: { id: true, name: true } },
+							primaryTeam: { select: { id: true, name: true } },
+						},
+					},
+					businessUnitMemberships: {
+						select: { businessUnitId: true, type: true },
+					},
+					teamMemberships: { select: { teamId: true, isLead: true } },
+				},
+			}),
+		]);
+
+		return { businessUnits, roles, users };
+	}
+
+	async directory(principal: EffectivePrincipal) {
+		const unitWhere = principal.isAdmin
+			? { archivedAt: null }
+			: {
+					id: { in: principal.businessUnitTreeIds },
+					archivedAt: null,
+				};
+		const [businessUnits, roles] = await Promise.all([
+			this.db.businessUnit.findMany({
+				where: unitWhere,
+				orderBy: [{ parentId: "asc" }, { name: "asc" }],
+				select: {
+					id: true,
+					key: true,
+					name: true,
+					parentId: true,
+					teams: {
+						where: { archivedAt: null },
+						orderBy: { name: "asc" },
+						select: { id: true, key: true, name: true, businessUnitId: true },
+					},
+				},
+			}),
+			this.db.role.findMany({
+				where: { archivedAt: null, isAdmin: false },
+				orderBy: { name: "asc" },
+				select: { id: true, key: true, name: true, description: true },
+			}),
+		]);
+		return { businessUnits, roles };
+	}
+
+	async createBusinessUnit(
+		input: BusinessUnitCreateInput,
+		actor: EffectivePrincipal,
+	) {
+		return this.db.$transaction(async (tx) => {
+			if (input.parentId) await this.requireBusinessUnit(tx, input.parentId);
+			const unit = await tx.businessUnit.create({
+				data: {
+					name: input.name,
+					key: input.key,
+					parentId: input.parentId ?? null,
+					leaderId: input.leaderId ?? null,
+				},
+				select: { id: true, key: true, name: true, parentId: true },
+			});
+			await rebuildBusinessUnitClosure(tx);
+			await this.audit(
+				tx,
+				actor,
+				"business-unit.created",
+				"business-units",
+				unit.id,
+			);
+			return unit;
+		});
+	}
+
+	async updateBusinessUnit(
+		input: BusinessUnitUpdateInput,
+		actor: EffectivePrincipal,
+	) {
+		if (input.id === DEFAULT_BUSINESS_UNIT_ID && input.parentId) {
+			throw new BadRequestException(
+				"The root business unit cannot have a parent.",
+			);
+		}
+		return this.db.$transaction(async (tx) => {
+			await this.requireBusinessUnit(tx, input.id);
+			if (input.parentId === input.id) {
+				throw new BadRequestException("A business unit cannot parent itself.");
+			}
+			if (input.parentId) await this.requireBusinessUnit(tx, input.parentId);
+			const unit = await tx.businessUnit.update({
+				where: { id: input.id },
+				data: {
+					...(input.name !== undefined ? { name: input.name } : {}),
+					...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+					...(input.leaderId !== undefined ? { leaderId: input.leaderId } : {}),
+				},
+				select: { id: true, key: true, name: true, parentId: true },
+			});
+			await rebuildBusinessUnitClosure(tx);
+			await this.audit(
+				tx,
+				actor,
+				"business-unit.updated",
+				"business-units",
+				unit.id,
+			);
+			return unit;
+		});
+	}
+
+	async createTeam(input: TeamCreateInput, actor: EffectivePrincipal) {
+		return this.db.$transaction(async (tx) => {
+			await this.requireBusinessUnit(tx, input.businessUnitId);
+			const team = await tx.team.create({
+				data: {
+					name: input.name,
+					key: input.key,
+					businessUnitId: input.businessUnitId,
+					leaderId: input.leaderId ?? null,
+				},
+				select: { id: true, key: true, name: true, businessUnitId: true },
+			});
+			await this.audit(tx, actor, "team.created", "teams", team.id, {
+				businessUnitId: team.businessUnitId,
+			});
+			return team;
+		});
+	}
+
+	async updateTeam(input: TeamUpdateInput, actor: EffectivePrincipal) {
+		return this.db.$transaction(async (tx) => {
+			const current = await tx.team.findUnique({
+				where: { id: input.id },
+				select: { id: true, businessUnitId: true },
+			});
+			if (!current) throw new NotFoundException(`No team with id ${input.id}.`);
+			const team = await tx.team.update({
+				where: { id: input.id },
+				data: {
+					...(input.name !== undefined ? { name: input.name } : {}),
+					...(input.leaderId !== undefined ? { leaderId: input.leaderId } : {}),
+				},
+				select: { id: true, key: true, name: true, businessUnitId: true },
+			});
+			await this.audit(tx, actor, "team.updated", "teams", team.id, {
+				businessUnitId: current.businessUnitId,
+			});
+			return team;
+		});
+	}
+
+	async createRole(input: RoleCreateInput, actor: EffectivePrincipal) {
+		return this.db.$transaction(async (tx) => {
+			const role = await tx.role.create({
+				data: {
+					name: input.name,
+					key: input.key,
+					description: input.description ?? null,
+				},
+				select: { id: true, key: true, name: true },
+			});
+			await this.audit(tx, actor, "role.created", "roles", role.id);
+			return role;
+		});
+	}
+
+	async updateRole(input: RoleUpdateInput, actor: EffectivePrincipal) {
+		return this.db.$transaction(async (tx) => {
+			const current = await tx.role.findUnique({
+				where: { id: input.id },
+				select: { id: true, isAdmin: true },
+			});
+			if (!current) throw new NotFoundException(`No role with id ${input.id}.`);
+			const role = await tx.role.update({
+				where: { id: input.id },
+				data: {
+					...(input.name !== undefined ? { name: input.name } : {}),
+					...(input.description !== undefined
+						? { description: input.description }
+						: {}),
+				},
+				select: { id: true, key: true, name: true },
+			});
+			await this.audit(tx, actor, "role.updated", "roles", role.id);
+			return role;
+		});
+	}
+
+	async setRolePermission(
+		input: RolePermissionInput,
+		actor: EffectivePrincipal,
+	) {
+		return this.db.$transaction(async (tx) => {
+			const role = await tx.role.findUnique({
+				where: { id: input.roleId },
+				select: { id: true, isAdmin: true },
+			});
+			if (!role)
+				throw new NotFoundException(`No role with id ${input.roleId}.`);
+			if (role.isAdmin) {
+				throw new BadRequestException(
+					"Global Admin is an invariant and does not use permission overrides.",
+				);
+			}
+			const permission = await tx.rolePermission.upsert({
+				where: {
+					roleId_resource_action: {
+						roleId: input.roleId,
+						resource: input.resource,
+						action: input.action,
+					},
+				},
+				create: input,
+				update: { scope: input.scope },
+			});
+			await this.audit(
+				tx,
+				actor,
+				"role.permission-updated",
+				"roles",
+				input.roleId,
+				{
+					resource: input.resource,
+					action: input.action,
+					scope: input.scope,
+				},
+			);
+			return permission;
+		});
+	}
+
+	async setUserAccess(input: UserAccessUpdateInput, actor: EffectivePrincipal) {
+		return this.db.$transaction(async (tx) => {
+			const [user, role, teams] = await Promise.all([
+				tx.user.findUnique({
+					where: { id: input.userId },
+					select: { id: true },
+				}),
+				tx.role.findUnique({
+					where: { id: input.roleId },
+					select: { id: true, isAdmin: true, archivedAt: true },
+				}),
+				tx.team.findMany({
+					where: { id: { in: input.teamIds } },
+					select: { id: true, businessUnitId: true },
+				}),
+			]);
+			if (!user)
+				throw new NotFoundException(`No user with id ${input.userId}.`);
+			if (!role || role.archivedAt) {
+				throw new NotFoundException(`No active role with id ${input.roleId}.`);
+			}
+			if (teams.length !== new Set(input.teamIds).size) {
+				throw new BadRequestException(
+					"One or more selected teams do not exist.",
+				);
+			}
+			if (
+				input.primaryTeamId &&
+				!teams.some((team) => team.id === input.primaryTeamId)
+			) {
+				throw new BadRequestException("The primary team must be a membership.");
+			}
+			const primaryTeam = teams.find((team) => team.id === input.primaryTeamId);
+			if (
+				primaryTeam &&
+				input.primaryBusinessUnitId !== primaryTeam.businessUnitId
+			) {
+				throw new BadRequestException(
+					"The primary team must belong to the primary business unit.",
+				);
+			}
+
+			const current = await tx.userAccess.findUnique({
+				where: { userId: input.userId },
+				select: { role: { select: { isAdmin: true } }, status: true },
+			});
+			const removesActiveAdmin =
+				current?.role.isAdmin &&
+				current.status === UserAccessStatus.ACTIVE &&
+				(!role.isAdmin || input.status === UserAccessStatus.SUSPENDED);
+			if (removesActiveAdmin) {
+				const otherAdmins = await tx.userAccess.count({
+					where: {
+						userId: { not: input.userId },
+						status: UserAccessStatus.ACTIVE,
+						role: { isAdmin: true },
+					},
+				});
+				if (otherAdmins === 0) {
+					throw new ConflictException(
+						"The CRM must keep one active Global Admin.",
+					);
+				}
+			}
+
+			const businessUnitIds = unique([
+				...input.businessUnitIds,
+				...teams.map((team) => team.businessUnitId),
+				...(input.primaryBusinessUnitId ? [input.primaryBusinessUnitId] : []),
+			]);
+			const foundUnits = await tx.businessUnit.count({
+				where: { id: { in: businessUnitIds }, archivedAt: null },
+			});
+			if (foundUnits !== businessUnitIds.length) {
+				throw new BadRequestException(
+					"One or more selected business units do not exist.",
+				);
+			}
+
+			await tx.userAccess.upsert({
+				where: { userId: input.userId },
+				create: {
+					userId: input.userId,
+					roleId: input.roleId,
+					status: input.status,
+					primaryBusinessUnitId: input.primaryBusinessUnitId,
+					primaryTeamId: input.primaryTeamId,
+				},
+				update: {
+					roleId: input.roleId,
+					status: input.status,
+					primaryBusinessUnitId: input.primaryBusinessUnitId,
+					primaryTeamId: input.primaryTeamId,
+				},
+			});
+			await tx.businessUnitMembership.deleteMany({
+				where: { userId: input.userId },
+			});
+			if (businessUnitIds.length > 0) {
+				await tx.businessUnitMembership.createMany({
+					data: businessUnitIds.map((businessUnitId) => ({
+						userId: input.userId,
+						businessUnitId,
+						type: BusinessUnitMembershipType.MEMBER,
+					})),
+				});
+			}
+			await tx.teamMembership.deleteMany({ where: { userId: input.userId } });
+			if (teams.length > 0) {
+				const managed = new Set(input.managedTeamIds);
+				await tx.teamMembership.createMany({
+					data: teams.map((team) => ({
+						userId: input.userId,
+						teamId: team.id,
+						isLead: managed.has(team.id),
+					})),
+				});
+			}
+			await this.audit(
+				tx,
+				actor,
+				"user.access-updated",
+				"users",
+				input.userId,
+				{
+					roleId: input.roleId,
+					status: input.status,
+				},
+			);
+
+			return { userId: input.userId };
+		});
+	}
+
+	private async requireBusinessUnit(
+		tx: Prisma.TransactionClient,
+		id: string,
+	): Promise<void> {
+		const unit = await tx.businessUnit.findUnique({
+			where: { id },
+			select: { id: true, archivedAt: true },
+		});
+		if (!unit || unit.archivedAt) {
+			throw new NotFoundException(`No active business unit with id ${id}.`);
+		}
+	}
+
+	private audit(
+		tx: Prisma.TransactionClient,
+		actor: EffectivePrincipal,
+		action: string,
+		resource: string,
+		recordId: string,
+		metadata?: Prisma.InputJsonObject,
+	) {
+		return tx.auditEvent.create({
+			data: {
+				actorType: actor.actorType,
+				actorId: actor.actorId,
+				action,
+				resource,
+				recordId,
+				metadata,
+			},
+		});
+	}
+}
+
+async function rebuildBusinessUnitClosure(
+	tx: Prisma.TransactionClient,
+): Promise<void> {
+	const units = await tx.businessUnit.findMany({
+		select: { id: true, parentId: true },
+	});
+	const parents = new Map(units.map((unit) => [unit.id, unit.parentId]));
+	const paths: Array<{
+		ancestorId: string;
+		descendantId: string;
+		depth: number;
+	}> = [];
+
+	for (const unit of units) {
+		const seen = new Set<string>();
+		let ancestorId: string | null = unit.id;
+		let depth = 0;
+		while (ancestorId) {
+			if (seen.has(ancestorId)) {
+				throw new BadRequestException(
+					"Business unit hierarchy contains a cycle.",
+				);
+			}
+			seen.add(ancestorId);
+			paths.push({ ancestorId, descendantId: unit.id, depth });
+			ancestorId = parents.get(ancestorId) ?? null;
+			depth += 1;
+		}
+	}
+
+	await tx.businessUnitClosure.deleteMany();
+	if (paths.length > 0)
+		await tx.businessUnitClosure.createMany({ data: paths });
+}
+
+function unique(values: string[]): string[] {
+	return [...new Set(values)];
+}

@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import { readCrmHistory } from "../lib/crm";
 import { focusOn } from "../lib/focus";
 
@@ -30,10 +32,15 @@ export default defineTool({
 			.default(5)
 			.describe("How many recent threads to read."),
 	}),
-	async execute({ contactId, threads }) {
+	async execute({ contactId, threads }, ctx) {
+		const access = await assertContact(ctx, contactId, PermissionAction.READ);
 		focusOn({ contactId });
 
-		const history = await readCrmHistory(contactId, { threads });
+		const history = await readCrmHistory(contactId, {
+			threads,
+			dealWhere: access.dealWhere,
+			contactWhere: access.contactWhere,
+		});
 		if (!history) return { found: false as const, reason: "No such contact." };
 
 		const evidence =

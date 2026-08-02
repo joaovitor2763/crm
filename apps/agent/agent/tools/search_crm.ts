@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { crmAccess } from "../lib/access";
 import { searchCrm } from "../lib/lookup";
 
 /**
@@ -31,8 +33,15 @@ export default defineTool({
 			.describe("Narrow the search. Defaults to all three."),
 		limit: z.number().int().min(1).max(25).default(10),
 	}),
-	async execute({ query, kinds, limit }) {
-		const result = await searchCrm(query, { kinds, limit });
+	async execute({ query, kinds, limit }, ctx) {
+		const access = await crmAccess(ctx, PermissionAction.READ);
+		const result = await searchCrm(query, {
+			kinds,
+			limit,
+			contactWhere: access.contactWhere,
+			companyWhere: access.companyWhere,
+			dealWhere: access.dealWhere,
+		});
 
 		return {
 			...result,

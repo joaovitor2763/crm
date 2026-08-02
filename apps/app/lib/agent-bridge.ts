@@ -52,6 +52,20 @@ export function bridgeConfigured(): boolean {
 }
 
 /**
+ * Record ids are opaque database keys, not necessarily Prisma-generated cuids.
+ *
+ * Seeded and imported records may deliberately use stable ids such as
+ * `seed-deal-fernhill-1`. Treating the storage format as a cuid silently
+ * stripped those ids at the proxy, so the Agent session started with no record
+ * in focus. Keep the boundary narrow without guessing which valid id strategy
+ * the database used.
+ */
+export function bridgeRecordId(value: string | null): string | undefined {
+	const id = value?.trim();
+	return id && /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : undefined;
+}
+
+/**
  * A bearer token for one rep, valid for two minutes.
  *
  * Hand-rolled rather than pulling in a JWT library: this signs one fixed claim

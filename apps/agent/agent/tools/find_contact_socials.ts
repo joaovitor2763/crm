@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import { personForVerification, stampSocialsChecked } from "../lib/crm";
 import { focusOn, spend } from "../lib/focus";
 import { findSocialCandidates } from "../lib/socials";
@@ -18,7 +20,8 @@ export default defineTool({
 	inputSchema: z.object({
 		contactId: z.string(),
 	}),
-	async execute({ contactId }) {
+	async execute({ contactId }, ctx) {
+		await assertContact(ctx, contactId, PermissionAction.UPDATE);
 		// So the audit hook files this session's events against the right record.
 		focusOn({ contactId });
 

@@ -54,6 +54,9 @@ export type CrmCache = {
 	 * writes a rep triggers from the settings page.
 	 */
 	google(options?: Options): Promise<void>;
+	pipelines(options?: Options): Promise<void>;
+	products(options?: Options): Promise<void>;
+	marketing(options?: Options): Promise<void>;
 	/** An import writes across every table, so nothing is assumed to survive. */
 	everything(): Promise<void>;
 };
@@ -97,6 +100,10 @@ export function useCrmCache(): CrmCache {
 		trpc.companies.list.queryKey(),
 		trpc.contacts.list.queryKey(),
 		trpc.deals.list.queryKey(),
+		trpc.deals.board.queryKey(),
+		trpc.companies.archived.queryKey(),
+		trpc.contacts.archived.queryKey(),
+		trpc.deals.archived.queryKey(),
 		// The ⌘K switcher searches names and domains, so a rename it cannot see
 		// is a record the rep cannot find.
 		trpc.search.quick.queryKey(),
@@ -149,6 +156,9 @@ export function useCrmCache(): CrmCache {
 					// Setting a stage writes a STAGE_CHANGE activity onto the deal's and
 					// the company's timeline.
 					...activityKeys(),
+					// Line-item writes use the deal cache path and change the product
+					// catalogue's usage counts.
+					trpc.products.list.queryKey(),
 					// Pipeline, closed-won, win rate, cycle time, the leaderboard — the
 					// entire overview is a function of the deals table.
 					trpc.dashboard.summary.queryKey(),
@@ -166,6 +176,10 @@ export function useCrmCache(): CrmCache {
 					trpc.companies.byId.queryKey(),
 					trpc.contacts.byId.queryKey(),
 					trpc.deals.byId.queryKey(),
+					// Form conversions and event attendance are activities, while their
+					// aggregate counts live on the marketing settings queries.
+					trpc.marketing.forms.queryKey(),
+					trpc.marketing.events.queryKey(),
 					trpc.dashboard.summary.queryKey(),
 				],
 				options,
@@ -185,6 +199,35 @@ export function useCrmCache(): CrmCache {
 					trpc.contacts.byId.queryKey(),
 					trpc.dashboard.summary.queryKey(),
 				],
+				options,
+			),
+
+		pipelines: (options) =>
+			run(
+				[trpc.pipelines.list.queryKey()],
+				[
+					trpc.deals.list.queryKey(),
+					trpc.deals.board.queryKey(),
+					trpc.deals.archived.queryKey(),
+					trpc.deals.byId.queryKey(),
+					trpc.companies.byId.queryKey(),
+					trpc.contacts.byId.queryKey(),
+					trpc.dashboard.summary.queryKey(),
+				],
+				options,
+			),
+
+		products: (options) =>
+			run(
+				[trpc.products.list.queryKey()],
+				[trpc.deals.byId.queryKey()],
+				options,
+			),
+
+		marketing: (options) =>
+			run(
+				[trpc.marketing.forms.queryKey(), trpc.marketing.events.queryKey()],
+				activityKeys(),
 				options,
 			),
 

@@ -1,79 +1,57 @@
-// `@crm/db/enums` and not `@crm/db`: the package root exports the Prisma client
-// instance, so a value import of an enum drags `pg` — and its `node:dns`
-// dependency — into the browser bundle. The generated enums module is a
-// standalone file of string constants.
-import { DealStage } from "@crm/db/enums";
+import type { PipelineStageType } from "@crm/db/enums";
 import {
 	StatusIndicator,
 	type StatusTone,
 } from "@crm/ui/components/status-indicator";
 
-/**
- * Stage presentation, in pipeline order.
- *
- * `UNQUALIFIED_TO_BUY` sits with the other closed stages rather than between
- * "qualified" and "decision maker bought in": it is a disqualification, so
- * showing it mid-funnel would suggest a deal is progressing when it is over.
- */
-const ORDER = [
-	DealStage.DEMO_BOOKED,
-	DealStage.QUALIFIED_TO_BUY,
-	DealStage.DECISION_MAKER_BOUGHT_IN,
-	DealStage.CONTRACT_SENT,
-	DealStage.CLOSED_WON,
-	DealStage.CLOSED_LOST,
-	DealStage.UNQUALIFIED_TO_BUY,
-] as const;
-
-const PRESENTATION: Record<DealStage, { label: string; tone: StatusTone }> = {
-	DEMO_BOOKED: { label: "Demo booked", tone: "neutral" },
-	QUALIFIED_TO_BUY: { label: "Qualified to buy", tone: "info" },
-	DECISION_MAKER_BOUGHT_IN: { label: "Decision maker in", tone: "info" },
-	CONTRACT_SENT: { label: "Contract sent", tone: "warning" },
-	CLOSED_WON: { label: "Closed won", tone: "success" },
-	CLOSED_LOST: { label: "Closed lost", tone: "error" },
-	UNQUALIFIED_TO_BUY: { label: "Unqualified", tone: "neutral" },
+export type DealStage = {
+	id: string;
+	name: string;
+	position: number;
+	type: PipelineStageType;
 };
 
-/** Stages a deal can still be won from — the pipeline. */
-export const OPEN_STAGES = ORDER.slice(0, 4) as readonly DealStage[];
+const LEGACY_STAGE_LABELS: Record<string, string> = {
+	DEMO_BOOKED: "Demo booked",
+	QUALIFIED_TO_BUY: "Qualified to buy",
+	DECISION_MAKER_BOUGHT_IN: "Decision maker in",
+	DECISION_MAKER_IN: "Decision maker in",
+	CONTRACT_SENT: "Contract sent",
+	CLOSED_WON: "Closed won",
+	CLOSED_LOST: "Closed lost",
+	UNQUALIFIED_TO_BUY: "Unqualified",
+	UNQUALIFIED: "Unqualified",
+};
 
-/** Won, lost or disqualified — a deal that is no longer in the pipeline. */
 export function isClosedStage(stage: DealStage): boolean {
-	return !OPEN_STAGES.includes(stage);
+	return stage.type !== "OPEN";
 }
 
-/** The two the API refuses without a `closedReason`. */
-export const LOSING_STAGES: readonly DealStage[] = [
-	DealStage.CLOSED_LOST,
-	DealStage.UNQUALIFIED_TO_BUY,
-];
-
-export const DEAL_STAGE_OPTIONS = ORDER.map((value) => ({
-	value,
-	label: PRESENTATION[value].label,
-}));
-
-/**
- * The chart ramp in pipeline order, so a stage is the same colour in the
- * overview's donut, its legend and every meter beside a deal.
- *
- * Only the open stages get one: a closed deal is not part of a breakdown of
- * where the pipeline sits, and `StatusTone` already colours won and lost.
- */
-const OPEN_STAGE_COLORS = [
-	"var(--chart-1)",
-	"var(--chart-2)",
-	"var(--chart-3)",
-	"var(--chart-4)",
-] as const;
+export function isLosingStage(stage: DealStage): boolean {
+	return stage.type === "LOST" || stage.type === "UNQUALIFIED";
+}
 
 export function dealStageColor(stage: DealStage): string {
-	return OPEN_STAGE_COLORS[OPEN_STAGES.indexOf(stage)] ?? "var(--chart-5)";
+	return `var(--chart-${(stage.position % 5) + 1})`;
 }
 
-export function dealStageLabel(stage: DealStage): string {
-	return PRESENTATION[stage].label;
+export function dealStageLabel(stage: DealStage | string): string {
+	return typeof stage === "string"
+		? (LEGACY_STAGE_LABELS[stage] ?? stage)
+		: stage.name;
+}
+
+function stageTone(type: PipelineStageType): StatusTone {
+	switch (type) {
+		case "WON":
+			return "success";
+		case "LOST":
+			return "error";
+		case "UNQUALIFIED":
+			return "neutral";
+		case "OPEN":
+			return "info";
+	}
 }
 
 export function DealStageIndicator({
@@ -83,6 +61,11 @@ export function DealStageIndicator({
 	stage: DealStage;
 	className?: string;
 }) {
-	const { label, tone } = PRESENTATION[stage];
-	return <StatusIndicator tone={tone} label={label} className={className} />;
+	return (
+		<StatusIndicator
+			tone={stageTone(stage.type)}
+			label={stage.name}
+			className={className}
+		/>
+	);
 }

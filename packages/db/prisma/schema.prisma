@@ -1,4 +1,3 @@
-
 datasource db {
   provider = "postgresql"
 }
@@ -26,13 +25,30 @@ model User {
   // CRM ownership. Better Auth owns every field above and `bun run
   // auth:generate` rewrites them; these back-relations are ours and have to be
   // put back if that ever wipes them.
-  ownedCompanies Company[]     @relation("CompanyOwner")
-  ownedContacts  Contact[]     @relation("ContactOwner")
-  ownedDeals     Deal[]        @relation("DealOwner")
-  activities     Activity[]    @relation("ActivityAuthor")
+  ownedCompanies Company[]           @relation("CompanyOwner")
+  ownedContacts  Contact[]           @relation("ContactOwner")
+  ownedDeals     Deal[]              @relation("DealOwner")
+  activities     Activity[]          @relation("ActivityAuthor")
   mailboxSyncs   MailboxSync[]
-  factDecisions  ContactFact[] @relation("FactDecider")
+  factDecisions  ContactFact[]       @relation("FactDecider")
   conversations  AgentConversation[] @relation("ConversationOwner")
+
+  // Governance is deliberately outside Better Auth's generated columns. The
+  // identity provider owns authentication; CRM roles and scope memberships own
+  // what that identity may do after it signs in.
+  access                   UserAccess?
+  businessUnitMemberships  BusinessUnitMembership[]
+  teamMemberships          TeamMembership[]
+  ledBusinessUnits         BusinessUnit[]             @relation("BusinessUnitLeader")
+  ledTeams                 Team[]                     @relation("TeamLeader")
+  contactUnitOwnerships    ContactBusinessUnitState[] @relation("ContactUnitOwner")
+  companyUnitOwnerships    CompanyBusinessUnitState[] @relation("CompanyUnitOwner")
+  globalMqlQualifications  Contact[]                  @relation("ContactGlobalQualifier")
+  unitMqlQualifications    ContactBusinessUnitState[] @relation("ContactUnitQualifier")
+  ownedCustomObjectRecords CustomObjectRecord[]       @relation("CustomObjectOwner")
+  createdApiCredentials    ApiCredential[]            @relation("ApiCredentialCreator")
+  createdAutomations       Automation[]               @relation("AutomationCreator")
+  createdWebhookEndpoints  WebhookEndpoint[]          @relation("WebhookEndpointCreator")
 
   @@unique([email])
   @@map("user")
@@ -103,15 +119,11 @@ model RateLimit {
 // everything that happens is an Activity on a timeline.
 // ---------------------------------------------------------------------------
 
-enum DealStage {
-  DEMO_BOOKED
-  QUALIFIED_TO_BUY
-  /// Terminal, not a step forward — disqualified, and excluded from pipeline value.
-  UNQUALIFIED_TO_BUY
-  DECISION_MAKER_BOUGHT_IN
-  CONTRACT_SENT
-  CLOSED_WON
-  CLOSED_LOST
+enum PipelineStageType {
+  OPEN
+  WON
+  LOST
+  UNQUALIFIED
 }
 
 enum ActivityType {
@@ -120,6 +132,12 @@ enum ActivityType {
   EMAIL
   MEETING
   TASK
+  /// A manually logged SMS or WhatsApp exchange.
+  MESSAGE
+  /// A lead submitted a managed marketing form.
+  FORM_CONVERSION
+  /// A lead attended a managed marketing event.
+  EVENT_ATTENDANCE
   /// Written by the system when Deal.stage changes.
   STAGE_CHANGE
   /// Written by the enrichment agent.
@@ -144,6 +162,521 @@ enum RecordSource {
   IMPORT
   EMAIL
   CALENDAR
+}
+
+enum LifecycleStage {
+  LEAD
+  MQL
+  SQL
+  OPPORTUNITY
+  CUSTOMER
+  DISQUALIFIED
+}
+
+enum UserAccessStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// The action is RBAC; the scope is the organisational boundary applied to it.
+enum PermissionAction {
+  READ
+  CREATE
+  UPDATE
+  ARCHIVE
+  RESTORE
+  DESTROY
+  TRANSFER
+  MANAGE
+  EXPORT
+}
+
+enum AccessScope {
+  NONE
+  OWNED
+  TEAM
+  MANAGED_TEAMS
+  BUSINESS_UNIT
+  BUSINESS_UNIT_TREE
+  ALL
+}
+
+enum BusinessUnitMembershipType {
+  MEMBER
+  MANAGER
+  ADMIN
+}
+
+enum ObjectDefinitionKind {
+  SYSTEM
+  CUSTOM
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+  DATE
+  DATE_TIME
+  EMAIL
+  PHONE
+  URL
+  CURRENCY
+  RELATION
+}
+
+enum CustomFieldIndexMode {
+  BASIC
+  INDEXED
+  UNIQUE
+}
+
+enum DataClassification {
+  INTERNAL
+  CONFIDENTIAL
+  RESTRICTED
+}
+
+enum RelationCardinality {
+  ONE_TO_ONE
+  ONE_TO_MANY
+  MANY_TO_MANY
+}
+
+enum LeadSubmissionStatus {
+  ACCEPTED
+  REJECTED
+  DUPLICATE
+  NEEDS_REVIEW
+}
+
+enum AuditActorType {
+  USER
+  API_KEY
+  AUTOMATION
+  AGENT
+  SYSTEM
+}
+
+enum ApiCredentialStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum AutomationStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
+enum AutomationRunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  DEAD
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  LEASED
+  SUCCEEDED
+  FAILED
+  DEAD
+}
+
+model BusinessUnit {
+  id   String @id @default(cuid())
+  key  String @unique
+  name String
+
+  parentId String?
+  parent   BusinessUnit?  @relation("BusinessUnitTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children BusinessUnit[] @relation("BusinessUnitTree")
+
+  leaderId   String?
+  leader     User?     @relation("BusinessUnitLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  archivedAt DateTime?
+
+  ancestorPaths     BusinessUnitClosure[]       @relation("BusinessUnitAncestor")
+  descendantPaths   BusinessUnitClosure[]       @relation("BusinessUnitDescendant")
+  teams             Team[]
+  memberships       BusinessUnitMembership[]
+  primaryUsers      UserAccess[]
+  contactStates     ContactBusinessUnitState[]
+  companyStates     CompanyBusinessUnitState[]
+  deals             Deal[]
+  activities        Activity[]
+  pipelines         Pipeline[]
+  products          Product[]
+  marketingForms    MarketingForm[]
+  marketingEvents   MarketingEvent[]
+  objectDefinitions ObjectDefinition[]
+  customFields      CustomFieldDefinition[]
+  customRecords     CustomObjectRecord[]
+  relations         RecordRelation[]
+  leadSubmissions   LeadSubmission[]
+  credentialScopes  ApiCredentialBusinessUnit[]
+  automations       Automation[]
+  domainEvents      DomainEvent[]
+  webhookEndpoints  WebhookEndpoint[]
+  auditEvents       AuditEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([parentId])
+  @@index([leaderId])
+  @@index([archivedAt, name])
+  @@map("businessUnit")
+}
+
+/// Transitive closure makes BUSINESS_UNIT_TREE a bounded indexed lookup, not a
+/// recursive traversal on every CRM list query.
+model BusinessUnitClosure {
+  ancestorId   String
+  ancestor     BusinessUnit @relation("BusinessUnitAncestor", fields: [ancestorId], references: [id], onDelete: Cascade)
+  descendantId String
+  descendant   BusinessUnit @relation("BusinessUnitDescendant", fields: [descendantId], references: [id], onDelete: Cascade)
+  depth        Int
+
+  @@id([ancestorId, descendantId])
+  @@index([descendantId, depth])
+  @@map("businessUnitClosure")
+}
+
+model Team {
+  id             String       @id @default(cuid())
+  businessUnitId String
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  key            String
+  name           String
+  leaderId       String?
+  leader         User?        @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: SetNull)
+  archivedAt     DateTime?
+
+  memberships      TeamMembership[]
+  primaryUsers     UserAccess[]
+  contactStates    ContactBusinessUnitState[]
+  companyStates    CompanyBusinessUnitState[]
+  deals            Deal[]
+  activities       Activity[]
+  customRecords    CustomObjectRecord[]
+  leadSubmissions  LeadSubmission[]
+  credentialScopes ApiCredentialTeam[]
+  automations      Automation[]
+  domainEvents     DomainEvent[]
+  webhookEndpoints WebhookEndpoint[]
+  auditEvents      AuditEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([businessUnitId, key])
+  @@index([leaderId])
+  @@index([archivedAt, name])
+  @@map("team")
+}
+
+model BusinessUnitMembership {
+  userId         String
+  user           User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessUnitId String
+  businessUnit   BusinessUnit               @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  type           BusinessUnitMembershipType @default(MEMBER)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, businessUnitId])
+  @@index([businessUnitId, type])
+  @@map("businessUnitMembership")
+}
+
+model TeamMembership {
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamId String
+  team   Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  isLead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([userId, teamId])
+  @@index([teamId, isLead])
+  @@map("teamMembership")
+}
+
+model Role {
+  id          String    @id @default(cuid())
+  key         String    @unique
+  name        String
+  description String?
+  isSystem    Boolean   @default(false)
+  isAdmin     Boolean   @default(false)
+  archivedAt  DateTime?
+
+  users            UserAccess[]
+  permissions      RolePermission[]
+  fieldPermissions FieldPermission[]
+  apiCredentials   ApiCredential[]
+  automations      Automation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archivedAt, name])
+  @@map("role")
+}
+
+model UserAccess {
+  userId String           @id
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  status UserAccessStatus @default(ACTIVE)
+
+  primaryBusinessUnitId String?
+  primaryBusinessUnit   BusinessUnit? @relation(fields: [primaryBusinessUnitId], references: [id], onDelete: SetNull)
+  primaryTeamId         String?
+  primaryTeam           Team?         @relation(fields: [primaryTeamId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId, status])
+  @@index([primaryBusinessUnitId])
+  @@index([primaryTeamId])
+  @@map("userAccess")
+}
+
+model RolePermission {
+  id       String           @id @default(cuid())
+  roleId   String
+  role     Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  resource String
+  action   PermissionAction
+  scope    AccessScope      @default(NONE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roleId, resource, action])
+  @@index([resource, action])
+  @@map("rolePermission")
+}
+
+model ObjectDefinition {
+  id          String               @id @default(cuid())
+  key         String               @unique
+  name        String
+  pluralName  String
+  kind        ObjectDefinitionKind @default(SYSTEM)
+  systemModel String?
+
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  archivedAt     DateTime?
+
+  fields          CustomFieldDefinition[]
+  sourceRelations ObjectRelationDefinition[] @relation("RelationSourceObject")
+  targetRelations ObjectRelationDefinition[] @relation("RelationTargetObject")
+  customRecords   CustomObjectRecord[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessUnitId, archivedAt])
+  @@map("objectDefinition")
+}
+
+model CustomFieldDefinition {
+  id                 String               @id @default(cuid())
+  objectDefinitionId String
+  objectDefinition   ObjectDefinition     @relation(fields: [objectDefinitionId], references: [id], onDelete: Cascade)
+  businessUnitId     String?
+  businessUnit       BusinessUnit?        @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  key                String
+  label              String
+  description        String?
+  type               CustomFieldType
+  indexMode          CustomFieldIndexMode @default(BASIC)
+  classification     DataClassification   @default(INTERNAL)
+  position           Int                  @default(0)
+  isRequired         Boolean              @default(false)
+  defaultValue       Json?
+  agentReadable      Boolean              @default(false)
+  agentWritable      Boolean              @default(false)
+  apiReadable        Boolean              @default(true)
+  apiWritable        Boolean              @default(true)
+  archivedAt         DateTime?
+
+  options     CustomFieldOption[]
+  values      CustomFieldSearchValue[]
+  permissions FieldPermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // PostgreSQL adds a partial unique index for global definitions in the
+  // migration; nullable compound uniqueness alone would allow duplicate keys.
+  @@unique([objectDefinitionId, businessUnitId, key])
+  @@index([objectDefinitionId, position])
+  @@index([businessUnitId, archivedAt])
+  @@map("customFieldDefinition")
+}
+
+model CustomFieldOption {
+  id         String                @id @default(cuid())
+  fieldId    String
+  field      CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  key        String
+  label      String
+  position   Int                   @default(0)
+  color      String?
+  archivedAt DateTime?
+
+  indexedValues CustomFieldSearchValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fieldId, key])
+  @@index([fieldId, position])
+  @@map("customFieldOption")
+}
+
+model FieldPermission {
+  id        String                @id @default(cuid())
+  roleId    String
+  role      Role                  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  fieldId   String
+  field     CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  canRead   Boolean               @default(true)
+  canUpdate Boolean               @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roleId, fieldId])
+  @@index([fieldId])
+  @@map("fieldPermission")
+}
+
+/// JSONB is the record read path. This table is a sparse typed projection only
+/// for fields marked INDEXED or UNIQUE, keeping arbitrary fields cheap while
+/// making range, sort and uniqueness queries predictable.
+model CustomFieldSearchValue {
+  id      String                @id @default(cuid())
+  fieldId String
+  field   CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  companyId                  String?
+  company                    Company?                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId                  String?
+  contact                    Contact?                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  companyBusinessUnitStateId String?
+  companyBusinessUnitState   CompanyBusinessUnitState? @relation(fields: [companyBusinessUnitStateId], references: [id], onDelete: Cascade)
+  contactBusinessUnitStateId String?
+  contactBusinessUnitState   ContactBusinessUnitState? @relation(fields: [contactBusinessUnitStateId], references: [id], onDelete: Cascade)
+  dealId                     String?
+  deal                       Deal?                     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  customObjectRecordId       String?
+  customObjectRecord         CustomObjectRecord?       @relation(fields: [customObjectRecordId], references: [id], onDelete: Cascade)
+
+  textValue             String?
+  normalizedTextValue   String?
+  numberValue           Decimal?           @db.Decimal(30, 10)
+  booleanValue          Boolean?
+  dateValue             DateTime?
+  jsonValue             Json?
+  optionId              String?
+  option                CustomFieldOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  uniqueNormalizedValue String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([fieldId, companyId])
+  @@unique([fieldId, contactId])
+  @@unique([fieldId, companyBusinessUnitStateId])
+  @@unique([fieldId, contactBusinessUnitStateId])
+  @@unique([fieldId, dealId])
+  @@unique([fieldId, customObjectRecordId])
+  @@index([fieldId, normalizedTextValue])
+  @@index([fieldId, numberValue])
+  @@index([fieldId, booleanValue])
+  @@index([fieldId, dateValue])
+  @@index([fieldId, optionId])
+  @@map("customFieldSearchValue")
+}
+
+model ObjectRelationDefinition {
+  id             String              @id @default(cuid())
+  sourceObjectId String
+  sourceObject   ObjectDefinition    @relation("RelationSourceObject", fields: [sourceObjectId], references: [id], onDelete: Cascade)
+  targetObjectId String
+  targetObject   ObjectDefinition    @relation("RelationTargetObject", fields: [targetObjectId], references: [id], onDelete: Cascade)
+  key            String
+  name           String
+  inverseName    String
+  cardinality    RelationCardinality @default(MANY_TO_MANY)
+  archivedAt     DateTime?
+
+  records RecordRelation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sourceObjectId, key])
+  @@index([targetObjectId])
+  @@map("objectRelationDefinition")
+}
+
+model RecordRelation {
+  id                   String                   @id @default(cuid())
+  relationDefinitionId String
+  relationDefinition   ObjectRelationDefinition @relation(fields: [relationDefinitionId], references: [id], onDelete: Cascade)
+  sourceRecordId       String
+  targetRecordId       String
+  businessUnitId       String?
+  businessUnit         BusinessUnit?            @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  createdByType        AuditActorType
+  createdById          String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([relationDefinitionId, sourceRecordId, targetRecordId])
+  @@index([relationDefinitionId, targetRecordId])
+  @@index([businessUnitId])
+  @@map("recordRelation")
+}
+
+model CustomObjectRecord {
+  id                 String           @id @default(cuid())
+  objectDefinitionId String
+  objectDefinition   ObjectDefinition @relation(fields: [objectDefinitionId], references: [id], onDelete: Restrict)
+  businessUnitId     String
+  businessUnit       BusinessUnit     @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId             String?
+  team               Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId            String?
+  owner              User?            @relation("CustomObjectOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  displayName        String
+  customValues       Json             @default("{}")
+  archivedAt         DateTime?
+
+  indexedCustomValues CustomFieldSearchValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([objectDefinitionId, businessUnitId, archivedAt])
+  @@index([teamId, ownerId])
+  @@map("customObjectRecord")
 }
 
 model Company {
@@ -197,14 +730,16 @@ model Company {
   primaryContactId String?  @unique
   primaryContact   Contact? @relation("PrimaryContact", fields: [primaryContactId], references: [id], onDelete: SetNull)
 
-  enrichmentStatus EnrichmentStatus @default(PENDING)
+  enrichmentStatus EnrichmentStatus   @default(PENDING)
   enrichedAt       DateTime?
   enrichmentError  String?
   enrichment       CompanyEnrichment?
 
   /// MANUAL unless a sync created it. Filterable, so a bad auto-create rule can
   /// be undone in bulk.
-  source RecordSource @default(MANUAL)
+  source       RecordSource @default(MANUAL)
+  archivedAt   DateTime?
+  customValues Json         @default("{}")
 
   /// Denormalised max(activity.createdAt), written with the activity.
   ///
@@ -214,18 +749,21 @@ model Company {
   /// thing on the page. Maintained through `ActivityStampService`.
   lastActivityAt DateTime?
 
-  contacts       Contact[]       @relation("CompanyContacts")
-  conversations  AgentConversation[]
-  deals          Deal[]
-  activities     Activity[]
-  emailThreads   EmailThread[]
-  calendarEvents CalendarEvent[]
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  contacts            Contact[]                  @relation("CompanyContacts")
+  conversations       AgentConversation[]
+  deals               Deal[]
+  activities          Activity[]
+  emailThreads        EmailThread[]
+  calendarEvents      CalendarEvent[]
+  unitStates          CompanyBusinessUnitState[]
+  indexedCustomValues CustomFieldSearchValue[]
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
 
   @@index([ownerId])
   @@index([name])
   @@index([lastActivityAt])
+  @@index([archivedAt])
   @@map("company")
 }
 
@@ -242,12 +780,12 @@ model CompanyEnrichment {
 }
 
 model Contact {
-  id          String   @id @default(cuid())
+  id          String  @id @default(cuid())
   firstName   String
   lastName    String?
   /// Unique, matching HubSpot, so a CSV import can be re-run safely. The cost:
   /// two people behind one info@ address need one email between them.
-  email       String?  @unique
+  email       String? @unique
   phone       String?
   title       String?
   linkedinUrl String?
@@ -258,6 +796,14 @@ model Contact {
   /// Never LinkedIn's own CDN URL: those carry an `e=` expiry parameter and go
   /// dead within weeks, so a hotlinked avatar silently becomes a broken image.
   imageUrl    String?
+
+  // First-touch marketing attribution. Later touches stay on conversion and
+  // attendance activities, preserving the journey without overwriting origin.
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmTerm     String?
+  utmContent  String?
 
   /// When the agent last went looking for this person's X and GitHub accounts.
   ///
@@ -273,19 +819,30 @@ model Contact {
   enrichedAt       DateTime?
   enrichmentError  String?
 
+  // Consolidated business view. Unit-specific qualification remains on
+  // ContactBusinessUnitState and is the source of truth for where it happened.
+  globalLifecycleStage             LifecycleStage @default(LEAD)
+  globalMarketingScore             Decimal?       @db.Decimal(12, 4)
+  globallyMarketingQualifiedAt     DateTime?
+  globallyMarketingQualifiedReason String?
+  globallyMarketingQualifiedById   String?
+  globallyMarketingQualifiedBy     User?          @relation("ContactGlobalQualifier", fields: [globallyMarketingQualifiedById], references: [id], onDelete: SetNull)
+
   /// Who this person is (§3 of the contact-intelligence plan) and every claim
   /// behind the fields above.
   brief         ContactBrief?
   facts         ContactFact[]
   conversations AgentConversation[]
 
-  companyId   String?
-  company     Company? @relation("CompanyContacts", fields: [companyId], references: [id], onDelete: SetNull)
-  ownerId     String?
-  owner       User?    @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  primaryOf   Company? @relation("PrimaryContact")
+  companyId String?
+  company   Company? @relation("CompanyContacts", fields: [companyId], references: [id], onDelete: SetNull)
+  ownerId   String?
+  owner     User?    @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  primaryOf Company? @relation("PrimaryContact")
 
-  source RecordSource @default(MANUAL)
+  source       RecordSource @default(MANUAL)
+  archivedAt   DateTime?
+  customValues Json         @default("{}")
 
   /// Denormalised max(activity.createdAt), written with the activity.
   ///
@@ -295,18 +852,90 @@ model Contact {
   /// thing on the page. Maintained through `ActivityStampService`.
   lastActivityAt DateTime?
 
-  deals           DealContact[]
-  activities      Activity[]
-  emailThreads    EmailThread[]
-  calendarEvents  CalendarEvent[]
-  eventAttendance CalendarAttendee[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  deals               DealContact[]
+  activities          Activity[]
+  emailThreads        EmailThread[]
+  calendarEvents      CalendarEvent[]
+  eventAttendance     CalendarAttendee[]
+  unitStates          ContactBusinessUnitState[]
+  leadSubmissions     LeadSubmission[]
+  indexedCustomValues CustomFieldSearchValue[]
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
 
   @@index([companyId])
   @@index([ownerId])
+  @@index([globalLifecycleStage, globallyMarketingQualifiedAt])
+  @@index([globallyMarketingQualifiedById])
   @@index([lastActivityAt])
+  @@index([archivedAt])
   @@map("contact")
+}
+
+/// One canonical person can be a lead for one unit and an MQL for another. The
+/// global Contact status is a consolidation; this row owns the commercial fact.
+model ContactBusinessUnitState {
+  id             String       @id @default(cuid())
+  contactId      String
+  contact        Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  businessUnitId String
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId        String?
+  owner          User?        @relation("ContactUnitOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  lifecycleStage           LifecycleStage @default(LEAD)
+  marketingScore           Decimal?       @db.Decimal(12, 4)
+  marketingQualifiedAt     DateTime?
+  marketingQualifiedReason String?
+  marketingQualifiedById   String?
+  marketingQualifiedBy     User?          @relation("ContactUnitQualifier", fields: [marketingQualifiedById], references: [id], onDelete: SetNull)
+
+  leadSource   String?
+  utmSource    String?
+  utmMedium    String?
+  utmCampaign  String?
+  utmTerm      String?
+  utmContent   String?
+  customValues Json      @default("{}")
+  archivedAt   DateTime?
+
+  indexedCustomValues CustomFieldSearchValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([contactId, businessUnitId])
+  @@index([businessUnitId, lifecycleStage, marketingQualifiedAt])
+  @@index([teamId, ownerId])
+  @@index([marketingQualifiedById])
+  @@index([archivedAt])
+  @@map("contactBusinessUnitState")
+}
+
+model CompanyBusinessUnitState {
+  id             String       @id @default(cuid())
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  businessUnitId String
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  ownerId        String?
+  owner          User?        @relation("CompanyUnitOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  customValues   Json         @default("{}")
+  archivedAt     DateTime?
+
+  indexedCustomValues CustomFieldSearchValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, businessUnitId])
+  @@index([businessUnitId, archivedAt])
+  @@index([teamId, ownerId])
+  @@map("companyBusinessUnitState")
 }
 
 /// How much of a claim we believe, and what that licenses.
@@ -383,7 +1012,7 @@ model ContactBrief {
   /// `{ currentRole, tenure, previousRoles[], seniority, function, location }`
   /// — shaped by the agent, rendered by the sheet, so adding a line does not
   /// need a migration.
-  sections Json
+  sections  Json
 
   score     Float
   sourceUrl String?
@@ -411,7 +1040,7 @@ model AgentTask {
   priority Int @default(0)
   /// Research units this task may spend. Depth is a decision, and this is
   /// what the agent decides it against.
-  budget Int @default(4)
+  budget   Int @default(4)
   /// How many times this row has been handed to a session.
   ///
   /// The lease is a deadline rather than a flag so a crashed run frees its
@@ -421,7 +1050,7 @@ model AgentTask {
   /// model turn each time. Two rows did exactly that for an hour and a half.
   attempts Int @default(0)
 
-  dueAt DateTime
+  dueAt       DateTime
   /// Held by a dispatcher tick. An expired lease is free to reclaim, which is
   /// what makes a crashed run recoverable rather than stuck.
   leasedUntil DateTime?
@@ -448,7 +1077,7 @@ model AgentTask {
 /// This is what "show your work" reads. Without it the agent's reasoning lives
 /// only in a log nobody can query and nobody can show a rep.
 model AgentEvent {
-  id        String @id
+  id        String  @id
   sessionId String
   contactId String?
   type      String
@@ -491,7 +1120,7 @@ model AgentConversation {
   sessionId         String  @unique
   continuationToken String?
   /// How far the client had read, so a reopened thread does not replay.
-  streamIndex Int @default(0)
+  streamIndex       Int     @default(0)
 
   /// The first thing the rep asked, trimmed. Written once.
   title        String?
@@ -507,22 +1136,31 @@ model AgentConversation {
 }
 
 model Deal {
-  id            String              @id @default(cuid())
-  conversations AgentConversation[]
-  name          String
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  id             String              @id @default(cuid())
+  conversations  AgentConversation[]
+  name           String
+  companyId      String
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
   /// Required: every deal has a name against it.
-  ownerId   String
-  owner     User    @relation("DealOwner", fields: [ownerId], references: [id])
+  ownerId        String
+  owner          User                @relation("DealOwner", fields: [ownerId], references: [id])
+  businessUnitId String              @default("business-unit-default")
+  businessUnit   BusinessUnit        @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId         String?
+  team           Team?               @relation(fields: [teamId], references: [id], onDelete: SetNull)
 
-  stage             DealStage @default(DEMO_BOOKED)
-  stageChangedAt    DateTime  @default(now())
-  amount            Decimal?  @db.Decimal(14, 2)
-  currency          String    @default("USD")
+  pipelineId        String
+  pipeline          Pipeline      @relation(fields: [pipelineId], references: [id])
+  stageId           String
+  stage             PipelineStage @relation(fields: [stageId, pipelineId], references: [id, pipelineId])
+  stageChangedAt    DateTime      @default(now())
+  amount            Decimal?      @db.Decimal(14, 2)
+  currency          String        @default("USD")
   expectedCloseDate DateTime?
   closedAt          DateTime?
   closedReason      String?
+  archivedAt        DateTime?
+  customValues      Json          @default("{}")
 
   /// Denormalised max(activity.createdAt), written with the activity.
   ///
@@ -532,17 +1170,102 @@ model Deal {
   /// thing on the page. Maintained through `ActivityStampService`.
   lastActivityAt DateTime?
 
-  contacts   DealContact[]
-  activities Activity[]
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  contacts            DealContact[]
+  lineItems           DealLineItem[]
+  activities          Activity[]
+  indexedCustomValues CustomFieldSearchValue[]
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
 
   @@index([companyId])
   @@index([ownerId])
-  @@index([stage])
+  @@index([businessUnitId, teamId])
+  @@index([pipelineId])
+  @@index([stageId])
   @@index([expectedCloseDate])
   @@index([lastActivityAt])
+  @@index([archivedAt])
   @@map("deal")
+}
+
+model Pipeline {
+  id             String        @id @default(cuid())
+  name           String
+  isDefault      Boolean       @default(false)
+  archivedAt     DateTime?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  stages PipelineStage[]
+  deals  Deal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archivedAt, name])
+  @@index([businessUnitId, archivedAt])
+  @@map("pipeline")
+}
+
+model PipelineStage {
+  id         String            @id @default(cuid())
+  pipelineId String
+  pipeline   Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  name       String
+  position   Int
+  type       PipelineStageType @default(OPEN)
+
+  deals Deal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([pipelineId, position])
+  @@unique([id, pipelineId])
+  @@index([pipelineId, type])
+  @@map("pipelineStage")
+}
+
+model Product {
+  id             String        @id @default(cuid())
+  sku            String        @unique
+  name           String
+  price          Decimal       @db.Decimal(14, 2)
+  currency       String        @default("USD")
+  archivedAt     DateTime?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  lineItems DealLineItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archivedAt, name])
+  @@index([businessUnitId, archivedAt])
+  @@map("product")
+}
+
+model DealLineItem {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  // Snapshots preserve what was sold even when the catalogue changes later.
+  sku       String
+  name      String
+  unitPrice Decimal @db.Decimal(14, 2)
+  currency  String
+  quantity  Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([dealId])
+  @@index([productId])
+  @@map("dealLineItem")
 }
 
 model DealContact {
@@ -569,6 +1292,11 @@ model Activity {
   dueAt       DateTime?
   completedAt DateTime?
 
+  businessUnitId String       @default("business-unit-default")
+  businessUnit   BusinessUnit @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId         String?
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
   /// Always stamped when it can be resolved, even for deal and contact
   /// activity, so a company timeline is one indexed range scan rather than
   /// three joins.
@@ -578,6 +1306,11 @@ model Activity {
   contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
   dealId    String?
   deal      Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  marketingFormId  String?
+  marketingForm    MarketingForm?  @relation(fields: [marketingFormId], references: [id], onDelete: SetNull)
+  marketingEventId String?
+  marketingEvent   MarketingEvent? @relation(fields: [marketingEventId], references: [id], onDelete: SetNull)
 
   createdById String
   createdBy   User   @relation("ActivityAuthor", fields: [createdById], references: [id])
@@ -601,7 +1334,290 @@ model Activity {
   @@index([contactId, createdAt])
   @@index([dueAt])
   @@index([createdById])
+  @@index([businessUnitId, teamId, createdAt])
+  @@index([marketingFormId, createdAt])
+  @@index([marketingEventId, createdAt])
   @@map("activity")
+}
+
+model MarketingForm {
+  id             String        @id @default(cuid())
+  name           String
+  externalId     String?       @unique
+  archivedAt     DateTime?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  conversions Activity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archivedAt, name])
+  @@index([businessUnitId, archivedAt])
+  @@map("marketingForm")
+}
+
+model MarketingEvent {
+  id             String        @id @default(cuid())
+  name           String
+  startsAt       DateTime?
+  endsAt         DateTime?
+  location       String?
+  archivedAt     DateTime?
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  attendances Activity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([archivedAt, startsAt])
+  @@index([businessUnitId, archivedAt])
+  @@map("marketingEvent")
+}
+
+/// Every intake attempt survives independently from the canonical Contact. A
+/// rejection does not pollute the active contact list, but it remains reviewable
+/// and replayable with the exact validation outcome that produced it.
+model LeadSubmission {
+  id                String               @id @default(cuid())
+  source            String
+  externalId        String?
+  idempotencyKey    String?
+  status            LeadSubmissionStatus
+  payload           Json
+  normalizedPayload Json?
+  reasons           Json?
+
+  businessUnitId String         @default("business-unit-default")
+  businessUnit   BusinessUnit   @relation(fields: [businessUnitId], references: [id], onDelete: Restrict)
+  teamId         String?
+  team           Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  contactId      String?
+  contact        Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  receivedByType AuditActorType
+  receivedById   String?
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@unique([source, externalId])
+  @@unique([source, idempotencyKey])
+  @@index([businessUnitId, status, receivedAt])
+  @@index([teamId, status, receivedAt])
+  @@index([contactId])
+  @@map("leadSubmission")
+}
+
+model AuditEvent {
+  id             String         @id @default(cuid())
+  actorType      AuditActorType
+  actorId        String?
+  action         String
+  resource       String
+  recordId       String?
+  businessUnitId String?
+  businessUnit   BusinessUnit?  @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  teamId         String?
+  team           Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  requestId      String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([resource, recordId, createdAt])
+  @@index([actorType, actorId, createdAt])
+  @@index([businessUnitId, teamId, createdAt])
+  @@index([createdAt])
+  @@map("auditEvent")
+}
+
+model ApiCredential {
+  id          String              @id @default(cuid())
+  name        String
+  prefix      String              @unique
+  secretHash  String
+  lastFour    String
+  status      ApiCredentialStatus @default(ACTIVE)
+  roleId      String
+  role        Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdById String
+  createdBy   User                @relation("ApiCredentialCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  businessUnits ApiCredentialBusinessUnit[]
+  teams         ApiCredentialTeam[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([roleId, status])
+  @@index([expiresAt])
+  @@map("apiCredential")
+}
+
+model ApiCredentialBusinessUnit {
+  credentialId   String
+  credential     ApiCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  businessUnitId String
+  businessUnit   BusinessUnit  @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+
+  @@id([credentialId, businessUnitId])
+  @@index([businessUnitId])
+  @@map("apiCredentialBusinessUnit")
+}
+
+model ApiCredentialTeam {
+  credentialId String
+  credential   ApiCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  teamId       String
+  team         Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([credentialId, teamId])
+  @@index([teamId])
+  @@map("apiCredentialTeam")
+}
+
+model Automation {
+  id             String           @id @default(cuid())
+  name           String
+  description    String?
+  status         AutomationStatus @default(DRAFT)
+  version        Int              @default(1)
+  roleId         String
+  role           Role             @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  businessUnitId String?
+  businessUnit   BusinessUnit?    @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  trigger        Json
+  conditions     Json
+  actions        Json
+  createdById    String
+  createdBy      User             @relation("AutomationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  archivedAt     DateTime?
+
+  runs AutomationRun[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, archivedAt])
+  @@index([businessUnitId, teamId, status])
+  @@index([roleId])
+  @@map("automation")
+}
+
+/// Transactional outbox and durable queue. `eventKey` is the producer's stable
+/// idempotency key; leases make crashed workers recoverable.
+model DomainEvent {
+  id             String         @id @default(cuid())
+  eventKey       String         @unique
+  type           String
+  resource       String
+  recordId       String?
+  businessUnitId String?
+  businessUnit   BusinessUnit?  @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  teamId         String?
+  team           Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  actorType      AuditActorType
+  actorId        String?
+  payload        Json
+  causationId    String?
+  depth          Int            @default(0)
+  attempts       Int            @default(0)
+  availableAt    DateTime       @default(now())
+  leasedUntil    DateTime?
+  completedAt    DateTime?
+  occurredAt     DateTime       @default(now())
+
+  automationRuns    AutomationRun[]
+  webhookDeliveries WebhookDelivery[]
+
+  @@index([availableAt, leasedUntil])
+  @@index([type, occurredAt])
+  @@index([businessUnitId, teamId, occurredAt])
+  @@index([causationId])
+  @@map("domainEvent")
+}
+
+model AutomationRun {
+  id           String              @id @default(cuid())
+  automationId String
+  automation   Automation          @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  eventId      String
+  event        DomainEvent         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  version      Int
+  status       AutomationRunStatus @default(QUEUED)
+  attempts     Int                 @default(0)
+  availableAt  DateTime            @default(now())
+  leasedUntil  DateTime?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  errorCode    String?
+  output       Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([automationId, eventId, version])
+  @@index([status, availableAt, leasedUntil])
+  @@index([eventId])
+  @@map("automationRun")
+}
+
+model WebhookEndpoint {
+  id             String        @id @default(cuid())
+  name           String
+  url            String
+  eventTypes     Json
+  isActive       Boolean       @default(true)
+  secretVersion  Int           @default(1)
+  secretLastFour String
+  businessUnitId String?
+  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  teamId         String?
+  team           Team?         @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdById    String
+  createdBy      User          @relation("WebhookEndpointCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  archivedAt     DateTime?
+
+  deliveries WebhookDelivery[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([businessUnitId, teamId, isActive])
+  @@index([archivedAt])
+  @@map("webhookEndpoint")
+}
+
+model WebhookDelivery {
+  id             String                @id @default(cuid())
+  endpointId     String
+  endpoint       WebhookEndpoint       @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+  eventId        String
+  event          DomainEvent           @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventType      String
+  payload        Json
+  status         WebhookDeliveryStatus @default(PENDING)
+  attempts       Int                   @default(0)
+  availableAt    DateTime              @default(now())
+  leasedUntil    DateTime?
+  deliveredAt    DateTime?
+  responseStatus Int?
+  errorCode      String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([endpointId, eventId])
+  @@index([status, availableAt, leasedUntil])
+  @@index([eventType, createdAt])
+  @@map("webhookDelivery")
 }
 
 // ---------------------------------------------------------------------------
@@ -637,19 +1653,19 @@ model MailboxSync {
   /// "gmail" | "calendar".
   source String
 
-  status GoogleSyncStatus @default(IDLE)
+  status       GoogleSyncStatus @default(IDLE)
   /// Gmail: the last processed historyId. Calendar: nextSyncToken.
   ///
   /// Stamped with "now" the first time a mailbox is seen, which is what makes
   /// this forward-only: there is no backfill, so the cursor starts at the
   /// moment of connection and nothing before it is ever read.
-  cursor String?
+  cursor       String?
   lastSyncedAt DateTime?
   lastError    String?
   /// Set by the 429/403 handler; the cron skips this row until it passes.
   retryAfter   DateTime?
   /// Auto-creation is opt-in per source — on for calendar, off for Gmail.
-  autoCreate   Boolean   @default(false)
+  autoCreate   Boolean          @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -661,7 +1677,7 @@ model MailboxSync {
 
 /// One conversation, whoever's mailbox it came from.
 model EmailThread {
-  id String @id @default(cuid())
+  id            String  @id @default(cuid())
   /// The RFC 822 Message-ID of the thread root — global, unlike Gmail's
   /// mailbox-scoped threadId. This is what stops two reps on one thread
   /// producing two CRM threads.
@@ -695,21 +1711,21 @@ model EmailMessage {
 
   /// Global message identity. Unique, so account B's sync skips what account A
   /// already ingested.
-  rfcMessageId String @unique
+  rfcMessageId   String  @unique
   /// Whose mailbox produced this copy, and its id there — for deep links.
   syncedByUserId String?
   gmailMessageId String?
 
-  direction EmailDirection
-  fromEmail String
-  fromName  String?
+  direction  EmailDirection
+  fromEmail  String
+  fromName   String?
   /// [{ email, name, kind: "to" | "cc" }]. Not a table: nothing queries it.
   recipients Json
   subject    String?
   snippet    String?
   /// Plain text, quoted history stripped. Never logged; never in list payloads.
-  body   String?
-  sentAt DateTime
+  body       String?
+  sentAt     DateTime
 
   createdAt DateTime @default(now())
 
@@ -718,13 +1734,13 @@ model EmailMessage {
 }
 
 model CalendarEvent {
-  id String @id @default(cuid())
+  id                String   @id @default(cuid())
   /// Shared by every attendee's copy of the event, and by every instance of a
   /// recurrence — which is why the start time is part of the key.
   iCalUid           String
   originalStartTime DateTime
   /// Set on an instance of a recurring series.
-  recurringEventId String?
+  recurringEventId  String?
 
   title          String?
   description    String?
@@ -761,8 +1777,8 @@ model CalendarAttendee {
   eventId String
   event   CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
-  email String
-  name  String?
+  email          String
+  name           String?
   /// needsAction | declined | tentative | accepted
   responseStatus String?
   isOrganizer    Boolean  @default(false)

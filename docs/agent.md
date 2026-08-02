@@ -211,6 +211,11 @@ preamble built from the record, so a deal session starts knowing the stage, the
 amount, the close date and who is on it, rather than spending its first two tool
 calls finding out.
 
+The record and its neighbours are filtered with the caller's current CRM role,
+business units and teams before that preamble is built. Tool execution resolves
+the caller again, so a long-lived Eve session cannot retain access after a role
+or membership is removed.
+
 Adding a fourth kind is one entry in `COPY` plus a branch in the agent's
 preamble — not four edits in four layers.
 

@@ -1,6 +1,7 @@
 import {
 	AGENT_URL,
 	bridgeConfigured,
+	bridgeRecordId,
 	mintBridgeToken,
 } from "@/lib/agent-bridge";
 import { getSession } from "@/lib/session";
@@ -81,9 +82,9 @@ async function handler(request: Request): Promise<Response> {
 				name: session.user.name,
 			},
 			{
-				contactId: cuid(contactId),
-				companyId: cuid(companyId),
-				dealId: cuid(dealId),
+				contactId: bridgeRecordId(contactId),
+				companyId: bridgeRecordId(companyId),
+				dealId: bridgeRecordId(dealId),
 			},
 		)}`,
 	);
@@ -146,8 +147,3 @@ export {
 	handler as POST,
 	handler as PUT,
 };
-
-/** A cuid, or nothing. Decides what the agent looks at, never what it may do. */
-function cuid(value: string | null): string | undefined {
-	return value && /^[a-z0-9]{20,32}$/.test(value) ? value : undefined;
-}

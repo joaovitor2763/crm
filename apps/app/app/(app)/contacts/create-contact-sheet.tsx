@@ -54,6 +54,11 @@ export function CreateContactSheet({
 	const [title, setTitle] = useState("");
 	const [company, setCompany] = useState(companyId ?? NONE);
 	const [ownerId, setOwnerId] = useState(NONE);
+	const [utmSource, setUtmSource] = useState("");
+	const [utmMedium, setUtmMedium] = useState("");
+	const [utmCampaign, setUtmCampaign] = useState("");
+	const [utmTerm, setUtmTerm] = useState("");
+	const [utmContent, setUtmContent] = useState("");
 
 	const firstNameId = useId();
 	const lastNameId = useId();
@@ -75,6 +80,11 @@ export function CreateContactSheet({
 				setLastName("");
 				setEmail("");
 				setTitle("");
+				setUtmSource("");
+				setUtmMedium("");
+				setUtmCampaign("");
+				setUtmTerm("");
+				setUtmContent("");
 				openRecord({ kind: "contact", id: contact.id });
 			},
 			onError: (error) => toast.error(error.message),
@@ -110,6 +120,11 @@ export function CreateContactSheet({
 							title: title || undefined,
 							companyId: company === NONE ? null : company,
 							ownerId: ownerId === NONE ? null : ownerId,
+							utmSource: utmSource || undefined,
+							utmMedium: utmMedium || undefined,
+							utmCampaign: utmCampaign || undefined,
+							utmTerm: utmTerm || undefined,
+							utmContent: utmContent || undefined,
 						});
 					}}
 				>
@@ -189,6 +204,51 @@ export function CreateContactSheet({
 									))}
 								</SelectContent>
 							</Select>
+						</Field>
+
+						<Field>
+							<FieldLabel htmlFor="contact-utm-source">UTM source</FieldLabel>
+							<Input
+								id="contact-utm-source"
+								value={utmSource}
+								onChange={(event) => setUtmSource(event.target.value)}
+								placeholder="google"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="contact-utm-medium">UTM medium</FieldLabel>
+							<Input
+								id="contact-utm-medium"
+								value={utmMedium}
+								onChange={(event) => setUtmMedium(event.target.value)}
+								placeholder="cpc"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="contact-utm-campaign">
+								UTM campaign
+							</FieldLabel>
+							<Input
+								id="contact-utm-campaign"
+								value={utmCampaign}
+								onChange={(event) => setUtmCampaign(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="contact-utm-term">UTM term</FieldLabel>
+							<Input
+								id="contact-utm-term"
+								value={utmTerm}
+								onChange={(event) => setUtmTerm(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="contact-utm-content">UTM content</FieldLabel>
+							<Input
+								id="contact-utm-content"
+								value={utmContent}
+								onChange={(event) => setUtmContent(event.target.value)}
+							/>
 						</Field>
 					</FieldGroup>
 				</form>

@@ -36,6 +36,8 @@ const ENTRY_SELECT = {
 	company: { select: { id: true, name: true } },
 	contact: { select: { id: true, firstName: true, lastName: true } },
 	deal: { select: { id: true, name: true } },
+	marketingForm: { select: { id: true, name: true } },
+	marketingEvent: { select: { id: true, name: true } },
 
 	// Summaries only. An email body never rides on a list payload — the row
 	// carries a snippet, and the accordion fetches `google.thread` on expand.
@@ -83,8 +85,10 @@ export class ActivitiesService {
 	 * someone is reading: page two of an offset query would repeat whatever the
 	 * new entry pushed down.
 	 */
-	async timeline(input: TimelineInput) {
-		const where = this.anchor(input);
+	async timeline(input: TimelineInput, scope: Prisma.ActivityWhereInput = {}) {
+		const where: Prisma.ActivityWhereInput = {
+			AND: [this.anchor(input), scope],
+		};
 		Object.assign(where, filterClause(input.filter));
 
 		const rows = await this.db.activity.findMany({
@@ -122,8 +126,11 @@ export class ActivitiesService {
 	 */
 	async timelineCounts(
 		input: Pick<TimelineInput, "companyId" | "contactId" | "dealId">,
+		scope: Prisma.ActivityWhereInput = {},
 	) {
-		const anchor = this.anchor(input);
+		const anchor: Prisma.ActivityWhereInput = {
+			AND: [this.anchor(input), scope],
+		};
 
 		const [all, notes, upcoming, done, email, meetings] = await Promise.all([
 			this.db.activity.count({ where: anchor }),
@@ -145,12 +152,21 @@ export class ActivitiesService {
 		return { all, notes, upcoming, done, email, meetings };
 	}
 
-	async create(input: ActivityCreateInput, actingUserId: string) {
+	async create(
+		input: ActivityCreateInput,
+		actingUserId: string,
+		placement: { businessUnitId: string; teamId: string | null } = {
+			businessUnitId: "business-unit-default",
+			teamId: null,
+		},
+	) {
+		await this.validateMarketingTarget(input);
 		// A deal or contact activity is stamped with its company too, so a company
 		// timeline is one indexed range scan instead of three joins.
 		const companyId = await this.resolveCompanyId(input);
 
 		const isTask = input.type === ActivityType.TASK;
+		const meta = activityMeta(input);
 
 		const activity = await this.db.activity.create({
 			data: {
@@ -171,7 +187,18 @@ export class ActivitiesService {
 				companyId,
 				contactId: input.contactId ?? null,
 				dealId: input.dealId ?? null,
+				marketingFormId:
+					input.type === ActivityType.FORM_CONVERSION
+						? (input.marketingFormId ?? null)
+						: null,
+				marketingEventId:
+					input.type === ActivityType.EVENT_ATTENDANCE
+						? (input.marketingEventId ?? null)
+						: null,
 				createdById: actingUserId,
+				businessUnitId: placement.businessUnitId,
+				teamId: placement.teamId,
+				meta: meta ?? undefined,
 			},
 			select: ENTRY_SELECT,
 		});
@@ -191,10 +218,14 @@ export class ActivitiesService {
 	}
 
 	/** Ticks a task off, or puts it back. */
-	async complete(id: string, completed: boolean) {
-		const activity = await this.db.activity.findUnique({
-			where: { id },
-			select: { type: true },
+	async complete(
+		id: string,
+		completed: boolean,
+		scope: Prisma.ActivityWhereInput = {},
+	) {
+		const activity = await this.db.activity.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: { id: true, type: true },
 		});
 
 		if (!activity) {
@@ -206,7 +237,7 @@ export class ActivitiesService {
 		}
 
 		const updated = await this.db.activity.update({
-			where: { id },
+			where: { id: activity.id },
 			data: { completedAt: completed ? new Date() : null },
 			select: ENTRY_SELECT,
 		});
@@ -215,12 +246,21 @@ export class ActivitiesService {
 	}
 
 	/** Open tasks assigned to whoever is asking. */
-	async myTasks(input: MyTasksInput, actingUserId: string) {
+	async myTasks(
+		input: MyTasksInput,
+		actingUserId: string,
+		scope: Prisma.ActivityWhereInput = {},
+	) {
 		const now = new Date();
 		const where: Prisma.ActivityWhereInput = {
-			type: ActivityType.TASK,
-			completedAt: null,
-			createdById: actingUserId,
+			AND: [
+				{
+					type: ActivityType.TASK,
+					completedAt: null,
+					createdById: actingUserId,
+				},
+				scope,
+			],
 		};
 
 		if (input.window === "overdue") where.dueAt = { lt: now };
@@ -239,6 +279,50 @@ export class ActivitiesService {
 		});
 
 		return tasks.map(serializeEntry);
+	}
+
+	async resolvePlacement(
+		input: Pick<ActivityCreateInput, "companyId" | "contactId" | "dealId">,
+		businessUnitIds: string[],
+		defaultBusinessUnitId: string | null,
+		defaultTeamId: string | null,
+	): Promise<{ businessUnitId: string; teamId: string | null }> {
+		if (input.dealId) {
+			const deal = await this.db.deal.findUnique({
+				where: { id: input.dealId },
+				select: { businessUnitId: true, teamId: true },
+			});
+			if (deal) return deal;
+		}
+		const state = input.contactId
+			? await this.db.contactBusinessUnitState.findFirst({
+					where: {
+						contactId: input.contactId,
+						businessUnitId: { in: businessUnitIds },
+						archivedAt: null,
+					},
+					orderBy: { updatedAt: "desc" },
+					select: { businessUnitId: true, teamId: true },
+				})
+			: input.companyId
+				? await this.db.companyBusinessUnitState.findFirst({
+						where: {
+							companyId: input.companyId,
+							businessUnitId: { in: businessUnitIds },
+							archivedAt: null,
+						},
+						orderBy: { updatedAt: "desc" },
+						select: { businessUnitId: true, teamId: true },
+					})
+				: null;
+		if (state) return state;
+		if (!defaultBusinessUnitId) {
+			throw new BadRequestException("An activity needs a business unit.");
+		}
+		return {
+			businessUnitId: defaultBusinessUnitId,
+			teamId: defaultTeamId,
+		};
 	}
 
 	/** Exactly one of company/contact/deal, as the contract promises. */
@@ -288,6 +372,42 @@ export class ActivitiesService {
 		}
 
 		return null;
+	}
+
+	private async validateMarketingTarget(input: ActivityCreateInput) {
+		if (input.marketingFormId && input.type !== ActivityType.FORM_CONVERSION) {
+			throw new BadRequestException(
+				"A form can only be linked to a form conversion.",
+			);
+		}
+		if (
+			input.marketingEventId &&
+			input.type !== ActivityType.EVENT_ATTENDANCE
+		) {
+			throw new BadRequestException(
+				"An event can only be linked to event attendance.",
+			);
+		}
+		if (input.type === ActivityType.FORM_CONVERSION) {
+			if (!input.marketingFormId)
+				throw new BadRequestException("Choose an active marketing form.");
+			const form = await this.db.marketingForm.findFirst({
+				where: { id: input.marketingFormId, archivedAt: null },
+				select: { id: true },
+			});
+			if (!form)
+				throw new BadRequestException("That marketing form is not active.");
+		}
+		if (input.type === ActivityType.EVENT_ATTENDANCE) {
+			if (!input.marketingEventId)
+				throw new BadRequestException("Choose an active marketing event.");
+			const event = await this.db.marketingEvent.findFirst({
+				where: { id: input.marketingEventId, archivedAt: null },
+				select: { id: true },
+			});
+			if (!event)
+				throw new BadRequestException("That marketing event is not active.");
+		}
 	}
 }
 
@@ -348,6 +468,31 @@ function serializeEntry(entry: Entry) {
 				}
 			: null,
 	};
+}
+
+function activityMeta(
+	input: ActivityCreateInput,
+): Record<string, string> | null {
+	if (input.type === ActivityType.MESSAGE && input.messageChannel) {
+		return { channel: input.messageChannel };
+	}
+	if (
+		input.type === ActivityType.FORM_CONVERSION ||
+		input.type === ActivityType.EVENT_ATTENDANCE
+	) {
+		const attribution = {
+			utmSource: input.utmSource?.trim(),
+			utmMedium: input.utmMedium?.trim(),
+			utmCampaign: input.utmCampaign?.trim(),
+			utmTerm: input.utmTerm?.trim(),
+			utmContent: input.utmContent?.trim(),
+		};
+		const present = Object.entries(attribution).filter(
+			(entry): entry is [string, string] => Boolean(entry[1]),
+		);
+		return present.length > 0 ? Object.fromEntries(present) : null;
+	}
+	return null;
 }
 
 function parseDate(value: string | null | undefined): Date | null {

@@ -16,6 +16,9 @@ const PRESENTATION: Record<ActivityType, { icon: CarbonIcon; label: string }> =
 		EMAIL: { icon: Email, label: "Email" },
 		MEETING: { icon: Events, label: "Meeting" },
 		TASK: { icon: Task, label: "Task" },
+		MESSAGE: { icon: Chat, label: "Message" },
+		FORM_CONVERSION: { icon: ArrowRight, label: "Form conversion" },
+		EVENT_ATTENDANCE: { icon: Events, label: "Event attendance" },
 		STAGE_CHANGE: { icon: ArrowRight, label: "Stage change" },
 		ENRICHMENT: { icon: MagicWand, label: "Enrichment" },
 	};

@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertDeal } from "../lib/access";
 import { readDealHistory } from "../lib/accounts";
 import { focusOn } from "../lib/focus";
 
@@ -28,8 +30,12 @@ export default defineTool({
 			.default(5)
 			.describe("How many recent threads to read."),
 	}),
-	async execute({ dealId, threads }) {
-		const history = await readDealHistory(dealId, { threads });
+	async execute({ dealId, threads }, ctx) {
+		const access = await assertDeal(ctx, dealId, PermissionAction.READ);
+		const history = await readDealHistory(dealId, {
+			threads,
+			contactWhere: access.contactWhere,
+		});
 		if (!history) return { found: false as const, reason: "No such deal." };
 
 		// A deal has no fields of its own to enrich, so anything learned here is

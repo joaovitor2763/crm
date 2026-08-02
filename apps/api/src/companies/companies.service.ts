@@ -1,4 +1,5 @@
 import {
+	AuditActorType,
 	type Db,
 	type EnrichmentStatus,
 	type Prisma,
@@ -12,11 +13,15 @@ import {
 	Logger,
 	NotFoundException,
 } from "@nestjs/common";
+import {
+	DEFAULT_BUSINESS_UNIT_ID,
+	DEFAULT_TEAM_ID,
+} from "../access-control/access-control.constants";
+import type { EffectivePrincipal } from "../access-control/access-control.types";
 import { AgentQueueService } from "../agent/agent-queue.service";
 import { AgentTriggerService } from "../agent/agent-trigger.service";
 import { blankToNull, toCents } from "../crm/values";
 import { InjectDatabase } from "../database/database.constants";
-import { OPEN_DEAL_STAGES } from "../deals/deal-stage";
 import {
 	countsByKey,
 	FACET_ALL,
@@ -108,8 +113,15 @@ export class CompaniesService {
 		private readonly queue: AgentQueueService,
 	) {}
 
-	async list(input: CompanyListInput): Promise<ListResult<CompanyRow>> {
-		const where = this.buildWhere(input);
+	async list(
+		input: CompanyListInput,
+		scope: Prisma.CompanyWhereInput = {},
+		contactScope: Prisma.ContactWhereInput = {},
+		dealScope: Prisma.DealWhereInput = {},
+	): Promise<ListResult<CompanyRow>> {
+		const where: Prisma.CompanyWhereInput = {
+			AND: [this.buildWhere(input), scope],
+		};
 		const { skip, take } = paginate(input);
 
 		const [rows, total, facetCounts] = await Promise.all([
@@ -135,8 +147,17 @@ export class CompaniesService {
 					owner: { select: OWNER_SELECT },
 					_count: {
 						select: {
-							contacts: true,
-							deals: { where: { stage: { in: [...OPEN_DEAL_STAGES] } } },
+							contacts: {
+								where: { AND: [{ archivedAt: null }, contactScope] },
+							},
+							deals: {
+								where: {
+									AND: [
+										{ archivedAt: null, stage: { type: "OPEN" } },
+										dealScope,
+									],
+								},
+							},
 						},
 					},
 					lastActivityAt: true,
@@ -144,7 +165,7 @@ export class CompaniesService {
 				},
 			}),
 			this.db.company.count({ where }),
-			this.facetCounts(input),
+			this.facetCounts(input, scope),
 		]);
 
 		// After the page is known, so it is one query for the rows on screen
@@ -176,9 +197,14 @@ export class CompaniesService {
 		};
 	}
 
-	async byId(id: string) {
-		const company = await this.db.company.findUnique({
-			where: { id },
+	async byId(
+		id: string,
+		scope: Prisma.CompanyWhereInput = {},
+		contactScope: Prisma.ContactWhereInput = {},
+		dealScope: Prisma.DealWhereInput = {},
+	) {
+		const company = await this.db.company.findFirst({
+			where: { AND: [{ id }, scope] },
 			select: {
 				id: true,
 				name: true,
@@ -208,9 +234,11 @@ export class CompaniesService {
 				enrichedAt: true,
 				enrichmentError: true,
 				source: true,
+				archivedAt: true,
 				createdAt: true,
 				owner: { select: OWNER_SELECT },
 				primaryContact: {
+					where: contactScope,
 					select: {
 						id: true,
 						firstName: true,
@@ -221,6 +249,7 @@ export class CompaniesService {
 					},
 				},
 				contacts: {
+					where: { AND: [{ archivedAt: null }, contactScope] },
 					orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
 					select: {
 						id: true,
@@ -232,11 +261,18 @@ export class CompaniesService {
 					},
 				},
 				deals: {
-					orderBy: [{ stage: "asc" }, { expectedCloseDate: "asc" }],
+					where: { AND: [{ archivedAt: null }, dealScope] },
+					orderBy: [
+						{ stage: { position: "asc" } },
+						{ expectedCloseDate: "asc" },
+					],
 					select: {
 						id: true,
 						name: true,
-						stage: true,
+						stage: {
+							select: { id: true, name: true, position: true, type: true },
+						},
+						pipeline: { select: { id: true, name: true } },
 						amount: true,
 						currency: true,
 						expectedCloseDate: true,
@@ -268,6 +304,34 @@ export class CompaniesService {
 		};
 	}
 
+	async archived(scope: Prisma.CompanyWhereInput = {}) {
+		const rows = await this.db.company.findMany({
+			where: { AND: [{ archivedAt: { not: null } }, scope] },
+			orderBy: { archivedAt: "desc" },
+			select: { id: true, name: true, domain: true, archivedAt: true },
+		});
+		return rows.map(({ archivedAt, ...row }) => ({
+			...row,
+			archivedAt: archivedAt?.toISOString() ?? null,
+		}));
+	}
+
+	async assignments(id: string, scope: Prisma.CompanyWhereInput = {}) {
+		const company = await this.db.company.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				ownerId: true,
+				unitStates: {
+					where: { archivedAt: null },
+					select: { businessUnitId: true, teamId: true, ownerId: true },
+				},
+			},
+		});
+		if (!company) throw new NotFoundException(`No company with id ${id}.`);
+		return company;
+	}
+
 	/**
 	 * Companies for a picker or a facet label — id, name and enough to draw the
 	 * logo, nothing else.
@@ -275,16 +339,16 @@ export class CompaniesService {
 	 * Capped at 100 and searchable, so the "which company?" dropdown on a contact
 	 * or a deal stays a dropdown rather than becoming a second list view.
 	 */
-	async options(q: string) {
+	async options(q: string, scope: Prisma.CompanyWhereInput = {}) {
 		return this.db.company.findMany({
-			where: this.searchFilter(q),
+			where: { AND: [this.searchFilter(q), { archivedAt: null }, scope] },
 			select: { id: true, name: true, domain: true, iconUrl: true },
 			orderBy: { name: "asc" },
 			take: 100,
 		});
 	}
 
-	async create(input: CompanyCreateInput) {
+	async create(input: CompanyCreateInput, actor?: EffectivePrincipal) {
 		const domain = normalizeDomain(input.domain);
 
 		if (domain) {
@@ -299,14 +363,40 @@ export class CompaniesService {
 			}
 		}
 
-		const company = await this.db.company.create({
-			data: {
-				name: input.name.trim(),
-				domain,
-				website: domain ? `https://${domain}` : null,
-				ownerId: input.ownerId ?? null,
-			},
-			select: { id: true, name: true, domain: true },
+		const businessUnitId = input.businessUnitId ?? DEFAULT_BUSINESS_UNIT_ID;
+		const teamId = input.teamId === undefined ? DEFAULT_TEAM_ID : input.teamId;
+		const company = await this.db.$transaction(async (tx) => {
+			const created = await tx.company.create({
+				data: {
+					name: input.name.trim(),
+					domain,
+					website: domain ? `https://${domain}` : null,
+					ownerId: input.ownerId ?? null,
+					customValues: (input.customValues ?? {}) as Prisma.InputJsonObject,
+					unitStates: {
+						create: {
+							businessUnitId,
+							teamId,
+							ownerId: input.ownerId ?? actor?.userId ?? null,
+						},
+					},
+				},
+				select: { id: true, name: true, domain: true },
+			});
+			await tx.domainEvent.create({
+				data: {
+					eventKey: `company.created:${created.id}`,
+					type: "company.created",
+					resource: "companies",
+					recordId: created.id,
+					businessUnitId,
+					teamId,
+					actorType: actor?.actorType ?? AuditActorType.SYSTEM,
+					actorId: actor?.actorId,
+					payload: { source: "MANUAL" },
+				},
+			});
+			return created;
 		});
 
 		this.logger.log({
@@ -324,7 +414,12 @@ export class CompaniesService {
 		return company;
 	}
 
-	async update(id: string, input: CompanyUpdateInput) {
+	async update(
+		id: string,
+		input: CompanyUpdateInput,
+		scope: Prisma.CompanyWhereInput = {},
+	) {
+		await this.requireScoped(id, scope);
 		const data: Prisma.CompanyUpdateInput = {};
 
 		if (input.name !== undefined) data.name = input.name.trim();
@@ -390,6 +485,32 @@ export class CompaniesService {
 		}
 	}
 
+	async archive(id: string, scope: Prisma.CompanyWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		try {
+			return await this.db.company.update({
+				where: { id },
+				data: { archivedAt: new Date() },
+				select: { id: true, archivedAt: true },
+			});
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
+	async restore(id: string, scope: Prisma.CompanyWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		try {
+			return await this.db.company.update({
+				where: { id },
+				data: { archivedAt: null },
+				select: { id: true, archivedAt: true },
+			});
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
 	/**
 	 * The "Look this up again" button.
 	 *
@@ -399,9 +520,12 @@ export class CompaniesService {
 	 * sources, how deep, whether the cached answer is still good — belongs to
 	 * the agent.
 	 */
-	async enrich(id: string): Promise<{ id: string; queued: boolean }> {
-		const company = await this.db.company.findUnique({
-			where: { id },
+	async enrich(
+		id: string,
+		scope: Prisma.CompanyWhereInput = {},
+	): Promise<{ id: string; queued: boolean }> {
+		const company = await this.db.company.findFirst({
+			where: { AND: [{ id }, scope] },
 			select: { id: true },
 		});
 
@@ -419,9 +543,13 @@ export class CompaniesService {
 	}
 
 	/** Asks the agent for a written brief on the company's timeline. */
-	async research(id: string, actingUserId: string) {
-		const company = await this.db.company.findUnique({
-			where: { id },
+	async research(
+		id: string,
+		actingUserId: string,
+		scope: Prisma.CompanyWhereInput = {},
+	) {
+		const company = await this.db.company.findFirst({
+			where: { AND: [{ id }, scope] },
 			select: { id: true, domain: true },
 		});
 
@@ -493,6 +621,7 @@ export class CompaniesService {
 		const where: Prisma.CompanyWhereInput = {
 			...this.searchFilter(input.q),
 			...ownerFilter(input.owner),
+			archivedAt: null,
 		};
 
 		if (input.industry !== FACET_ALL) {
@@ -517,8 +646,13 @@ export class CompaniesService {
 	 * shift every time you touch a different dropdown are hard to read, and
 	 * options that vanish are worse.
 	 */
-	private async facetCounts(input: CompanyListInput) {
-		const where = this.searchFilter(input.q);
+	private async facetCounts(
+		input: CompanyListInput,
+		scope: Prisma.CompanyWhereInput,
+	) {
+		const where: Prisma.CompanyWhereInput = {
+			AND: [{ ...this.searchFilter(input.q), archivedAt: null }, scope],
+		};
 
 		const [owners, industries, enrichment, sources] = await Promise.all([
 			this.db.company.groupBy({
@@ -549,6 +683,17 @@ export class CompaniesService {
 			enrichment: countsByKey(enrichment, "enrichmentStatus"),
 			source: countsByKey(sources, "source"),
 		};
+	}
+
+	private async requireScoped(
+		id: string,
+		scope: Prisma.CompanyWhereInput,
+	): Promise<void> {
+		const record = await this.db.company.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: { id: true },
+		});
+		if (!record) throw new NotFoundException(`No company with id ${id}.`);
 	}
 
 	/** Prisma's constraint errors, said in a way a rep can act on. */

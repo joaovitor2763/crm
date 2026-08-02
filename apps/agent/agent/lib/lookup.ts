@@ -1,4 +1,4 @@
-import { db } from "@crm/db";
+import { db, type Prisma } from "@crm/db";
 import { domainOf, normalise } from "./names";
 
 /**
@@ -68,7 +68,13 @@ export type SearchResult = {
  */
 export async function searchCrm(
 	query: string,
-	options: { kinds?: RecordKind[]; limit?: number } = {},
+	options: {
+		kinds?: RecordKind[];
+		limit?: number;
+		contactWhere?: Prisma.ContactWhereInput;
+		companyWhere?: Prisma.CompanyWhereInput;
+		dealWhere?: Prisma.DealWhereInput;
+	} = {},
 ): Promise<SearchResult> {
 	const term = query.trim();
 	const kinds = options.kinds ?? ["contact", "company", "deal"];
@@ -86,9 +92,13 @@ export async function searchCrm(
 	const words = term.split(/\s+/).filter((word) => word.length >= 2);
 
 	const [contacts, companies, deals] = await Promise.all([
-		wants("contact") ? searchContacts(term, words, email, limit) : [],
-		wants("company") ? searchCompanies(term, words, domain, limit) : [],
-		wants("deal") ? searchDeals(term, words, limit) : [],
+		wants("contact")
+			? searchContacts(term, words, email, limit, options.contactWhere)
+			: [],
+		wants("company")
+			? searchCompanies(term, words, domain, limit, options.companyWhere)
+			: [],
+		wants("deal") ? searchDeals(term, words, limit, options.dealWhere) : [],
 	]);
 
 	return {
@@ -105,6 +115,7 @@ async function searchContacts(
 	words: string[],
 	email: string | null,
 	limit: number,
+	scope: Prisma.ContactWhereInput = {},
 ): Promise<ContactHit[]> {
 	const contains = words.flatMap((word) => [
 		{ firstName: { contains: word, mode: "insensitive" as const } },
@@ -114,14 +125,24 @@ async function searchContacts(
 
 	const rows = await db.contact.findMany({
 		where: {
-			OR: [
-				...(email
-					? [{ email: { equals: email, mode: "insensitive" as const } }]
-					: []),
-				...contains,
-				// The whole phrase against the company, so "Comp AI" finds the
-				// people there rather than only a person called Comp.
-				{ company: { name: { contains: term, mode: "insensitive" as const } } },
+			AND: [
+				{ archivedAt: null },
+				scope,
+				{
+					OR: [
+						...(email
+							? [{ email: { equals: email, mode: "insensitive" as const } }]
+							: []),
+						...contains,
+						// The whole phrase against the company, so "Comp AI" finds the
+						// people there rather than only a person called Comp.
+						{
+							company: {
+								name: { contains: term, mode: "insensitive" as const },
+							},
+						},
+					],
+				},
 			],
 		},
 		orderBy: [{ lastActivityAt: "desc" }, { createdAt: "asc" }],
@@ -163,17 +184,24 @@ async function searchCompanies(
 	words: string[],
 	domain: string | null,
 	limit: number,
+	scope: Prisma.CompanyWhereInput = {},
 ): Promise<CompanyHit[]> {
 	const rows = await db.company.findMany({
 		where: {
-			OR: [
-				{ name: { contains: term, mode: "insensitive" } },
-				...(domain
-					? [{ domain: { contains: domain, mode: "insensitive" as const } }]
-					: []),
-				...words.map((word) => ({
-					name: { contains: word, mode: "insensitive" as const },
-				})),
+			AND: [
+				{ archivedAt: null },
+				scope,
+				{
+					OR: [
+						{ name: { contains: term, mode: "insensitive" } },
+						...(domain
+							? [{ domain: { contains: domain, mode: "insensitive" as const } }]
+							: []),
+						...words.map((word) => ({
+							name: { contains: word, mode: "insensitive" as const },
+						})),
+					],
+				},
 			],
 		},
 		orderBy: [{ lastActivityAt: "desc" }, { name: "asc" }],
@@ -183,7 +211,12 @@ async function searchCompanies(
 			name: true,
 			domain: true,
 			industry: true,
-			_count: { select: { contacts: true, deals: true } },
+			_count: {
+				select: {
+					contacts: { where: { archivedAt: null } },
+					deals: { where: { archivedAt: null } },
+				},
+			},
 		},
 	});
 
@@ -209,15 +242,22 @@ async function searchDeals(
 	term: string,
 	words: string[],
 	limit: number,
+	scope: Prisma.DealWhereInput = {},
 ): Promise<DealHit[]> {
 	const rows = await db.deal.findMany({
 		where: {
-			OR: [
-				{ name: { contains: term, mode: "insensitive" } },
-				...words.map((word) => ({
-					name: { contains: word, mode: "insensitive" as const },
-				})),
-				{ company: { name: { contains: term, mode: "insensitive" } } },
+			AND: [
+				{ archivedAt: null },
+				scope,
+				{
+					OR: [
+						{ name: { contains: term, mode: "insensitive" } },
+						...words.map((word) => ({
+							name: { contains: word, mode: "insensitive" as const },
+						})),
+						{ company: { name: { contains: term, mode: "insensitive" } } },
+					],
+				},
 			],
 		},
 		orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
@@ -225,7 +265,7 @@ async function searchDeals(
 		select: {
 			id: true,
 			name: true,
-			stage: true,
+			stage: { select: { name: true } },
 			amount: true,
 			currency: true,
 			company: { select: { id: true, name: true } },
@@ -239,7 +279,7 @@ async function searchDeals(
 				kind: "deal" as const,
 				id: row.id,
 				name: row.name,
-				stage: row.stage,
+				stage: row.stage.name,
 				amount: row.amount === null ? null : Number(row.amount),
 				currency: row.currency,
 				company: row.company,

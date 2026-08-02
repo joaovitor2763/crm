@@ -1,4 +1,4 @@
-import type { Db } from "@crm/db";
+import type { Db, Prisma } from "@crm/db";
 import { Injectable } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
 
@@ -28,16 +28,29 @@ export class SearchService {
 	 * result has to be grouped by kind for the UI anyway, and this keeps each
 	 * one's ordering and fields its own business.
 	 */
-	async quick(q: string): Promise<{ hits: SearchHit[] }> {
+	async quick(
+		q: string,
+		scopes: {
+			companies: Prisma.CompanyWhereInput;
+			contacts: Prisma.ContactWhereInput;
+			deals: Prisma.DealWhereInput;
+		} = { companies: {}, contacts: {}, deals: {} },
+	): Promise<{ hits: SearchHit[] }> {
 		const term = q.trim();
 		if (term.length < 2) return { hits: [] };
 
 		const [companies, contacts, deals] = await Promise.all([
 			this.db.company.findMany({
 				where: {
-					OR: [
-						{ name: { contains: term, mode: "insensitive" } },
-						{ domain: { contains: term, mode: "insensitive" } },
+					AND: [
+						{ archivedAt: null },
+						{
+							OR: [
+								{ name: { contains: term, mode: "insensitive" } },
+								{ domain: { contains: term, mode: "insensitive" } },
+							],
+						},
+						scopes.companies,
 					],
 				},
 				take: PER_KIND,
@@ -53,10 +66,16 @@ export class SearchService {
 			}),
 			this.db.contact.findMany({
 				where: {
-					OR: [
-						{ firstName: { contains: term, mode: "insensitive" } },
-						{ lastName: { contains: term, mode: "insensitive" } },
-						{ email: { contains: term, mode: "insensitive" } },
+					AND: [
+						{ archivedAt: null },
+						{
+							OR: [
+								{ firstName: { contains: term, mode: "insensitive" } },
+								{ lastName: { contains: term, mode: "insensitive" } },
+								{ email: { contains: term, mode: "insensitive" } },
+							],
+						},
+						scopes.contacts,
 					],
 				},
 				take: PER_KIND,
@@ -70,9 +89,17 @@ export class SearchService {
 				},
 			}),
 			this.db.deal.findMany({
-				where: { name: { contains: term, mode: "insensitive" } },
+				where: {
+					AND: [
+						{
+							archivedAt: null,
+							name: { contains: term, mode: "insensitive" },
+						},
+						scopes.deals,
+					],
+				},
 				take: PER_KIND,
-				orderBy: [{ stage: "asc" }, { name: "asc" }],
+				orderBy: [{ stage: { position: "asc" } }, { name: "asc" }],
 				select: {
 					id: true,
 					name: true,

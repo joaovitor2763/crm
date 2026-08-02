@@ -1,4 +1,5 @@
 import {
+	AuditActorType,
 	type ContactBriefSections,
 	type Db,
 	type FactEvidence,
@@ -13,6 +14,11 @@ import {
 	Logger,
 	NotFoundException,
 } from "@nestjs/common";
+import {
+	DEFAULT_BUSINESS_UNIT_ID,
+	DEFAULT_TEAM_ID,
+} from "../access-control/access-control.constants";
+import type { EffectivePrincipal } from "../access-control/access-control.types";
 import { AgentQueueService } from "../agent/agent-queue.service";
 import { AgentTriggerService } from "../agent/agent-trigger.service";
 import { CompanyDirectoryService } from "../companies/company-directory.service";
@@ -94,6 +100,7 @@ export type ContactRow = {
 	} | null;
 	lastActivityAt: string | null;
 	createdAt: string;
+	globalLifecycleStage: string;
 };
 
 /**
@@ -127,8 +134,14 @@ export class ContactsService {
 		private readonly queue: AgentQueueService,
 	) {}
 
-	async list(input: ContactListInput): Promise<ListResult<ContactRow>> {
-		const where = this.buildWhere(input);
+	async list(
+		input: ContactListInput,
+		scope: Prisma.ContactWhereInput = {},
+		companyScope: Prisma.CompanyWhereInput = {},
+	): Promise<ListResult<ContactRow>> {
+		const where: Prisma.ContactWhereInput = {
+			AND: [this.buildWhere(input), scope],
+		};
 		const { skip, take } = paginate(input);
 
 		const [rows, total, facetCounts] = await Promise.all([
@@ -144,15 +157,16 @@ export class ContactsService {
 					email: true,
 					title: true,
 					imageUrl: true,
+					globalLifecycleStage: true,
 					source: true,
-					company: { select: COMPANY_SELECT },
+					company: { where: companyScope, select: COMPANY_SELECT },
 					owner: { select: OWNER_SELECT },
 					lastActivityAt: true,
 					createdAt: true,
 				},
 			}),
 			this.db.contact.count({ where }),
-			this.facetCounts(input),
+			this.facetCounts(input, scope),
 		]);
 
 		return {
@@ -166,9 +180,14 @@ export class ContactsService {
 		};
 	}
 
-	async byId(id: string) {
-		const contact = await this.db.contact.findUnique({
-			where: { id },
+	async byId(
+		id: string,
+		scope: Prisma.ContactWhereInput = {},
+		companyScope: Prisma.CompanyWhereInput = {},
+		dealScope: Prisma.DealWhereInput = {},
+	) {
+		const contact = await this.db.contact.findFirst({
+			where: { AND: [{ id }, scope] },
 			select: {
 				id: true,
 				firstName: true,
@@ -176,12 +195,38 @@ export class ContactsService {
 				email: true,
 				phone: true,
 				title: true,
+				archivedAt: true,
+				utmSource: true,
+				utmMedium: true,
+				utmCampaign: true,
+				utmTerm: true,
+				utmContent: true,
 				linkedinUrl: true,
 				twitterUrl: true,
 				githubUrl: true,
 				imageUrl: true,
 				enrichmentStatus: true,
 				enrichmentError: true,
+				globalLifecycleStage: true,
+				globalMarketingScore: true,
+				globallyMarketingQualifiedAt: true,
+				globallyMarketingQualifiedReason: true,
+				customValues: true,
+				unitStates: {
+					where: { archivedAt: null },
+					orderBy: { businessUnit: { name: "asc" } },
+					select: {
+						id: true,
+						lifecycleStage: true,
+						marketingScore: true,
+						marketingQualifiedAt: true,
+						marketingQualifiedReason: true,
+						customValues: true,
+						businessUnit: { select: { id: true, key: true, name: true } },
+						team: { select: { id: true, key: true, name: true } },
+						owner: { select: OWNER_SELECT },
+					},
+				},
 				createdAt: true,
 				brief: {
 					select: {
@@ -213,17 +258,24 @@ export class ContactsService {
 					},
 				},
 				company: {
+					where: companyScope,
 					select: { ...COMPANY_SELECT, industry: true, primaryContactId: true },
 				},
 				owner: { select: OWNER_SELECT },
 				deals: {
+					where: {
+						deal: { AND: [{ archivedAt: null }, dealScope] },
+					},
 					select: {
 						role: true,
 						deal: {
 							select: {
 								id: true,
 								name: true,
-								stage: true,
+								stage: {
+									select: { id: true, name: true, position: true, type: true },
+								},
+								pipeline: { select: { id: true, name: true } },
 								amount: true,
 								currency: true,
 								expectedCloseDate: true,
@@ -244,7 +296,8 @@ export class ContactsService {
 			contact.company?.id ?? null,
 		);
 
-		const { deals, createdAt, brief, facts, company, ...rest } = contact;
+		const { deals, createdAt, brief, facts, company, unitStates, ...rest } =
+			contact;
 
 		return {
 			...rest,
@@ -252,6 +305,14 @@ export class ContactsService {
 			/** Whether the agent has this person on its list — see `AgentQueueService`. */
 			queued: await this.queue.isQueued({ contactId: id }),
 			createdAt: createdAt.toISOString(),
+			globalMarketingScore: contact.globalMarketingScore?.toString() ?? null,
+			globallyMarketingQualifiedAt:
+				contact.globallyMarketingQualifiedAt?.toISOString() ?? null,
+			unitStates: unitStates.map((state) => ({
+				...state,
+				marketingScore: state.marketingScore?.toString() ?? null,
+				marketingQualifiedAt: state.marketingQualifiedAt?.toISOString() ?? null,
+			})),
 			brief: brief
 				? {
 						...brief,
@@ -278,7 +339,41 @@ export class ContactsService {
 		};
 	}
 
-	async create(input: ContactCreateInput) {
+	async archived(scope: Prisma.ContactWhereInput = {}) {
+		const rows = await this.db.contact.findMany({
+			where: { AND: [{ archivedAt: { not: null } }, scope] },
+			orderBy: { archivedAt: "desc" },
+			select: {
+				id: true,
+				firstName: true,
+				lastName: true,
+				email: true,
+				archivedAt: true,
+			},
+		});
+		return rows.map(({ archivedAt, ...row }) => ({
+			...row,
+			archivedAt: archivedAt?.toISOString() ?? null,
+		}));
+	}
+
+	async assignments(id: string, scope: Prisma.ContactWhereInput = {}) {
+		const contact = await this.db.contact.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				ownerId: true,
+				unitStates: {
+					where: { archivedAt: null },
+					select: { businessUnitId: true, teamId: true, ownerId: true },
+				},
+			},
+		});
+		if (!contact) throw new NotFoundException(`No contact with id ${id}.`);
+		return contact;
+	}
+
+	async create(input: ContactCreateInput, actor?: EffectivePrincipal) {
 		const email = blankToNull(input.email ?? "");
 
 		if (email) {
@@ -306,17 +401,54 @@ export class ContactsService {
 					})
 				: null);
 
-		const contact = await this.db.contact.create({
-			data: {
-				firstName: input.firstName.trim(),
-				lastName: blankToNull(input.lastName ?? ""),
-				email,
-				phone: blankToNull(input.phone ?? ""),
-				title: blankToNull(input.title ?? ""),
-				companyId,
-				ownerId: input.ownerId ?? null,
-			},
-			select: { id: true, firstName: true, lastName: true },
+		const businessUnitId = input.businessUnitId ?? DEFAULT_BUSINESS_UNIT_ID;
+		const teamId = input.teamId === undefined ? DEFAULT_TEAM_ID : input.teamId;
+		const contact = await this.db.$transaction(async (tx) => {
+			const created = await tx.contact.create({
+				data: {
+					firstName: input.firstName.trim(),
+					lastName: blankToNull(input.lastName ?? ""),
+					email,
+					phone: blankToNull(input.phone ?? ""),
+					title: blankToNull(input.title ?? ""),
+					companyId,
+					ownerId: input.ownerId ?? null,
+					utmSource: blankToNull(input.utmSource ?? ""),
+					utmMedium: blankToNull(input.utmMedium ?? ""),
+					utmCampaign: blankToNull(input.utmCampaign ?? ""),
+					utmTerm: blankToNull(input.utmTerm ?? ""),
+					utmContent: blankToNull(input.utmContent ?? ""),
+					customValues: (input.customValues ?? {}) as Prisma.InputJsonObject,
+					unitStates: {
+						create: {
+							businessUnitId,
+							teamId,
+							ownerId: input.ownerId ?? actor?.userId ?? null,
+							leadSource: "MANUAL",
+							utmSource: blankToNull(input.utmSource ?? ""),
+							utmMedium: blankToNull(input.utmMedium ?? ""),
+							utmCampaign: blankToNull(input.utmCampaign ?? ""),
+							utmTerm: blankToNull(input.utmTerm ?? ""),
+							utmContent: blankToNull(input.utmContent ?? ""),
+						},
+					},
+				},
+				select: { id: true, firstName: true, lastName: true },
+			});
+			await tx.domainEvent.create({
+				data: {
+					eventKey: `contact.created:${created.id}`,
+					type: "contact.created",
+					resource: "contacts",
+					recordId: created.id,
+					businessUnitId,
+					teamId,
+					actorType: actor?.actorType ?? AuditActorType.SYSTEM,
+					actorId: actor?.actorId,
+					payload: { source: "MANUAL" },
+				},
+			});
+			return created;
 		});
 
 		this.logger.log({ message: "Contact created", contactId: contact.id });
@@ -333,7 +465,12 @@ export class ContactsService {
 		return contact;
 	}
 
-	async update(id: string, input: ContactUpdateInput) {
+	async update(
+		id: string,
+		input: ContactUpdateInput,
+		scope: Prisma.ContactWhereInput = {},
+	) {
+		await this.requireScoped(id, scope);
 		const data: Prisma.ContactUpdateInput = {};
 
 		if (input.firstName !== undefined) data.firstName = input.firstName.trim();
@@ -351,6 +488,15 @@ export class ContactsService {
 		if (input.githubUrl !== undefined) {
 			data.githubUrl = blankToNull(input.githubUrl);
 		}
+		if (input.utmSource !== undefined)
+			data.utmSource = blankToNull(input.utmSource);
+		if (input.utmMedium !== undefined)
+			data.utmMedium = blankToNull(input.utmMedium);
+		if (input.utmCampaign !== undefined)
+			data.utmCampaign = blankToNull(input.utmCampaign);
+		if (input.utmTerm !== undefined) data.utmTerm = blankToNull(input.utmTerm);
+		if (input.utmContent !== undefined)
+			data.utmContent = blankToNull(input.utmContent);
 		if (input.companyId !== undefined) {
 			data.company = input.companyId
 				? { connect: { id: input.companyId } }
@@ -367,6 +513,39 @@ export class ContactsService {
 				where: { id },
 				data,
 				select: { id: true, firstName: true, lastName: true },
+			});
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
+	async archive(id: string, scope: Prisma.ContactWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		try {
+			const [, archived] = await this.db.$transaction([
+				this.db.company.updateMany({
+					where: { primaryContactId: id },
+					data: { primaryContactId: null },
+				}),
+				this.db.contact.update({
+					where: { id },
+					data: { archivedAt: new Date() },
+					select: { id: true, archivedAt: true },
+				}),
+			]);
+			return archived;
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
+	async restore(id: string, scope: Prisma.ContactWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		try {
+			return await this.db.contact.update({
+				where: { id },
+				data: { archivedAt: null },
+				select: { id: true, archivedAt: true },
 			});
 		} catch (error) {
 			throw this.translate(error, id);
@@ -415,7 +594,11 @@ export class ContactsService {
 				}),
 				companyId
 					? this.db.contact.findMany({
-							where: { companyId, id: { not: contactId } },
+							where: {
+								companyId,
+								id: { not: contactId },
+								archivedAt: null,
+							},
 							orderBy: { lastActivityAt: { sort: "desc", nulls: "last" } },
 							take: 4,
 							select: {
@@ -464,6 +647,7 @@ export class ContactsService {
 	async decideFact(
 		input: FactDecisionInput,
 		userId: string,
+		scope: Prisma.ContactWhereInput = {},
 	): Promise<{ contactId: string; field: string; applied: boolean }> {
 		const fact = await this.db.contactFact.findUnique({
 			where: { id: input.factId },
@@ -479,6 +663,7 @@ export class ContactsService {
 		if (!fact) {
 			throw new NotFoundException(`No fact with id ${input.factId}.`);
 		}
+		await this.requireScoped(fact.contactId, scope);
 
 		if (fact.status !== FactStatus.PROPOSED) {
 			throw new ConflictException("That suggestion has already been settled.");
@@ -559,6 +744,7 @@ export class ContactsService {
 		const where: Prisma.ContactWhereInput = {
 			...this.searchFilter(input.q),
 			...ownerFilter(input.owner),
+			archivedAt: null,
 		};
 
 		if (input.company !== FACET_ALL) {
@@ -573,8 +759,13 @@ export class ContactsService {
 	}
 
 	/** Counts against the search term only — see `CompaniesService.facetCounts`. */
-	private async facetCounts(input: ContactListInput) {
-		const where = this.searchFilter(input.q);
+	private async facetCounts(
+		input: ContactListInput,
+		scope: Prisma.ContactWhereInput,
+	) {
+		const where: Prisma.ContactWhereInput = {
+			AND: [{ ...this.searchFilter(input.q), archivedAt: null }, scope],
+		};
 
 		const [owners, companies, sources] = await Promise.all([
 			this.db.contact.groupBy({
@@ -599,6 +790,17 @@ export class ContactsService {
 			company: countsByKey(companies, "companyId", NO_COMPANY),
 			source: countsByKey(sources, "source"),
 		};
+	}
+
+	private async requireScoped(
+		id: string,
+		scope: Prisma.ContactWhereInput,
+	): Promise<void> {
+		const record = await this.db.contact.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: { id: true },
+		});
+		if (!record) throw new NotFoundException(`No contact with id ${id}.`);
 	}
 
 	private translate(error: unknown, id: string): unknown {

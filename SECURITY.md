@@ -17,11 +17,18 @@ This CRM is built for **one organisation of authenticated internal users**. It i
 public or multi-tenant service boundary, and the design says so out loud in a few places. The
 limits below are real and worth reading before you put customer data in it.
 
-**Sign-in is the entire authorisation model.** `ALLOWED_SIGN_IN` decides who gets in; after that,
-every signed-in person can read and write every record. There are no roles, no per-record
-permissions and no organizations — deliberately, because a permissions check that always returns
-`true` reads like a real one at review time. If you need someone to see only part of the pipeline,
-this is the wrong tool today.
+**Sign-in and authorization are separate.** `ALLOWED_SIGN_IN` decides who may
+enter. Each user then has exactly one role plus business-unit and team
+memberships. Roles grant actions with `owned`, `team`, `managed teams`,
+`business unit`, `business unit tree`, or global scope; custom fields can be
+read-only or hidden per role. New identities start read-only. This remains one
+organization and one database, not a multi-tenant boundary.
+
+**External access is delegated, not anonymous.** `/api/v1` and `/mcp` require a
+hashed bearer credential whose role, units and teams are fixed when issued.
+The plaintext token is shown once. Credentials and automations cannot use the
+Global Admin role, and a delegated `ALL` permission is capped to its assigned
+unit tree. Only a Global Admin can issue or revoke external credentials.
 
 An unset `ALLOWED_SIGN_IN` fails closed: nobody can sign in. A list that names a consumer domain
 (`gmail.com`) is an open door, which is why single addresses are supported.
@@ -49,6 +56,11 @@ without it. Treat it like a password.
 against `BETTER_AUTH_SECRET`. Rotating it signs everyone out, which is the intended way to revoke
 every session at once.
 
+**Webhooks are signed.** Each endpoint secret is derived from
+`WEBHOOK_SIGNING_SECRET`, shown once, and never stored in plaintext. Deliveries
+carry `x-crm-signature: sha256=…`. Rotating the master secret invalidates all
+existing endpoint secrets; rotate endpoints immediately afterward.
+
 ## Deploying it safely
 
 - Set `ALLOWED_SIGN_IN` to a domain you control. Never a public mail provider.
@@ -56,6 +68,8 @@ every session at once.
   is not a secret.
 - Serve both processes over HTTPS. Secure cookies switch on with `NODE_ENV=production`.
 - Set `CRON_SECRET` if you expose the sync route at all.
+- Set a distinct `WEBHOOK_SIGNING_SECRET` before enabling outbound webhooks.
+- Give API credentials the narrowest role and unit/team set that can do the job.
 - Keep the database off the public internet.
 - Start with no optional API keys and add them one at a time, so you know what is leaving.
 

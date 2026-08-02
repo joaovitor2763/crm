@@ -1,7 +1,6 @@
 "use client";
 
 import ChevronDown from "@carbon/icons-react/es/ChevronDown";
-import type { DealStage } from "@crm/db/enums";
 import { Button } from "@crm/ui/components/button";
 import {
 	Dialog,
@@ -14,43 +13,37 @@ import {
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuGroup,
+	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@crm/ui/components/dropdown-menu";
 import { Field, FieldLabel } from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Spinner } from "@crm/ui/components/spinner";
 import { Textarea } from "@crm/ui/components/textarea";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useId, useState } from "react";
 import { toast } from "sonner";
 import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
 import {
-	DEAL_STAGE_OPTIONS,
+	type DealStage,
 	DealStageIndicator,
-	LOSING_STAGES,
+	isLosingStage,
 } from "./deal-stage";
 
-/**
- * Which deal is being closed out, and to what.
- *
- * In the URL rather than component state so one dialog can serve every row of
- * the table as well as the detail page — and so a half-finished "why did we
- * lose this?" survives a refresh instead of silently discarding the answer.
- */
-const closeReasonParams = {
+export const closeReasonParams = {
 	closing: parseAsString,
 	closingStage: parseAsString,
 };
 
-/** Invalidates everywhere a stage is visible. */
 function useStageMutation(onDone?: () => void) {
 	const trpc = useTRPC();
 	const cache = useCrmCache();
-
 	return useMutation(
 		trpc.deals.setStage.mutationOptions({
 			onSuccess: async (_, variables) => {
@@ -62,18 +55,6 @@ function useStageMutation(onDone?: () => void) {
 	);
 }
 
-/**
- * The one place a deal's stage is set — a table cell, a board card, or the
- * header of the deal's own sheet.
- *
- * `inline` is for a cell in a list, where a bordered control in every row
- * would out-shout the rows. `control` is for a sheet header, where it sits
- * beside real buttons and has to look like one.
- *
- * Losing stages divert through `CloseReasonDialog`: the API refuses them
- * without a reason, so asking here is friendlier than a toast full of the
- * rejection.
- */
 export function DealStageMenu({
 	dealId,
 	stage,
@@ -83,13 +64,16 @@ export function DealStageMenu({
 	stage: DealStage;
 	variant?: "inline" | "control";
 }) {
+	const trpc = useTRPC();
+	const pipelines = useQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
 	const [, setCloseParams] = useQueryStates(closeReasonParams);
 	const setStage = useStageMutation();
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				{/* The row underneath opens a record on click; this control does not. */}
 				{variant === "control" ? (
 					<Button
 						variant="outline"
@@ -112,32 +96,35 @@ export function DealStageMenu({
 				)}
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
-				// The header control sits at the right edge of the sheet, so its menu
-				// hangs from that edge rather than being pushed back by collision
-				// detection a beat after it opens.
 				align={variant === "control" ? "end" : "start"}
-				className="min-w-52"
+				className="min-w-56"
 				onClick={(event) => event.stopPropagation()}
 			>
 				<DropdownMenuRadioGroup
-					value={stage}
-					onValueChange={(next) => {
-						const chosen = next as DealStage;
-						if (chosen === stage) return;
-						if (LOSING_STAGES.includes(chosen)) {
-							void setCloseParams({
-								closing: dealId,
-								closingStage: chosen,
-							});
+					value={stage.id}
+					onValueChange={(stageId) => {
+						if (stageId === stage.id) return;
+						const chosen = pipelines.data
+							?.flatMap((pipeline) => pipeline.stages)
+							.find((option) => option.id === stageId);
+						if (!chosen) return;
+						if (isLosingStage(chosen)) {
+							void setCloseParams({ closing: dealId, closingStage: chosen.id });
 							return;
 						}
-						setStage.mutate({ id: dealId, stage: chosen });
+						setStage.mutate({ id: dealId, stageId });
 					}}
 				>
-					{DEAL_STAGE_OPTIONS.map((option) => (
-						<DropdownMenuRadioItem key={option.value} value={option.value}>
-							{option.label}
-						</DropdownMenuRadioItem>
+					{(pipelines.data ?? []).map((pipeline, index) => (
+						<DropdownMenuGroup key={pipeline.id}>
+							{index > 0 ? <DropdownMenuSeparator /> : null}
+							<DropdownMenuLabel>{pipeline.name}</DropdownMenuLabel>
+							{pipeline.stages.map((option) => (
+								<DropdownMenuRadioItem key={option.id} value={option.id}>
+									{option.name}
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuGroup>
 					))}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
@@ -145,52 +132,53 @@ export function DealStageMenu({
 	);
 }
 
-/**
- * Asks why a deal was lost or disqualified.
- *
- * Rendered once per page; which deal it is about comes from the URL, so every
- * row can open it without each one carrying a dialog of its own.
- */
 export function CloseReasonDialog() {
 	const reasonId = useId();
+	const trpc = useTRPC();
+	const pipelines = useQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
 	const [{ closing, closingStage }, setCloseParams] =
 		useQueryStates(closeReasonParams);
 	const [reason, setReason] = useState("");
-
+	const stage = pipelines.data
+		?.flatMap((pipeline) => pipeline.stages)
+		.find((option) => option.id === closingStage);
 	const close = () => {
 		setReason("");
 		void setCloseParams({ closing: null, closingStage: null });
 	};
-
 	const setStage = useStageMutation(() => {
 		toast.success("Deal closed.");
 		close();
 	});
 
-	const stage = closingStage as DealStage | null;
-	const open = Boolean(closing && stage);
-
 	return (
-		<Dialog open={open} onOpenChange={(next) => !next && close()}>
+		<Dialog
+			open={Boolean(closing && closingStage)}
+			onOpenChange={(next) => !next && close()}
+		>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>
-						{stage === "CLOSED_LOST" ? "Close as lost" : "Mark as unqualified"}
+						{stage?.type === "LOST" ? "Close as lost" : "Mark as unqualified"}
 					</DialogTitle>
 					<DialogDescription>
-						{stage === "CLOSED_LOST"
-							? "What did we lose it to? This is the only place that answer gets recorded."
-							: "Why is this not a fit? It goes on the timeline so nobody re-runs the same deal."}
+						Record the reason on the timeline so the same outcome is not
+						repeated.
 					</DialogDescription>
 				</DialogHeader>
-
 				<form
 					id="close-reason"
 					className="px-4"
 					onSubmit={(event) => {
 						event.preventDefault();
-						if (!closing || !stage) return;
-						setStage.mutate({ id: closing, stage, closedReason: reason });
+						if (!closing || !closingStage) return;
+						setStage.mutate({
+							id: closing,
+							stageId: closingStage,
+							closedReason: reason,
+						});
 					}}
 				>
 					<Field>
@@ -204,7 +192,6 @@ export function CloseReasonDialog() {
 						/>
 					</Field>
 				</form>
-
 				<DialogFooter>
 					<Button
 						type="submit"

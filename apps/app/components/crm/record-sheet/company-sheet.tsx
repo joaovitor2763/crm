@@ -23,7 +23,7 @@ import { formatMoney } from "@crm/ui/lib/format";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { AgentPanel } from "@/components/crm/agent-panel";
-import { OPEN_STAGES } from "@/components/crm/deal-stage";
+import { ArchiveRecordButton } from "@/components/crm/archive-record-button";
 import { EnrichmentActions } from "@/components/crm/enrichment-actions";
 import {
 	ENRICHMENT_POLL_MS,
@@ -171,7 +171,7 @@ export function CompanySheet({ companyId }: { companyId: string }) {
 		: null;
 
 	const openDeals =
-		company?.deals.filter((deal) => OPEN_STAGES.includes(deal.stage)) ?? [];
+		company?.deals.filter((deal) => deal.stage.type === "OPEN") ?? [];
 	const openValueCents = openDeals.reduce(
 		(total, deal) => total + (deal.amountCents ?? 0),
 		0,
@@ -269,10 +269,17 @@ export function CompanySheet({ companyId }: { companyId: string }) {
 			}
 			actions={
 				company ? (
-					<EnrichmentActions
-						companyId={company.id}
-						hasDomain={company.domain !== null}
-					/>
+					<>
+						<EnrichmentActions
+							companyId={company.id}
+							hasDomain={company.domain !== null}
+						/>
+						<ArchiveRecordButton
+							kind="company"
+							id={company.id}
+							archived={company.archivedAt !== null}
+						/>
+					</>
 				) : null
 			}
 			stats={

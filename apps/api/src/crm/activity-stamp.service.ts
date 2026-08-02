@@ -45,26 +45,27 @@ export class ActivityStampService {
 			OR: [{ lastActivityAt: null }, { lastActivityAt: { lt: at } }],
 		};
 
-		await Promise.all([
-			target.companyId
-				? this.db.company.updateMany({
-						where: { id: target.companyId, ...stale },
-						data: { lastActivityAt: at },
-					})
-				: null,
-			target.contactId
-				? this.db.contact.updateMany({
-						where: { id: target.contactId, ...stale },
-						data: { lastActivityAt: at },
-					})
-				: null,
-			target.dealId
-				? this.db.deal.updateMany({
-						where: { id: target.dealId, ...stale },
-						data: { lastActivityAt: at },
-					})
-				: null,
-		]);
+		// The pg adapter uses one client for this service. Concurrent `query()` calls
+		// on that client are deprecated in pg 8 and will fail in pg 9, so keep this
+		// tiny fan-out sequential rather than wrapping it in `Promise.all`.
+		if (target.companyId) {
+			await this.db.company.updateMany({
+				where: { id: target.companyId, ...stale },
+				data: { lastActivityAt: at },
+			});
+		}
+		if (target.contactId) {
+			await this.db.contact.updateMany({
+				where: { id: target.contactId, ...stale },
+				data: { lastActivityAt: at },
+			});
+		}
+		if (target.dealId) {
+			await this.db.deal.updateMany({
+				where: { id: target.dealId, ...stale },
+				data: { lastActivityAt: at },
+			});
+		}
 	}
 
 	/**

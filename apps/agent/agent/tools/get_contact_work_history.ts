@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import { enabled, unavailable } from "../lib/capabilities";
 import { contactProfileSlug } from "../lib/crm";
 import { getExperience, getProfile } from "../lib/linkdapi";
@@ -21,7 +23,8 @@ export default defineTool({
 	inputSchema: z.object({
 		contactId: z.string(),
 	}),
-	async execute({ contactId }) {
+	async execute({ contactId }, ctx) {
+		await assertContact(ctx, contactId, PermissionAction.READ);
 		if (!enabled("RAPIDAPI_KEY")) {
 			return { found: false as const, ...unavailable("RAPIDAPI_KEY") };
 		}

@@ -3,6 +3,7 @@ import {
 	ForbiddenException,
 	Get,
 	Headers,
+	Inject,
 	Logger,
 	Post,
 	ServiceUnavailableException,
@@ -25,7 +26,9 @@ export class SyncController {
 	private readonly secret: string | undefined;
 
 	constructor(
+		@Inject(GoogleSyncService)
 		private readonly sync: GoogleSyncService,
+		@Inject(ConfigService)
 		config: ConfigService<EnvironmentVariables, true>,
 	) {
 		this.secret = config.get("CRON_SECRET", { infer: true });

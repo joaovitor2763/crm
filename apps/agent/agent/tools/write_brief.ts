@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import type { Evidence, EvidenceKind } from "../lib/evidence";
 import { WEIGHTS } from "../lib/evidence";
 import { writeBrief } from "../lib/facts";
@@ -60,7 +62,8 @@ export default defineTool({
 			.min(1),
 		sourceUrl: z.string().optional(),
 	}),
-	async execute(input) {
+	async execute(input, ctx) {
+		await assertContact(ctx, input.contactId, PermissionAction.UPDATE);
 		focusOn({ contactId: input.contactId });
 
 		const narrative = input.narrative.trim();

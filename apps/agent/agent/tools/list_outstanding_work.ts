@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { crmAccess } from "../lib/access";
 import { contactsNeedingWork } from "../lib/crm";
 
 /**
@@ -17,8 +19,9 @@ export default defineTool({
 	inputSchema: z.object({
 		limit: z.number().int().min(1).max(25).default(10),
 	}),
-	async execute({ limit }) {
-		const contacts = await contactsNeedingWork(limit);
+	async execute({ limit }, ctx) {
+		const access = await crmAccess(ctx, PermissionAction.READ, "contacts");
+		const contacts = await contactsNeedingWork(limit, access.contactWhere);
 		return { count: contacts.length, contacts };
 	},
 });

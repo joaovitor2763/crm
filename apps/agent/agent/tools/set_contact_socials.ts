@@ -1,5 +1,7 @@
+import { PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertContact } from "../lib/access";
 import { personForVerification } from "../lib/crm";
 import type { Evidence } from "../lib/evidence";
 import { recordFact } from "../lib/facts";
@@ -35,7 +37,8 @@ export default defineTool({
 				"A candidate github.com profile URL from find_contact_socials.",
 			),
 	}),
-	async execute({ contactId, twitterUrl, githubUrl }) {
+	async execute({ contactId, twitterUrl, githubUrl }, ctx) {
+		await assertContact(ctx, contactId, PermissionAction.UPDATE);
 		focusOn({ contactId });
 
 		const person = await personForVerification(contactId);

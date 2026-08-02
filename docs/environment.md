@@ -52,7 +52,7 @@ Five values, and the API refuses to start without them.
 | --- | --- |
 | `DATABASE_URL` | `docker compose up -d` starts a Postgres that matches `.env.example` exactly |
 | `BETTER_AUTH_SECRET` | Signs session cookies. `openssl rand -base64 32` |
-| `ALLOWED_SIGN_IN` | The entire authorisation model — see below |
+| `ALLOWED_SIGN_IN` | The sign-in admission gate — roles govern access after sign-in |
 | `GOOGLE_CLIENT_ID` | Google is the only sign-in method |
 | `GOOGLE_CLIENT_SECRET` | |
 
@@ -166,6 +166,7 @@ nothing, and Calendar reads from `now` onwards.
 | Variable | Required | Notes |
 | --- | --- | --- |
 | `CRON_SECRET` | in deployed environments | Bearer guard on `POST /internal/sync/google`. Vercel sends it automatically as `Authorization: Bearer $CRON_SECRET`. Minimum 16 characters; the route **fails closed** if unset, so locally the cron simply never runs. |
+| `WEBHOOK_SIGNING_SECRET` | when webhooks are enabled | Master key used to derive each endpoint secret. It is never sent directly and must be at least 32 characters. Missing means webhook creation is unavailable; the rest of the CRM still starts. |
 
 The absences are deliberate:
 

@@ -10,7 +10,6 @@ import { formatMoney, relativeTimeFromIso } from "@crm/ui/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { CLOSING_OPTIONS } from "@/components/crm/closing-window";
 import { CompanyCell } from "@/components/crm/company-cell";
-import { DEAL_STAGE_OPTIONS } from "@/components/crm/deal-stage";
 import { OwnerCell } from "@/components/crm/owner-cell";
 import { useOpenRecord } from "@/components/crm/record-sheet/record-stack";
 import { DealStageMenu } from "@/components/crm/stage-change";
@@ -133,6 +132,9 @@ export function DealsTable() {
 		placeholderData: (previous) => previous,
 	});
 	const users = useQuery(trpc.users.list.queryOptions());
+	const pipelines = useQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
 
 	const facetCounts = deals.data?.facetCounts;
 
@@ -145,11 +147,19 @@ export function DealsTable() {
 				.filter((option) => (facetCounts?.owner?.[option.value] ?? 0) > 0),
 		},
 		{
+			id: "pipeline",
+			label: "Pipeline",
+			options: (pipelines.data ?? [])
+				.map((pipeline) => ({ value: pipeline.id, label: pipeline.name }))
+				.filter((option) => (facetCounts?.pipeline?.[option.value] ?? 0) > 0),
+		},
+		{
 			id: "stage",
 			label: "Stage",
-			options: DEAL_STAGE_OPTIONS.filter(
-				(option) => (facetCounts?.stage?.[option.value] ?? 0) > 0,
-			),
+			options: (pipelines.data ?? [])
+				.flatMap((pipeline) => pipeline.stages)
+				.map((stage) => ({ value: stage.id, label: stage.name }))
+				.filter((option) => (facetCounts?.stage?.[option.value] ?? 0) > 0),
 		},
 		{
 			id: "closing",

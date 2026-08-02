@@ -1,6 +1,7 @@
-import { ActivityType, db } from "@crm/db";
+import { ActivityType, db, PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertCompany } from "../lib/access";
 import { extract } from "../lib/context-dev";
 import { spend } from "../lib/focus";
 
@@ -54,7 +55,8 @@ export default defineTool({
 	inputSchema: z.object({
 		companyId: z.string(),
 	}),
-	async execute({ companyId }) {
+	async execute({ companyId }, ctx) {
+		await assertCompany(ctx, companyId, PermissionAction.UPDATE);
 		const company = await db.company.findUnique({
 			where: { id: companyId },
 			select: {

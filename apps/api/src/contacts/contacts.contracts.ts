@@ -1,3 +1,4 @@
+import { LifecycleStage } from "@crm/db";
 import { z } from "zod";
 import { listInput } from "../trpc/list-input";
 
@@ -25,6 +26,14 @@ export const contactCreateInput = z.object({
 	title: z.string().trim().optional(),
 	companyId: z.string().nullable().optional(),
 	ownerId: z.string().nullable().optional(),
+	businessUnitId: z.string().optional(),
+	teamId: z.string().nullable().optional(),
+	customValues: z.record(z.string(), z.unknown()).optional(),
+	utmSource: z.string().trim().optional(),
+	utmMedium: z.string().trim().optional(),
+	utmCampaign: z.string().trim().optional(),
+	utmTerm: z.string().trim().optional(),
+	utmContent: z.string().trim().optional(),
 });
 
 export type ContactCreateInput = z.infer<typeof contactCreateInput>;
@@ -43,6 +52,11 @@ const contactUpdateInput = z.object({
 	// a rep can retype is a field that gets overwritten on the next run.
 	companyId: z.string().nullable().optional(),
 	ownerId: z.string().nullable().optional(),
+	utmSource: z.string().optional(),
+	utmMedium: z.string().optional(),
+	utmCampaign: z.string().optional(),
+	utmTerm: z.string().optional(),
+	utmContent: z.string().optional(),
 });
 
 export type ContactUpdateInput = z.infer<typeof contactUpdateInput>;
@@ -53,6 +67,31 @@ export const contactUpdateArgs = z.object({
 });
 
 export const contactIdInput = z.object({ id: z.string() });
+
+export const contactLifecycleInput = z
+	.object({
+		contactId: z.string(),
+		businessUnitId: z.string(),
+		teamId: z.string().nullable().optional(),
+		ownerId: z.string().nullable().optional(),
+		lifecycleStage: z.enum(LifecycleStage),
+		marketingScore: z.number().finite().nullable().optional(),
+		qualificationReason: z.string().trim().max(1000).nullable().optional(),
+	})
+	.superRefine((input, ctx) => {
+		if (
+			input.lifecycleStage === LifecycleStage.MQL &&
+			!input.qualificationReason
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["qualificationReason"],
+				message: "Explain why this contact is marketing qualified.",
+			});
+		}
+	});
+
+export type ContactLifecycleInput = z.infer<typeof contactLifecycleInput>;
 
 /**
  * A rep settling a proposal the agent could not settle itself.

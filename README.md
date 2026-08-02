@@ -56,10 +56,10 @@ evidence. Strong evidence writes to the record. Weak evidence becomes a suggesti
 human settles. A confidently wrong fact about a customer is worse than a blank field,
 because nobody can tell it is wrong.
 
-It is single-tenant and internal by design. Sign-in is Google, the allow-list is one
-environment variable, and everyone who gets in can see everything. That is the whole
-authorisation model — see [SECURITY.md](./SECURITY.md) before you point it at real
-customer data.
+It is single-tenant and internal by design. Google and `ALLOWED_SIGN_IN` decide
+who may enter; one role per user plus business units and teams decide what each
+person may see or change. See [SECURITY.md](./SECURITY.md) before you point it at
+real customer data.
 
 ## Screenshots
 
@@ -97,6 +97,28 @@ customer data.
     </td>
   </tr>
 </table>
+
+## CRM surface
+
+- Deals can be viewed as a sortable table or as a drag-and-drop Kanban. Moving
+  a card writes a stage-change activity; Lost and Unqualified require a reason.
+- Pipelines and their ordered stages are managed in Settings, including stage
+  outcome semantics (`open`, `won`, `lost`, and `unqualified`) and a default
+  pipeline for new deals.
+- Companies, contacts, and deals are archived rather than deleted, so their
+  commercial history remains available. Contacts also carry first-touch UTM
+  attribution.
+- The product catalogue stores SKU, name, price, and currency. Products added
+  to a deal are snapshotted so later catalogue edits do not rewrite history.
+- Marketing forms and events are managed in Settings. Form conversions, event
+  attendance, SMS, and WhatsApp messages can be logged on any CRM timeline.
+- Contacts progress from Lead to MQL per business unit, while the contact keeps
+  a consolidated global lifecycle and marketing score for the business.
+- Custom fields support typed values, select options, indexing, field-level
+  permissions and API/agent exposure. Roles combine with hierarchical business
+  units and teams for record visibility.
+- Durable automations react to domain events and signed webhooks deliver the
+  same outbox externally. Scoped API keys power `/api/v1` and `/mcp` for agents.
 
 ## The agent
 
@@ -198,9 +220,8 @@ Written up where the work happens, not in a style guide:
   matcher once drifted until one matched every employer on earth.
 - **`packages/ui` is the only source of UI** ([docs/design.md](./docs/design.md)). No
   overriding styles at the call site.
-- **There are no organizations.** Single tenant, deliberately. An `organizationId`
-  that is always the same value is a column, an index and a permissions check that
-  buys nothing and reads like a real one at review time.
+- **There are no organizations.** Single tenant, deliberately. Business units,
+  teams and roles are internal governance partitions, not tenant plumbing.
 
 ## Quick start
 
@@ -248,9 +269,9 @@ nobody outside your org can even reach the prompt.
 
 </details>
 
-`ALLOWED_SIGN_IN` is the entire authorisation model — an unset value means nobody can
-sign in, which is the safe direction to fail. It takes whole domains, individual
-addresses, or a mix:
+`ALLOWED_SIGN_IN` is the admission gate — an unset value means nobody can sign
+in, which is the safe direction to fail. Roles and memberships are assigned in
+Settings after admission. It takes whole domains, individual addresses, or a mix:
 
 ```sh
 ALLOWED_SIGN_IN="acme.com"                       # everyone at your company
@@ -277,6 +298,7 @@ short version:
 | `AGENT_BRIDGE_SECRET` | Lets a rep talk to the agent from a contact's **Agent** tab. |
 | `REDIS_URL` | A shared cache. Without it, per-instance and in-memory. |
 | `CRON_SECRET` | Guards the Gmail/Calendar sync route. Required to use it. |
+| `WEBHOOK_SIGNING_SECRET` | Derives per-endpoint webhook secrets. Required only for webhooks. |
 
 ## Tasks
 
@@ -302,6 +324,11 @@ would have set. It refuses to run with `NODE_ENV=production`.
 ## Deploying
 
 Three deployments and a Postgres: the Next.js app, the NestJS API, and the agent.
+
+Additive, backwards-compatible migrations can be applied before the new
+processes without a maintenance window. Destructive migrations still require an
+expand/contract release or a maintenance window. Run `bun run db:deploy` once
+for the target database, then deploy all three services from the same commit.
 They are independent, and the only thing they must agree on is `DATABASE_URL` and
 `BETTER_AUTH_SECRET` — the API mints the session cookie and the app verifies it, so a
 mismatch is a redirect loop rather than an error.

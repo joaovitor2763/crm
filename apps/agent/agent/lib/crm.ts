@@ -1,4 +1,4 @@
-import { db, EnrichmentStatus } from "@crm/db";
+import { db, EnrichmentStatus, type Prisma } from "@crm/db";
 import { domainOf, isDerivedName } from "./names";
 import type { Person } from "./socials";
 
@@ -39,13 +39,22 @@ export type WorkItem = {
  * live deal matters more than a named one with no background is a judgement,
  * not a schedule.
  */
-export async function contactsNeedingWork(limit: number): Promise<WorkItem[]> {
+export async function contactsNeedingWork(
+	limit: number,
+	scope: Prisma.ContactWhereInput = {},
+): Promise<WorkItem[]> {
 	const rows = await db.contact.findMany({
 		where: {
-			OR: [
-				{ brief: { is: null } },
-				{ socialsCheckedAt: null },
-				{ AND: [{ email: { not: null } }, { lastName: null }] },
+			AND: [
+				{ archivedAt: null },
+				scope,
+				{
+					OR: [
+						{ brief: { is: null } },
+						{ socialsCheckedAt: null },
+						{ AND: [{ email: { not: null } }, { lastName: null }] },
+					],
+				},
 			],
 		},
 		select: {
@@ -215,7 +224,12 @@ export type CrmHistory = {
  */
 export async function readCrmHistory(
 	contactId: string,
-	options: { threads?: number; messagesPerThread?: number } = {},
+	options: {
+		threads?: number;
+		messagesPerThread?: number;
+		dealWhere?: Prisma.DealWhereInput;
+		contactWhere?: Prisma.ContactWhereInput;
+	} = {},
 ): Promise<CrmHistory | null> {
 	const contact = await db.contact.findUnique({
 		where: { id: contactId },
@@ -230,6 +244,9 @@ export async function readCrmHistory(
 				select: { id: true, name: true, domain: true, industry: true },
 			},
 			deals: {
+				where: {
+					deal: { AND: [{ archivedAt: null }, options.dealWhere ?? {}] },
+				},
 				orderBy: { deal: { lastActivityAt: "desc" } },
 				select: {
 					role: true,
@@ -237,7 +254,7 @@ export async function readCrmHistory(
 						select: {
 							id: true,
 							name: true,
-							stage: true,
+							stage: { select: { name: true } },
 							amount: true,
 							currency: true,
 							expectedCloseDate: true,
@@ -294,7 +311,12 @@ export async function readCrmHistory(
 		}),
 		contact.companyId
 			? db.contact.findMany({
-					where: { companyId: contact.companyId, id: { not: contactId } },
+					where: {
+						AND: [
+							{ companyId: contact.companyId, id: { not: contactId } },
+							options.contactWhere ?? {},
+						],
+					},
 					select: { id: true, firstName: true, lastName: true, title: true },
 					take: 8,
 					orderBy: { lastActivityAt: "desc" },
@@ -323,7 +345,7 @@ export async function readCrmHistory(
 		deals: contact.deals.map(({ role, deal }) => ({
 			id: deal.id,
 			name: deal.name,
-			stage: deal.stage,
+			stage: deal.stage.name,
 			role,
 			amount: deal.amount === null ? null : Number(deal.amount),
 			currency: deal.currency,

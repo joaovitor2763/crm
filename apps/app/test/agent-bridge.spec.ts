@@ -21,11 +21,12 @@ const CONFIG = {
 	secret: SECRET,
 } as const;
 
+let bridgeRecordId: typeof import("../lib/agent-bridge").bridgeRecordId;
 let mintBridgeToken: typeof import("../lib/agent-bridge").mintBridgeToken;
 
 beforeAll(async () => {
 	process.env.AGENT_BRIDGE_SECRET = SECRET;
-	({ mintBridgeToken } = await import("../lib/agent-bridge"));
+	({ bridgeRecordId, mintBridgeToken } = await import("../lib/agent-bridge"));
 });
 
 const rep = {
@@ -35,6 +36,13 @@ const rep = {
 };
 
 describe("mintBridgeToken", () => {
+	it("keeps stable seeded record ids as Agent context", () => {
+		expect(bridgeRecordId("seed-deal-fernhill-systems-1")).toBe(
+			"seed-deal-fernhill-systems-1",
+		);
+		expect(bridgeRecordId("../../not-a-record")).toBeUndefined();
+	});
+
 	it("mints a token eve accepts", async () => {
 		const token = await mintBridgeToken(rep);
 		const result = await verifyJwtHmac(token, CONFIG);
@@ -58,6 +66,18 @@ describe("mintBridgeToken", () => {
 
 		expect(result.ok && result.sessionAuth.subject).toBe(rep.id);
 		expect(result.ok && result.sessionAuth.attributes?.email).toBe(rep.email);
+	});
+
+	it("carries the focused record through eve's verified attributes", async () => {
+		const token = await mintBridgeToken(rep, {
+			dealId: "seed-deal-fernhill-systems-1",
+		});
+		const result = await verifyJwtHmac(token, CONFIG);
+
+		expect(result.ok).toBe(true);
+		expect(result.ok && result.sessionAuth.attributes?.dealId).toBe(
+			"seed-deal-fernhill-systems-1",
+		);
 	});
 
 	it("is rejected by a different secret", async () => {

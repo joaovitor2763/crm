@@ -14,7 +14,7 @@ import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
 import { CreateDealSheet } from "./create-deal-sheet";
 import { dealsSearchParams } from "./deals-search-params";
-import { DealsTable } from "./deals-table";
+import { DealsView } from "./deals-view";
 
 export const metadata: Metadata = {
 	title: "Deals",
@@ -41,6 +41,9 @@ export default async function DealsPage({
 	void queryClient.prefetchQuery(
 		trpc.companies.options.queryOptions({ q: "" }),
 	);
+	void queryClient.prefetchQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
 
 	return (
 		<PageShell className="min-h-0">
@@ -58,7 +61,7 @@ export default async function DealsPage({
 
 			<PageShellContent className="min-h-0">
 				<HydrateClient>
-					<DealsTable />
+					<DealsView />
 				</HydrateClient>
 			</PageShellContent>
 		</PageShell>

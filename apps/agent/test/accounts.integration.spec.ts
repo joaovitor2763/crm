@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { ActivityType, DealStage, db, EmailDirection } from "@crm/db";
+import { ActivityType, db, EmailDirection } from "@crm/db";
 import { readCompanyHistory, readDealHistory } from "../agent/lib/accounts";
 
 /**
@@ -85,7 +85,8 @@ beforeAll(async () => {
 			name: `Fernhill platform ${suffix}`,
 			companyId,
 			ownerId: userId,
-			stage: DealStage.CONTRACT_SENT,
+			pipelineId: "default-pipeline",
+			stageId: "default-stage-contract-sent",
 			stageChangedAt: daysAgo(42),
 			amount: 48_000,
 			currency: "USD",
@@ -246,7 +247,7 @@ describe("readCompanyHistory", () => {
 		const history = await readCompanyHistory(companyId);
 		const deal = history?.deals.find((row) => row.id === dealId);
 
-		expect(deal?.stage).toBe("CONTRACT_SENT");
+		expect(deal?.stage).toBe("Contract sent");
 		expect(deal?.open).toBe(true);
 		expect(deal?.amount).toBe(48_000);
 		expect(deal?.contacts).toEqual([
@@ -287,7 +288,7 @@ describe("readDealHistory", () => {
 	it("reports the stage clock, not just the stage", async () => {
 		const history = await readDealHistory(dealId);
 
-		expect(history?.deal.stage).toBe("CONTRACT_SENT");
+		expect(history?.deal.stage).toBe("Contract sent");
 		expect(history?.deal.open).toBe(true);
 		// Six weeks in contract-sent is the answer to "where does this stand",
 		// and the stage field alone cannot say it.

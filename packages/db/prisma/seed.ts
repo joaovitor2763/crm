@@ -1,5 +1,5 @@
 import { db } from "../src/client";
-import { ActivityType, DealStage } from "../src/generated/prisma/enums";
+import { ActivityType, PipelineStageType } from "../src/generated/prisma/enums";
 
 /**
  * A believable pipeline to develop against: real domains so the enrichment
@@ -261,17 +261,46 @@ const TITLES = [
 	"Chief of Staff",
 ] as const;
 
+const DEFAULT_PIPELINE_ID = "default-pipeline";
 const OPEN_STAGES = [
-	DealStage.DEMO_BOOKED,
-	DealStage.QUALIFIED_TO_BUY,
-	DealStage.DECISION_MAKER_BOUGHT_IN,
-	DealStage.CONTRACT_SENT,
+	{
+		id: "default-stage-demo-booked",
+		name: "Demo booked",
+		type: PipelineStageType.OPEN,
+	},
+	{
+		id: "default-stage-qualified",
+		name: "Qualified to buy",
+		type: PipelineStageType.OPEN,
+	},
+	{
+		id: "default-stage-decision-maker",
+		name: "Decision maker in",
+		type: PipelineStageType.OPEN,
+	},
+	{
+		id: "default-stage-contract-sent",
+		name: "Contract sent",
+		type: PipelineStageType.OPEN,
+	},
 ] as const;
 
 const CLOSED_STAGES = [
-	DealStage.CLOSED_WON,
-	DealStage.CLOSED_LOST,
-	DealStage.UNQUALIFIED_TO_BUY,
+	{
+		id: "default-stage-closed-won",
+		name: "Closed won",
+		type: PipelineStageType.WON,
+	},
+	{
+		id: "default-stage-closed-lost",
+		name: "Closed lost",
+		type: PipelineStageType.LOST,
+	},
+	{
+		id: "default-stage-unqualified",
+		name: "Unqualified",
+		type: PipelineStageType.UNQUALIFIED,
+	},
 ] as const;
 
 const LOST_REASONS = [
@@ -466,6 +495,7 @@ type SeededDeal = {
 	companyId: string;
 	ownerId: string;
 	closed: boolean;
+	stageName: string;
 };
 
 async function seedDeals(
@@ -509,7 +539,8 @@ async function seedDeals(
 							: `${company.name} — expansion`,
 					companyId: company.id,
 					ownerId,
-					stage,
+					pipelineId: DEFAULT_PIPELINE_ID,
+					stageId: stage.id,
 					stageChangedAt,
 					amount: integer(6, 90) * 1000,
 					currency: "USD",
@@ -522,8 +553,8 @@ async function seedDeals(
 					),
 					closedAt: closed ? stageChangedAt : null,
 					closedReason:
-						stage === DealStage.CLOSED_LOST ||
-						stage === DealStage.UNQUALIFIED_TO_BUY
+						stage.type === PipelineStageType.LOST ||
+						stage.type === PipelineStageType.UNQUALIFIED
 							? pick(LOST_REASONS)
 							: null,
 					createdAt,
@@ -547,7 +578,13 @@ async function seedDeals(
 				});
 			}
 
-			deals.push({ id, companyId: company.id, ownerId, closed });
+			deals.push({
+				id,
+				companyId: company.id,
+				ownerId,
+				closed,
+				stageName: stage.name,
+			});
 		}
 	}
 
@@ -579,7 +616,7 @@ async function seedActivities(
 		dealId: string | null;
 		createdById: string;
 		createdAt: Date;
-		meta?: { from: DealStage; to: DealStage };
+		meta?: { from: string; to: string };
 	};
 
 	const rows: ActivityRow[] = [];
@@ -637,8 +674,8 @@ async function seedActivities(
 			dealId: deal.id,
 			subject: "Stage changed",
 			meta: {
-				from: DealStage.DEMO_BOOKED,
-				to: deal.closed ? DealStage.CLOSED_WON : DealStage.QUALIFIED_TO_BUY,
+				from: "Demo booked",
+				to: deal.stageName,
 			},
 		});
 	}

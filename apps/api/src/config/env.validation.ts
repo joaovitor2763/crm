@@ -132,6 +132,14 @@ export class EnvironmentVariables {
 		message: "CRON_SECRET must be at least 16 characters.",
 	})
 	CRON_SECRET?: string;
+
+	/** Master key used only to derive per-endpoint webhook signing secrets. */
+	@IsOptional()
+	@IsString()
+	@MinLength(32, {
+		message: "WEBHOOK_SIGNING_SECRET must be at least 32 characters.",
+	})
+	WEBHOOK_SIGNING_SECRET?: string;
 }
 
 export function validateEnv(

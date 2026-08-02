@@ -1,6 +1,7 @@
-import { db, EnrichmentStatus } from "@crm/db";
+import { db, EnrichmentStatus, PermissionAction } from "@crm/db";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { assertCompany } from "../lib/access";
 import { brandToUpdate, filledFields } from "../lib/brand-mapping";
 import { brandByDomain, contextDevEnabled } from "../lib/context-dev";
 import { spend } from "../lib/focus";
@@ -29,7 +30,8 @@ export default defineTool({
 				"Bypass the vendor's ~90-day cache. Only when a rep has asked for a fresh look.",
 			),
 	}),
-	async execute({ companyId, fresh }) {
+	async execute({ companyId, fresh }, ctx) {
+		await assertCompany(ctx, companyId, PermissionAction.UPDATE);
 		if (!contextDevEnabled()) {
 			return {
 				enriched: false as const,

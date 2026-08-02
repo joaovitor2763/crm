@@ -1,12 +1,12 @@
 import {
 	ActivityType,
 	type Db,
-	type DealStage,
 	type Prisma,
 	Prisma as PrismaNamespace,
 } from "@crm/db";
 import {
 	BadRequestException,
+	ConflictException,
 	Injectable,
 	Logger,
 	NotFoundException,
@@ -14,6 +14,7 @@ import {
 import { ActivityStampService } from "../crm/activity-stamp.service";
 import { fromCents, toCents } from "../crm/values";
 import { InjectDatabase } from "../database/database.constants";
+import { lockPipelines } from "../pipelines/pipeline-locks";
 import {
 	countsByKey,
 	FACET_ALL,
@@ -22,12 +23,7 @@ import {
 	paginate,
 	resolveOrderBy,
 } from "../trpc/list-input";
-import {
-	CLOSED_DEAL_STAGES,
-	isClosedStage,
-	LOSING_DEAL_STAGES,
-	OPEN_DEAL_STAGES,
-} from "./deal-stage";
+import { isClosedStage, isLosingStage } from "./deal-stage";
 import type {
 	ClosingWindow,
 	DealCreateInput,
@@ -53,7 +49,14 @@ const COMPANY_SELECT = {
 	iconTone: true,
 } as const;
 
-const LOSING = new Set<DealStage>(LOSING_DEAL_STAGES);
+const STAGE_SELECT = {
+	id: true,
+	name: true,
+	position: true,
+	type: true,
+} as const;
+
+const PIPELINE_SELECT = { id: true, name: true } as const;
 
 const SORTABLE: Record<
 	string,
@@ -61,9 +64,11 @@ const SORTABLE: Record<
 > = {
 	name: (dir) => [{ name: dir }],
 	company: (dir) => [{ company: { name: dir } }, { name: "asc" }],
-	// Enum order is declaration order in Postgres, which is pipeline order — so
-	// sorting by stage reads as "how far along", not alphabetically.
-	stage: (dir) => [{ stage: dir }, { expectedCloseDate: "asc" }],
+	stage: (dir) => [
+		{ pipeline: { name: "asc" } },
+		{ stage: { position: dir } },
+		{ expectedCloseDate: "asc" },
+	],
 	amount: (dir) => [{ amount: dir }],
 	expectedCloseDate: (dir) => [{ expectedCloseDate: dir }],
 	createdAt: (dir) => [{ createdAt: dir }],
@@ -80,8 +85,10 @@ export class DealsService {
 		private readonly stamp: ActivityStampService,
 	) {}
 
-	async list(input: DealListInput) {
-		const where = this.buildWhere(input);
+	async list(input: DealListInput, scope: Prisma.DealWhereInput = {}) {
+		const where: Prisma.DealWhereInput = {
+			AND: [this.buildWhere(input), scope],
+		};
 		const { skip, take } = paginate(input);
 
 		const [rows, total, facetCounts, openValue] = await Promise.all([
@@ -93,7 +100,8 @@ export class DealsService {
 				select: {
 					id: true,
 					name: true,
-					stage: true,
+					stage: { select: STAGE_SELECT },
+					pipeline: { select: PIPELINE_SELECT },
 					amount: true,
 					currency: true,
 					expectedCloseDate: true,
@@ -105,12 +113,9 @@ export class DealsService {
 				},
 			}),
 			this.db.deal.count({ where }),
-			this.facetCounts(input),
-			// Summed in Postgres over the *filtered* set, not the page: a footer
-			// that says "$1.2M" for the 25 rows you can see is worse than no
-			// number at all.
+			this.facetCounts(input, scope),
 			this.db.deal.aggregate({
-				where: { ...where, stage: { in: [...OPEN_DEAL_STAGES] } },
+				where: { ...where, stage: { type: "OPEN" } },
 				_sum: { amount: true },
 			}),
 		]);
@@ -135,28 +140,107 @@ export class DealsService {
 			),
 			total,
 			facetCounts,
-			/** Open pipeline value across everything matching the filters. */
 			openValueCents: toCents(openValue._sum.amount),
 		} satisfies ListResult<unknown> & { openValueCents: number | null };
 	}
 
-	async byId(id: string) {
-		const deal = await this.db.deal.findUnique({
-			where: { id },
+	async board(
+		input: { q: string; owner: string; pipeline: string },
+		scope: Prisma.DealWhereInput = {},
+		pipelineScope: Prisma.PipelineWhereInput = {},
+	) {
+		const pipeline = await this.db.pipeline.findFirst({
+			where: {
+				AND: [
+					input.pipeline === FACET_ALL
+						? { isDefault: true, archivedAt: null }
+						: { id: input.pipeline, archivedAt: null },
+					pipelineScope,
+				],
+			},
+			orderBy: { businessUnitId: { sort: "desc", nulls: "last" } },
 			select: {
 				id: true,
 				name: true,
-				stage: true,
+				stages: {
+					orderBy: { position: "asc" },
+					select: STAGE_SELECT,
+				},
+			},
+		});
+		if (!pipeline)
+			throw new NotFoundException("No active pipeline is available.");
+
+		const where: Prisma.DealWhereInput = {
+			AND: [this.searchFilter(input.q), scope],
+			pipelineId: pipeline.id,
+			archivedAt: null,
+		};
+		if (input.owner !== FACET_ALL) {
+			where.ownerId =
+				input.owner === FACET_UNASSIGNED ? { in: [] } : input.owner;
+		}
+
+		const deals = await this.db.deal.findMany({
+			where,
+			orderBy: [
+				{ stage: { position: "asc" } },
+				{ expectedCloseDate: { sort: "asc", nulls: "last" } },
+				{ createdAt: "desc" },
+			],
+			take: 1001,
+			select: {
+				id: true,
+				name: true,
+				stage: { select: STAGE_SELECT },
+				amount: true,
+				currency: true,
+				expectedCloseDate: true,
+				company: { select: COMPANY_SELECT },
+				owner: { select: OWNER_SELECT },
+			},
+		});
+
+		return {
+			pipeline,
+			truncated: deals.length > 1000,
+			deals: deals
+				.slice(0, 1000)
+				.map(({ amount, expectedCloseDate, ...deal }) => ({
+					...deal,
+					amountCents: toCents(amount),
+					expectedCloseDate: expectedCloseDate?.toISOString() ?? null,
+				})),
+		};
+	}
+
+	async byId(
+		id: string,
+		scope: Prisma.DealWhereInput = {},
+		companyScope: Prisma.CompanyWhereInput = {},
+		contactScope: Prisma.ContactWhereInput = {},
+	) {
+		const deal = await this.db.deal.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				name: true,
+				stage: { select: STAGE_SELECT },
+				pipeline: { select: PIPELINE_SELECT },
 				stageChangedAt: true,
 				amount: true,
 				currency: true,
 				expectedCloseDate: true,
 				closedAt: true,
 				closedReason: true,
+				archivedAt: true,
 				createdAt: true,
 				company: { select: { ...COMPANY_SELECT, industry: true } },
 				owner: { select: OWNER_SELECT },
 				contacts: {
+					where: {
+						contact: { AND: [{ archivedAt: null }, contactScope] },
+					},
 					select: {
 						role: true,
 						contact: {
@@ -170,69 +254,145 @@ export class DealsService {
 						},
 					},
 				},
+				lineItems: {
+					orderBy: { createdAt: "asc" },
+					select: {
+						id: true,
+						productId: true,
+						sku: true,
+						name: true,
+						unitPrice: true,
+						currency: true,
+						quantity: true,
+					},
+				},
 			},
 		});
 
-		if (!deal) {
-			throw new NotFoundException(`No deal with id ${id}.`);
-		}
-
-		const { contacts, amount, ...rest } = deal;
-
+		if (!deal) throw new NotFoundException(`No deal with id ${id}.`);
+		const visibleCompany = await this.db.company.findFirst({
+			where: { AND: [{ id: deal.company.id }, companyScope] },
+			select: { id: true },
+		});
+		const { contacts, amount, lineItems, company, ...rest } = deal;
 		return {
 			...rest,
+			company: visibleCompany ? company : null,
 			amountCents: toCents(amount),
 			stageChangedAt: deal.stageChangedAt.toISOString(),
 			expectedCloseDate: deal.expectedCloseDate?.toISOString() ?? null,
 			closedAt: deal.closedAt?.toISOString() ?? null,
 			createdAt: deal.createdAt.toISOString(),
 			contacts: contacts.map(({ role, contact }) => ({ ...contact, role })),
+			lineItems: lineItems.map(({ unitPrice, ...item }) => ({
+				...item,
+				unitPriceCents: toCents(unitPrice) ?? 0,
+			})),
 		};
 	}
 
+	async archived(scope: Prisma.DealWhereInput = {}) {
+		const rows = await this.db.deal.findMany({
+			where: { AND: [{ archivedAt: { not: null } }, scope] },
+			orderBy: { archivedAt: "desc" },
+			select: {
+				id: true,
+				name: true,
+				archivedAt: true,
+				company: { select: { id: true, name: true } },
+				pipeline: { select: { id: true, name: true, archivedAt: true } },
+			},
+		});
+		return rows.map(({ archivedAt, pipeline, ...row }) => ({
+			...row,
+			archivedAt: archivedAt?.toISOString() ?? null,
+			pipeline: {
+				id: pipeline.id,
+				name: pipeline.name,
+				archived: pipeline.archivedAt !== null,
+			},
+		}));
+	}
+
+	async assignment(id: string, scope: Prisma.DealWhereInput = {}) {
+		const deal = await this.db.deal.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				businessUnitId: true,
+				teamId: true,
+				ownerId: true,
+			},
+		});
+		if (!deal) throw new NotFoundException(`No deal with id ${id}.`);
+		return deal;
+	}
+
 	async create(input: DealCreateInput) {
-		const stage = input.stage ?? "DEMO_BOOKED";
-		const closed = isClosedStage(stage);
-		const now = new Date();
-
+		const businessUnitId = input.businessUnitId ?? "business-unit-default";
+		const candidate = await this.resolveInitialStage(
+			input.pipelineId,
+			input.stageId,
+			this.db,
+			businessUnitId,
+		);
 		try {
-			const deal = await this.db.deal.create({
-				data: {
-					name: input.name.trim(),
-					companyId: input.companyId,
-					ownerId: input.ownerId,
-					stage,
-					stageChangedAt: now,
-					closedAt: closed ? now : null,
-					amount: fromCents(input.amountCents),
-					currency: input.currency ?? "USD",
-					expectedCloseDate: parseDate(input.expectedCloseDate),
-				},
-				select: { id: true, name: true, companyId: true },
+			const result = await this.db.$transaction(async (tx) => {
+				await lockPipelines(tx, [candidate.pipelineId]);
+				const stage = await this.resolveInitialStage(
+					candidate.pipelineId,
+					input.stageId,
+					tx,
+					businessUnitId,
+				);
+				const now = new Date();
+				const deal = await tx.deal.create({
+					data: {
+						name: input.name.trim(),
+						companyId: input.companyId,
+						ownerId: input.ownerId,
+						businessUnitId,
+						teamId: input.teamId ?? null,
+						customValues: (input.customValues ?? {}) as Prisma.InputJsonObject,
+						pipelineId: stage.pipelineId,
+						stageId: stage.id,
+						stageChangedAt: now,
+						closedAt: isClosedStage(stage.type) ? now : null,
+						amount: fromCents(input.amountCents),
+						currency: input.currency?.toUpperCase() ?? "USD",
+						expectedCloseDate: parseDate(input.expectedCloseDate),
+					},
+					select: { id: true, name: true, companyId: true },
+				});
+				return { deal, stageId: stage.id };
 			});
-
-			this.logger.log({ message: "Deal created", dealId: deal.id, stage });
-
-			return deal;
+			this.logger.log({
+				message: "Deal created",
+				dealId: result.deal.id,
+				stageId: result.stageId,
+			});
+			return result.deal;
 		} catch (error) {
 			throw this.translateRelations(error);
 		}
 	}
 
-	async update(id: string, input: DealUpdateInput) {
+	async update(
+		id: string,
+		input: DealUpdateInput,
+		scope: Prisma.DealWhereInput = {},
+	) {
+		await this.requireScoped(id, scope);
 		const data: Prisma.DealUpdateInput = {};
-
 		if (input.name !== undefined) data.name = input.name.trim();
-		if (input.companyId !== undefined) {
+		if (input.companyId !== undefined)
 			data.company = { connect: { id: input.companyId } };
-		}
-		if (input.ownerId !== undefined) {
+		if (input.ownerId !== undefined)
 			data.owner = { connect: { id: input.ownerId } };
-		}
-		if (input.amountCents !== undefined) {
+		if (input.amountCents !== undefined)
 			data.amount = fromCents(input.amountCents);
-		}
-		if (input.currency !== undefined) data.currency = input.currency;
+		if (input.currency !== undefined)
+			data.currency = input.currency.toUpperCase();
 		if (input.expectedCloseDate !== undefined) {
 			data.expectedCloseDate = parseDate(input.expectedCloseDate);
 		}
@@ -248,83 +408,347 @@ export class DealsService {
 		}
 	}
 
-	/**
-	 * Moves a deal and records that it moved.
-	 *
-	 * One transaction, because a stage change with no timeline entry is a deal
-	 * nobody can explain a week later — and a timeline entry for a change that
-	 * did not commit is worse.
-	 */
 	async setStage(input: SetStageInput, actingUserId: string) {
-		const deal = await this.db.deal.findUnique({
-			where: { id: input.id },
-			select: { id: true, stage: true, companyId: true },
+		const locatedTarget = await this.db.pipelineStage.findUnique({
+			where: { id: input.stageId },
+			select: {
+				pipelineId: true,
+				pipeline: { select: { businessUnitId: true } },
+			},
 		});
-
-		if (!deal) {
+		if (!locatedTarget)
+			throw new NotFoundException(`No stage with id ${input.stageId}.`);
+		const locatedDeal = await this.db.deal.findUnique({
+			where: { id: input.id },
+			select: { pipelineId: true, businessUnitId: true, teamId: true },
+		});
+		if (!locatedDeal)
 			throw new NotFoundException(`No deal with id ${input.id}.`);
-		}
-
-		if (deal.stage === input.stage) {
-			return { id: deal.id, stage: deal.stage, changed: false };
-		}
-
-		const closedReason = input.closedReason?.trim();
-		if (LOSING.has(input.stage) && !closedReason) {
+		if (
+			locatedTarget.pipeline.businessUnitId !== null &&
+			locatedTarget.pipeline.businessUnitId !== locatedDeal.businessUnitId
+		) {
 			throw new BadRequestException(
-				"Say why it was lost — a closed-lost deal with no reason teaches nobody anything.",
+				"That pipeline belongs to another business unit.",
 			);
 		}
 
-		const now = new Date();
-		const closed = isClosedStage(input.stage);
+		const closedReason = input.closedReason?.trim();
 
-		const [updated] = await this.db.$transaction([
-			this.db.deal.update({
-				where: { id: input.id },
-				data: {
-					stage: input.stage,
-					stageChangedAt: now,
-					closedAt: closed ? now : null,
-					closedReason: closed ? (closedReason ?? null) : null,
+		const result = await this.db.$transaction(async (tx) => {
+			await lockPipelines(tx, [
+				locatedDeal.pipelineId,
+				locatedTarget.pipelineId,
+			]);
+			const lockedDeals = await tx.$queryRaw<Array<{ pipelineId: string }>>`
+				SELECT "pipelineId"
+				FROM "deal"
+				WHERE "id" = ${input.id}
+				FOR UPDATE
+			`;
+			const lockedDeal = lockedDeals[0];
+			if (!lockedDeal)
+				throw new NotFoundException(`No deal with id ${input.id}.`);
+			if (lockedDeal.pipelineId !== locatedDeal.pipelineId) {
+				throw new ConflictException(
+					"This deal changed while you were editing it. Refresh and try again.",
+				);
+			}
+			const target = await tx.pipelineStage.findFirst({
+				where: { id: input.stageId, pipeline: { archivedAt: null } },
+				select: {
+					...STAGE_SELECT,
+					pipelineId: true,
+					pipeline: { select: PIPELINE_SELECT },
 				},
-				select: { id: true, stage: true },
-			}),
-			this.db.activity.create({
+			});
+			if (!target)
+				throw new NotFoundException(`No stage with id ${input.stageId}.`);
+			const deal = await tx.deal.findUnique({
+				where: { id: input.id },
+				select: {
+					id: true,
+					companyId: true,
+					businessUnitId: true,
+					teamId: true,
+					pipelineId: true,
+					archivedAt: true,
+					closedAt: true,
+					stage: { select: STAGE_SELECT },
+					pipeline: { select: PIPELINE_SELECT },
+				},
+			});
+			if (!deal) throw new NotFoundException(`No deal with id ${input.id}.`);
+			if (deal.archivedAt) {
+				throw new BadRequestException(
+					"Restore this deal before changing its stage.",
+				);
+			}
+			if (deal.stage.id === target.id) {
+				return {
+					id: deal.id,
+					stage: deal.stage,
+					changed: false as const,
+					companyId: deal.companyId,
+					fromStageId: deal.stage.id,
+					changedAt: null,
+				};
+			}
+			if (isLosingStage(target.type) && !closedReason) {
+				throw new BadRequestException(
+					"Say why it was lost or unqualified before moving it there.",
+				);
+			}
+
+			const now = new Date();
+			const closed = isClosedStage(target.type);
+			const update = await tx.deal.updateMany({
+				where: {
+					id: deal.id,
+					pipelineId: deal.pipelineId,
+					stageId: deal.stage.id,
+					archivedAt: null,
+				},
+				data: {
+					pipelineId: target.pipelineId,
+					stageId: target.id,
+					stageChangedAt: now,
+					closedAt: closed ? (deal.closedAt ?? now) : null,
+					closedReason: isLosingStage(target.type) ? closedReason : null,
+				},
+			});
+			if (update.count !== 1) {
+				throw new ConflictException(
+					"This deal changed while you were editing it. Refresh and try again.",
+				);
+			}
+
+			await tx.activity.create({
 				data: {
 					type: ActivityType.STAGE_CHANGE,
 					subject: "Stage changed",
 					body: closedReason ?? null,
 					occurredAt: now,
-					// Stamped with the company as well as the deal, so this shows on
-					// the company timeline without a join.
 					companyId: deal.companyId,
 					dealId: deal.id,
+					businessUnitId: deal.businessUnitId,
+					teamId: deal.teamId,
 					createdById: actingUserId,
-					meta: { from: deal.stage, to: input.stage },
+					meta: {
+						from: deal.stage.name,
+						fromId: deal.stage.id,
+						fromPipeline: deal.pipeline.name,
+						to: target.name,
+						toId: target.id,
+						toPipeline: target.pipeline.name,
+					},
 				},
-			}),
-		]);
+			});
 
-		await this.stamp.touch(
-			{ companyId: deal.companyId, dealId: deal.id },
-			new Date(),
-		);
-
-		this.logger.log({
-			message: "Deal stage changed",
-			dealId: deal.id,
-			from: deal.stage,
-			to: input.stage,
+			return {
+				id: deal.id,
+				stage: {
+					id: target.id,
+					name: target.name,
+					position: target.position,
+					type: target.type,
+				},
+				changed: true as const,
+				companyId: deal.companyId,
+				fromStageId: deal.stage.id,
+				changedAt: now,
+			};
 		});
 
-		return { ...updated, changed: true };
+		if (!result.changed || !result.changedAt) {
+			return { id: result.id, stage: result.stage, changed: false };
+		}
+		await this.stamp.touch(
+			{ companyId: result.companyId, dealId: result.id },
+			result.changedAt,
+		);
+		this.logger.log({
+			message: "Deal stage changed",
+			dealId: result.id,
+			fromStageId: result.fromStageId,
+			toStageId: result.stage.id,
+		});
+		return { id: result.id, stage: result.stage, changed: true };
+	}
+
+	async archive(id: string, scope: Prisma.DealWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		try {
+			return await this.db.deal.update({
+				where: { id },
+				data: { archivedAt: new Date() },
+				select: { id: true, archivedAt: true },
+			});
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
+	async restore(id: string, scope: Prisma.DealWhereInput = {}) {
+		await this.requireScoped(id, scope);
+		const located = await this.db.deal.findUnique({
+			where: { id },
+			select: { pipelineId: true },
+		});
+		if (!located) throw new NotFoundException(`No deal with id ${id}.`);
+		try {
+			return await this.db.$transaction(async (tx) => {
+				await lockPipelines(tx, [located.pipelineId]);
+				const deal = await tx.deal.findUnique({
+					where: { id },
+					select: { pipeline: { select: { archivedAt: true } } },
+				});
+				if (!deal) throw new NotFoundException(`No deal with id ${id}.`);
+				if (deal.pipeline.archivedAt) {
+					throw new BadRequestException(
+						"Restore this deal's pipeline before restoring the deal.",
+					);
+				}
+				return tx.deal.update({
+					where: { id },
+					data: { archivedAt: null },
+					select: { id: true, archivedAt: true },
+				});
+			});
+		} catch (error) {
+			throw this.translate(error, id);
+		}
+	}
+
+	async addLineItem(
+		input: {
+			dealId: string;
+			productId: string;
+			quantity: number;
+		},
+		scope: Prisma.DealWhereInput = {},
+	) {
+		const deal = await this.db.deal.findFirst({
+			where: { AND: [{ id: input.dealId }, scope] },
+			select: { archivedAt: true },
+		});
+		if (!deal) throw new NotFoundException(`No deal with id ${input.dealId}.`);
+		if (deal.archivedAt) {
+			throw new BadRequestException(
+				"Restore this deal before changing its products.",
+			);
+		}
+		const product = await this.db.product.findFirst({
+			where: { id: input.productId, archivedAt: null },
+			select: { id: true, sku: true, name: true, price: true, currency: true },
+		});
+		if (!product) throw new NotFoundException("That product is not available.");
+		try {
+			return await this.db.dealLineItem.create({
+				data: {
+					dealId: input.dealId,
+					productId: product.id,
+					sku: product.sku,
+					name: product.name,
+					unitPrice: product.price,
+					currency: product.currency,
+					quantity: input.quantity,
+				},
+				select: { id: true },
+			});
+		} catch (error) {
+			throw this.translateRelations(error);
+		}
+	}
+
+	async updateLineItem(
+		input: { id: string; quantity: number },
+		scope: Prisma.DealWhereInput = {},
+	) {
+		const update = await this.db.dealLineItem.updateMany({
+			where: { id: input.id, deal: { AND: [{ archivedAt: null }, scope] } },
+			data: { quantity: input.quantity },
+		});
+		if (update.count !== 1) {
+			throw new NotFoundException(`No line item with id ${input.id}.`);
+		}
+		return { id: input.id };
+	}
+
+	async removeLineItem(id: string, scope: Prisma.DealWhereInput = {}) {
+		const removal = await this.db.dealLineItem.deleteMany({
+			where: { id, deal: { AND: [{ archivedAt: null }, scope] } },
+		});
+		if (removal.count !== 1) {
+			throw new NotFoundException(`No line item with id ${id}.`);
+		}
+		return { id };
+	}
+
+	private async resolveInitialStage(
+		pipelineId?: string,
+		stageId?: string,
+		client: Pick<Prisma.TransactionClient, "pipeline" | "pipelineStage"> = this
+			.db,
+		businessUnitId = "business-unit-default",
+	) {
+		if (stageId) {
+			const stage = await client.pipelineStage.findFirst({
+				where: {
+					id: stageId,
+					pipeline: {
+						archivedAt: null,
+						OR: [{ businessUnitId: null }, { businessUnitId }],
+					},
+				},
+				select: { id: true, pipelineId: true, type: true },
+			});
+			if (!stage || (pipelineId && stage.pipelineId !== pipelineId)) {
+				throw new BadRequestException(
+					"That stage does not belong to the selected pipeline.",
+				);
+			}
+			if (stage.type !== "OPEN") {
+				throw new BadRequestException(
+					"A new deal must start in an open stage.",
+				);
+			}
+			return stage;
+		}
+		const pipeline = await client.pipeline.findFirst({
+			where: pipelineId
+				? {
+						id: pipelineId,
+						archivedAt: null,
+						OR: [{ businessUnitId: null }, { businessUnitId }],
+					}
+				: {
+						isDefault: true,
+						archivedAt: null,
+						OR: [{ businessUnitId }, { businessUnitId: null }],
+					},
+			orderBy: { businessUnitId: { sort: "desc", nulls: "last" } },
+			select: {
+				id: true,
+				stages: {
+					where: { type: "OPEN" },
+					orderBy: { position: "asc" },
+					take: 1,
+					select: { id: true, pipelineId: true, type: true },
+				},
+			},
+		});
+		const first = pipeline?.stages[0];
+		if (!first)
+			throw new BadRequestException(
+				"The selected pipeline has no open stages.",
+			);
+		return first;
 	}
 
 	private searchFilter(q: string): Prisma.DealWhereInput {
 		const term = q.trim();
 		if (!term) return {};
-
 		return {
 			OR: [
 				{ name: { contains: term, mode: "insensitive" } },
@@ -334,60 +758,71 @@ export class DealsService {
 	}
 
 	private buildWhere(input: DealListInput): Prisma.DealWhereInput {
-		const where: Prisma.DealWhereInput = this.searchFilter(input.q);
-
+		const where: Prisma.DealWhereInput = {
+			...this.searchFilter(input.q),
+			archivedAt: null,
+		};
 		if (input.owner !== FACET_ALL) {
-			// `Deal.ownerId` is required, so unlike companies and contacts there is
-			// no null to match — "unassigned" is a filter that can only ever be
-			// empty, and `in: []` says that in Prisma's own terms.
 			where.ownerId =
 				input.owner === FACET_UNASSIGNED ? { in: [] } : input.owner;
 		}
-
-		if (input.status === "open") {
-			where.stage = { in: [...OPEN_DEAL_STAGES] };
-		} else if (input.status === "closed") {
-			where.stage = { in: [...CLOSED_DEAL_STAGES] };
+		if (input.stage === FACET_ALL) {
+			if (input.status === "open") where.stage = { type: "OPEN" };
+			else if (input.status === "closed")
+				where.stage = { type: { not: "OPEN" } };
 		}
-
-		// An explicit stage wins over the tab: picking "Closed won" while the
-		// "Open" tab is selected should show closed-won, not nothing.
-		if (input.stage !== FACET_ALL) {
-			where.stage = input.stage as DealStage;
-		}
-
+		if (input.stage !== FACET_ALL) where.stageId = input.stage;
+		if (input.pipeline !== FACET_ALL) where.pipelineId = input.pipeline;
 		if (input.closing !== FACET_ALL) {
 			Object.assign(where, closingFilter(input.closing as ClosingWindow));
 		}
-
 		return where;
 	}
 
-	private async facetCounts(input: DealListInput) {
-		const where = this.searchFilter(input.q);
-
-		const [owners, stages, ...closingCounts] = await Promise.all([
+	private async facetCounts(
+		input: DealListInput,
+		scope: Prisma.DealWhereInput,
+	) {
+		const where: Prisma.DealWhereInput = {
+			AND: [{ ...this.searchFilter(input.q), archivedAt: null }, scope],
+		};
+		const [
+			owners,
+			stages,
+			pipelines,
+			stageRecords,
+			open,
+			closed,
+			...closingCounts
+		] = await Promise.all([
 			this.db.deal.groupBy({ by: ["ownerId"], where, _count: { _all: true } }),
-			this.db.deal.groupBy({ by: ["stage"], where, _count: { _all: true } }),
+			this.db.deal.groupBy({ by: ["stageId"], where, _count: { _all: true } }),
+			this.db.deal.groupBy({
+				by: ["pipelineId"],
+				where,
+				_count: { _all: true },
+			}),
+			this.db.pipelineStage.findMany({
+				where:
+					input.pipeline === FACET_ALL ? {} : { pipelineId: input.pipeline },
+				select: { id: true },
+			}),
+			this.db.deal.count({ where: { ...where, stage: { type: "OPEN" } } }),
+			this.db.deal.count({
+				where: { ...where, stage: { type: { not: "OPEN" } } },
+			}),
 			...CLOSING_WINDOWS.map((window) =>
 				this.db.deal.count({ where: { ...where, ...closingFilter(window) } }),
 			),
 		]);
-
-		const stageCounts = countsByKey(stages, "stage");
-		const openCount = OPEN_DEAL_STAGES.reduce(
-			(total, stage) => total + (stageCounts[stage] ?? 0),
-			0,
-		);
-		const closedCount = CLOSED_DEAL_STAGES.reduce(
-			(total, stage) => total + (stageCounts[stage] ?? 0),
-			0,
-		);
-
+		const allStageCounts = countsByKey(stages, "stageId");
 		return {
-			status: { open: openCount, closed: closedCount },
+			status: { open, closed },
 			owner: countsByKey(owners, "ownerId", FACET_UNASSIGNED),
-			stage: stageCounts,
+			pipeline: countsByKey(pipelines, "pipelineId"),
+			stage: Object.fromEntries(
+				stageRecords.map((stage) => [stage.id, allStageCounts[stage.id] ?? 0]),
+			),
 			closing: Object.fromEntries(
 				CLOSING_WINDOWS.map((window, index) => [
 					window,
@@ -395,6 +830,17 @@ export class DealsService {
 				]),
 			),
 		};
+	}
+
+	private async requireScoped(
+		id: string,
+		scope: Prisma.DealWhereInput,
+	): Promise<void> {
+		const record = await this.db.deal.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: { id: true },
+		});
+		if (!record) throw new NotFoundException(`No deal with id ${id}.`);
 	}
 
 	private translate(error: unknown, id: string): unknown {
@@ -407,42 +853,29 @@ export class DealsService {
 		return this.translateRelations(error);
 	}
 
-	/** A missing company or owner is the caller's mistake, not a 500. */
 	private translateRelations(error: unknown): unknown {
 		if (
 			error instanceof PrismaNamespace.PrismaClientKnownRequestError &&
 			(error.code === "P2003" || error.code === "P2025")
 		) {
 			return new BadRequestException(
-				"That company or owner does not exist any more.",
+				"That company, owner, pipeline, stage or product no longer exists.",
 			);
 		}
 		return error;
 	}
 }
 
-/**
- * Month boundaries are computed here rather than in SQL so the buckets follow
- * the server's calendar rather than UTC's, which matters on the last day of a
- * month for a team in New York.
- */
 function closingFilter(window: ClosingWindow): Prisma.DealWhereInput {
 	const now = new Date();
 	const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 	const startOfNextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 	const startOfMonthAfter = new Date(now.getFullYear(), now.getMonth() + 2, 1);
-
 	switch (window) {
 		case "overdue":
-			// Only open deals can be overdue; a closed deal's date is history.
-			return {
-				expectedCloseDate: { lt: now },
-				stage: { in: [...OPEN_DEAL_STAGES] },
-			};
+			return { expectedCloseDate: { lt: now }, stage: { type: "OPEN" } };
 		case "this-month":
-			return {
-				expectedCloseDate: { gte: startOfMonth, lt: startOfNextMonth },
-			};
+			return { expectedCloseDate: { gte: startOfMonth, lt: startOfNextMonth } };
 		case "next-month":
 			return {
 				expectedCloseDate: { gte: startOfNextMonth, lt: startOfMonthAfter },
