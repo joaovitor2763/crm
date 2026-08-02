@@ -2,6 +2,7 @@
 
 import Building from "@carbon/icons-react/es/Building";
 import type { CarbonIconType } from "@carbon/icons-react/es/CarbonIcon";
+import Column from "@carbon/icons-react/es/Column";
 import Dashboard from "@carbon/icons-react/es/Dashboard";
 import Partnership from "@carbon/icons-react/es/Partnership";
 import Settings from "@carbon/icons-react/es/Settings";
@@ -41,6 +42,7 @@ const ITEMS: RailItem[] = [
 		match: "prefix",
 	},
 	{ title: "Deals", href: "/deals", icon: Partnership, match: "prefix" },
+	{ title: "Studio", href: "/studio", icon: Column, match: "prefix" },
 	{ title: "Settings", href: "/settings", icon: Settings, match: "prefix" },
 ];
 
