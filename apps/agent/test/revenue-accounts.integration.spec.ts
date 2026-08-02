@@ -19,6 +19,7 @@ const fieldKey = `agent_visible_${suffix.replace(/[^a-z0-9]/gi, "_")}`;
 let sourceId = "";
 let targetId = "";
 let objectDefinitionId = "";
+let createdObjectDefinition = false;
 
 const access: AgentAccess = {
 	isSystem: false,
@@ -56,6 +57,7 @@ beforeAll(async () => {
 			select: { id: true },
 		});
 		objectDefinitionId = created.id;
+		createdObjectDefinition = true;
 	}
 	await db.customFieldDefinition.create({
 		data: {
@@ -118,7 +120,7 @@ afterAll(async () => {
 		where: { id: { in: [sourceId, targetId] } },
 	});
 	await db.customFieldDefinition.deleteMany({ where: { key: fieldKey } });
-	if (objectDefinitionId) {
+	if (createdObjectDefinition && objectDefinitionId) {
 		const remaining = await db.customFieldDefinition.count({
 			where: { objectDefinitionId },
 		});
