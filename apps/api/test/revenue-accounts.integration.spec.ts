@@ -189,6 +189,9 @@ describe("RevenueAccount vertical slice", () => {
 			where: { sourceAccountId: sourceId },
 		});
 		expect(merge?.operationId).toBe(`merge-${suffix}`);
+		const resolved = await service.byId(sourceId, principal);
+		expect(resolved.id).toBe(targetId);
+		expect(resolved.resolvedFromId).toBe(sourceId);
 		const events = await db.domainEvent.findMany({
 			where: { resource: "revenue-accounts", actorId: userId },
 			select: { type: true, payload: true },

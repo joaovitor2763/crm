@@ -165,9 +165,21 @@ export class RevenueAccountsService {
 	}
 
 	async byId(id: string, principal: EffectivePrincipal) {
-		const account = await this.db.revenueAccount.findFirst({
+		const resolution = await this.db.revenueAccount.findFirst({
 			where: {
 				AND: [{ id }, this.accountWhere(principal, PermissionAction.READ)],
+			},
+			select: { mergedIntoId: true },
+		});
+		if (!resolution)
+			throw new NotFoundException("Conta not found in your scope.");
+		const resolvedId = resolution.mergedIntoId ?? id;
+		const account = await this.db.revenueAccount.findFirst({
+			where: {
+				AND: [
+					{ id: resolvedId },
+					this.accountWhere(principal, PermissionAction.READ),
+				],
 			},
 			include: {
 				owner: { select: { id: true, name: true, email: true, image: true } },
@@ -216,6 +228,7 @@ export class RevenueAccountsService {
 		if (!account) throw new NotFoundException("Conta not found in your scope.");
 		return {
 			...account,
+			...(resolvedId === id ? {} : { resolvedFromId: id }),
 			customValues: await this.fields.projectChannelValues(
 				"revenue-accounts",
 				account.customValues,
