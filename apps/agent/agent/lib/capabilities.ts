@@ -134,6 +134,8 @@ export function capabilitiesMarkdown(): string {
 		"",
 		"Conta is the commercial RevenueAccount entity; it is separate from the Better Auth Account used for OAuth credentials.",
 		"Use `search_revenue_accounts` and then exact ids with `read_revenue_account`. The read includes scoped neighboring contacts, companies, deals, attribute history and lineage grouped by operationId.",
+		"`read_attribution_lineage` reads first/current touch, recurring sources, pipeline entries and immutable events for Contacts, Companies, Deals and Contas; after a merge it follows aliases without changing source entity ids.",
+		"`read_revenue_analytics` and `read_dashboard_definitions` are read-only views of scoped funnel metrics and governed ChartCDN dashboard specs. Global administrators can inspect ontology snapshots with the ontology read tools; publication remains a Studio action with explicit confirmation.",
 		"`suggest_revenue_account_duplicates` derives evidence and confidence from CRM observations only. `preview_revenue_account_merge` is read-only. `merge_revenue_accounts` requires exact source and target ids, explicit per-field policies and a human approval; ambiguous or scheduled merges must never run.",
 	);
 	return lines.join("\n");

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CustomFieldType, db } from "@crm/db";
 import type { AgentAccess } from "../agent/lib/access";
+import { readAttributionLineage } from "../agent/lib/attribution";
 import { executeRevenueAccountMerge } from "../agent/lib/revenue-account-merge";
 import {
 	previewRevenueAccountMerge,
@@ -160,6 +161,11 @@ describe("RevenueAccount agent reads", () => {
 		expect(preview?.requiresApproval).toBe(true);
 		expect(preview?.conflicts).toEqual([
 			{
+				fieldKey: "system.name",
+				sourceValue: sourceName,
+				targetValue: targetName,
+			},
+			{
 				fieldKey,
 				sourceValue: "from source",
 				targetValue: "from target",
@@ -190,16 +196,36 @@ describe("RevenueAccount agent reads", () => {
 					name: `Merge target ${suffix}`,
 					domain: `target-${suffix}.test`,
 					businessUnitId,
-					customValues: { [fieldKey]: "target value" },
+					customValues: {
+						[fieldKey]: "target value",
+						hidden_target_field: "keep this value",
+					},
 				},
 				select: { id: true },
 			}),
 		]);
+		let attributionId = "";
 		try {
+			const attribution = await db.conversionAttributionEvent.create({
+				data: {
+					entityType: "REVENUE_ACCOUNT",
+					entityId: source.id,
+					revenueAccountId: source.id,
+					businessUnitId,
+					actorType: "SYSTEM",
+					conversionType: "PIPELINE_ENTRY",
+					operationId: `attribution-${suffix}`,
+				},
+			});
+			attributionId = attribution.id;
 			const result = await executeRevenueAccountMerge(
 				source.id,
 				target.id,
-				{ [fieldKey]: "SOURCE" },
+				{
+					[fieldKey]: "SOURCE",
+					"system.name": "TARGET",
+					"system.domain": "SOURCE",
+				},
 				access,
 				operationId,
 			);
@@ -215,7 +241,24 @@ describe("RevenueAccount agent reads", () => {
 					where: { id: target.id },
 					select: { customValues: true },
 				}),
-			).toEqual({ customValues: { [fieldKey]: "source value" } });
+			).toEqual({
+				customValues: {
+					[fieldKey]: "source value",
+					hidden_target_field: "keep this value",
+				},
+			});
+			const targetValues = await db.revenueAccount.findUnique({
+				where: { id: target.id },
+				select: { customValues: true, name: true, domain: true },
+			});
+			expect(targetValues).toEqual({
+				customValues: {
+					[fieldKey]: "source value",
+					hidden_target_field: "keep this value",
+				},
+				name: `Merge target ${suffix}`,
+				domain: `merge-${suffix}.test`,
+			});
 			expect(
 				await db.revenueAccount.findUnique({
 					where: { id: source.id },
@@ -225,7 +268,30 @@ describe("RevenueAccount agent reads", () => {
 			expect(
 				await db.revenueAccountLineageEvent.count({ where: { operationId } }),
 			).toBe(2);
+			expect(
+				await db.domainEvent.count({
+					where: {
+						eventKey: `revenue-account.merged:${target.id}:${operationId}`,
+					},
+				}),
+			).toBe(1);
+			const lineage = await readAttributionLineage(
+				"REVENUE_ACCOUNT",
+				target.id,
+				access,
+			);
+			expect(lineage.lineageEntityIds).toContain(source.id);
+			expect(lineage.events).toHaveLength(1);
+			expect(lineage.events[0]?.entityId).toBe(source.id);
 		} finally {
+			await db.conversionAttributionEvent.deleteMany({
+				where: { id: attributionId },
+			});
+			await db.domainEvent.deleteMany({
+				where: {
+					eventKey: `revenue-account.merged:${target.id}:${operationId}`,
+				},
+			});
 			await db.revenueAccountAttributeHistory.deleteMany({
 				where: { operationId },
 			});

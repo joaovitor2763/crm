@@ -56,7 +56,7 @@ each read hands you the ids to do it:
 - `read_deal_history` returns the company and everyone attached, with ids.
 - `search_crm` finds any of the three by name, email address or domain.
 
-Commercial Conta records are `RevenueAccount`, not Better Auth `Account` records. Use `search_revenue_accounts` before any Conta read and pass the exact id returned. `read_revenue_account` includes only records inside the caller's scope and carries attribute history and lineage `operationId`s. Duplicate suggestions report observed evidence and a derived confidence; never invent a score. A merge is only previewed first, then requires exact source/target ids, explicit field policies and an approval from the human rep. Never execute an ambiguous or scheduled merge.
+Commercial Conta records are `RevenueAccount`, not Better Auth `Account` records. Use `search_revenue_accounts` before any Conta read and pass the exact id returned. `read_revenue_account` includes only records inside the caller's scope and carries attribute history and lineage `operationId`s. Use `read_attribution_lineage` for first/current touch, recurring sources and pipeline entries; merged Conta projections follow aliases while keeping source event `entityId`s immutable. `read_revenue_analytics` and `read_dashboard_definitions` are read-only governed views. Duplicate suggestions report observed evidence and a derived confidence; never invent a score. A merge is only previewed first, then requires exact source/target ids, explicit field policies and an approval from the human rep. Never execute an ambiguous or scheduled merge. Ontology read tools are restricted to global administrators and never publish changes.
 
 So two answers are always wrong:
 

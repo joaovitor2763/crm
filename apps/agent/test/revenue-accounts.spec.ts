@@ -19,6 +19,16 @@ describe("RevenueAccount agent behavior", () => {
 		});
 	});
 
+	it("uses API-compatible SKIP semantics", () => {
+		expect(
+			mergeValues(
+				{ keep: "target", remove: "target" },
+				{ keep: "source", remove: "source" },
+				{ keep: "TARGET", remove: "SKIP" },
+			),
+		).toEqual({ keep: "target" });
+	});
+
 	it("derives confidence from evidence rather than accepting a model score", () => {
 		const confidence = combinedConfidence([
 			{ signal: "exact-domain", detail: "same domain", weight: 0.75 },

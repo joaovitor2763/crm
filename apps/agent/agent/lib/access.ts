@@ -22,6 +22,8 @@ export type AgentAccess = {
 	revenueAccountWhere: Prisma.RevenueAccountWhereInput;
 	activityWhere: Prisma.ActivityWhereInput;
 	fieldPermissions: readonly FieldPermission[];
+	businessUnitIds?: readonly string[];
+	businessUnitTreeIds?: readonly string[];
 };
 
 export type FieldPermission = {
@@ -38,7 +40,12 @@ export type FieldPermission = {
 export async function crmAccess(
 	ctx: EveContext,
 	action: PermissionAction,
-	requiredResource?: "contacts" | "companies" | "deals" | "revenue-accounts",
+	requiredResource?:
+		| "contacts"
+		| "companies"
+		| "deals"
+		| "revenue-accounts"
+		| "dashboards",
 ): Promise<AgentAccess> {
 	const auth = ctx.session.auth.current;
 	if (auth?.principalType !== "user") {
@@ -57,6 +64,8 @@ export async function crmAccess(
 				revenueAccountWhere: {},
 				activityWhere: {},
 				fieldPermissions: [],
+				businessUnitIds: [],
+				businessUnitTreeIds: [],
 			};
 		}
 		throw new Error("An authenticated CRM identity is required.");
@@ -89,6 +98,8 @@ export async function crmAccess(
 			revenueAccountWhere: {},
 			activityWhere: {},
 			fieldPermissions: access.role.fieldPermissions,
+			businessUnitIds: [],
+			businessUnitTreeIds: [],
 		};
 	}
 	const permissions = new Map(
@@ -178,6 +189,8 @@ export async function crmAccess(
 			managedTeamIds,
 		),
 		fieldPermissions: access.role.fieldPermissions,
+		businessUnitIds: unitIds,
+		businessUnitTreeIds: treeIds,
 	};
 }
 

@@ -171,13 +171,30 @@ export async function readRevenueAccount(
 	if (!account) return null;
 	const summary = await summarizeAccount(account, access);
 	const visibleFields = await visibleFieldKeys(access);
+	const lineageIds = await revenueAccountLineageIds(id, access);
+	const [attributeHistory, lineage] = await Promise.all([
+		db.revenueAccountAttributeHistory.findMany({
+			where: { revenueAccountId: { in: lineageIds } },
+			orderBy: { changedAt: "desc" },
+			take: Math.min(lineageLimit, 100),
+		}),
+		db.revenueAccountLineageEvent.findMany({
+			where: { revenueAccountId: { in: lineageIds } },
+			orderBy: { createdAt: "desc" },
+			take: Math.min(lineageLimit, 100),
+		}),
+	]);
 	return {
 		...summary,
 		contacts: account.contacts.map(({ contact }) => contact),
 		companies: account.companies.map(({ company }) => company),
 		deals: account.deals.map(({ deal }) => deal),
-		attributeHistory: account.attributeHistory
-			.filter((entry) => visibleFields.has(entry.fieldKey))
+		attributeHistory: attributeHistory
+			.filter(
+				(entry) =>
+					entry.fieldKey.startsWith("system.") ||
+					visibleFields.has(entry.fieldKey),
+			)
 			.map((entry) => ({
 				id: entry.id,
 				operationId: entry.operationId,
@@ -187,7 +204,7 @@ export async function readRevenueAccount(
 				source: entry.source,
 				changedAt: entry.changedAt.toISOString(),
 			})),
-		lineage: account.lineage.map((entry) => ({
+		lineage: lineage.map((entry) => ({
 			id: entry.id,
 			operationId: entry.operationId,
 			type: entry.type,
@@ -197,6 +214,36 @@ export async function readRevenueAccount(
 			createdAt: entry.createdAt.toISOString(),
 		})),
 	};
+}
+
+/** Follow merge aliases without rewriting immutable source identities. */
+export async function revenueAccountLineageIds(
+	id: string,
+	access: AgentAccess,
+) {
+	const ids = new Set([id]);
+	let frontier = [id];
+	while (frontier.length > 0) {
+		const rows = await db.revenueAccountMerge.findMany({
+			where: { targetAccountId: { in: frontier } },
+			select: { sourceAccountId: true },
+		});
+		const visibleSources = await db.revenueAccount.findMany({
+			where: {
+				AND: [
+					{ id: { in: rows.map((row) => row.sourceAccountId) } },
+					access.revenueAccountWhere,
+				],
+			},
+			select: { id: true },
+		});
+		const visibleIds = new Set(visibleSources.map((row) => row.id));
+		frontier = rows
+			.map((row) => row.sourceAccountId)
+			.filter((sourceId) => visibleIds.has(sourceId) && !ids.has(sourceId));
+		for (const sourceId of frontier) ids.add(sourceId);
+	}
+	return [...ids];
 }
 
 export async function suggestRevenueAccountDuplicates(
@@ -277,10 +324,12 @@ export async function previewRevenueAccountMerge(
 		findAccount(targetId, access),
 	]);
 	if (!source || !target) return null;
-	const [sourceValues, targetValues] = await Promise.all([
+	const [sourceCustomValues, targetCustomValues] = await Promise.all([
 		projectValues(source.customValues, access, true),
 		projectValues(target.customValues, access, true),
 	]);
+	const sourceValues = accountAttributes(source, sourceCustomValues);
+	const targetValues = accountAttributes(target, targetCustomValues);
 	const conflicts = Object.keys(sourceValues)
 		.filter(
 			(key) =>
@@ -298,17 +347,74 @@ export async function previewRevenueAccountMerge(
 	return {
 		source: {
 			...(await summarizeAccount(source, access)),
-			customValues: sourceValues,
+			customValues: sourceCustomValues,
+			attributes: sourceValues,
 		},
 		target: {
 			...(await summarizeAccount(target, access)),
-			customValues: targetValues,
+			customValues: targetCustomValues,
+			attributes: targetValues,
 		},
 		conflicts,
+		fieldGuide: changedKeys(targetValues, sourceValues).map((fieldKey) => ({
+			fieldKey,
+			sourceValue: sourceValues[fieldKey],
+			targetValue: targetValues[fieldKey],
+			valueKind:
+				Array.isArray(sourceValues[fieldKey]) ||
+				Array.isArray(targetValues[fieldKey])
+					? "LIST"
+					: "SCALAR",
+			requiresPolicy: conflicts.some(
+				(conflict) => conflict.fieldKey === fieldKey,
+			),
+		})),
 		relationCounts: { source: sourceRelations, target: targetRelations },
 		requiresApproval: true as const,
 		operationId: crypto.randomUUID(),
 	};
+}
+
+const SYSTEM_FIELDS = new Set(["system.name", "system.domain"]);
+
+export function accountAttributes(
+	account: Pick<
+		AccountRow,
+		"name" | "domain" | "businessUnitId" | "teamId" | "ownerId"
+	>,
+	customValues: Record<string, unknown>,
+): Record<string, unknown> {
+	return {
+		"system.name": account.name,
+		"system.domain": account.domain,
+		...customValues,
+	};
+}
+
+export function splitAccountAttributes(values: Record<string, unknown>) {
+	const name = values["system.name"];
+	if (typeof name !== "string" || name.trim().length === 0)
+		throw new Error("A merged RevenueAccount needs a name.");
+	return {
+		name,
+		domain: nullableString(values["system.domain"]),
+		customValues: Object.fromEntries(
+			Object.entries(values).filter(([key]) => !SYSTEM_FIELDS.has(key)),
+		),
+	};
+}
+
+function nullableString(value: unknown) {
+	return typeof value === "string" ? value : null;
+}
+
+function changedKeys(
+	target: Record<string, unknown>,
+	source: Record<string, unknown>,
+) {
+	return [...new Set([...Object.keys(target), ...Object.keys(source)])].filter(
+		(key) => !sameValue(target[key], source[key]),
+	);
 }
 
 export async function findAccount(
@@ -397,7 +503,7 @@ function safeLineagePayload(
 		payload.fieldPolicies = Object.fromEntries(
 			Object.entries(
 				payload.fieldPolicies as Record<string, Prisma.JsonValue>,
-			).filter(([key]) => visibleFields.has(key)),
+			).filter(([key]) => key.startsWith("system.") || visibleFields.has(key)),
 		);
 	}
 	return payload;

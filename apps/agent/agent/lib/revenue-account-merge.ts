@@ -1,10 +1,12 @@
 import { db, type Prisma } from "@crm/db";
 import type { AgentAccess } from "./access";
 import {
+	accountAttributes,
 	asMap,
 	findAccount,
 	projectValues,
 	sameValue,
+	splitAccountAttributes,
 } from "./revenue-accounts";
 
 export async function executeRevenueAccountMerge(
@@ -14,6 +16,27 @@ export async function executeRevenueAccountMerge(
 	access: AgentAccess,
 	operationId: string = crypto.randomUUID(),
 ) {
+	const existing = await db.revenueAccountMerge.findFirst({
+		where: { operationId },
+		select: { sourceAccountId: true, targetAccountId: true },
+	});
+	if (existing) {
+		if (
+			existing.sourceAccountId !== sourceId ||
+			existing.targetAccountId !== targetId
+		)
+			throw new Error("This operationId belongs to a different merge.");
+		const visibleTarget = await findAccount(targetId, access);
+		if (!visibleTarget)
+			throw new Error("RevenueAccount not found or outside your CRM scope.");
+		return {
+			merged: true as const,
+			sourceAccountId: sourceId,
+			targetAccountId: targetId,
+			operationId,
+			idempotent: true as const,
+		};
+	}
 	if (sourceId === targetId)
 		throw new Error("A RevenueAccount cannot merge into itself.");
 	const [source, target] = await Promise.all([
@@ -22,10 +45,12 @@ export async function executeRevenueAccountMerge(
 	]);
 	if (!source || !target)
 		throw new Error("RevenueAccount not found or outside your CRM scope.");
-	const [sourceValues, targetValues] = await Promise.all([
+	const [sourceCustomValues, targetCustomValues] = await Promise.all([
 		projectValues(source.customValues, access, true),
 		projectValues(target.customValues, access, true),
 	]);
+	const sourceValues = accountAttributes(source, sourceCustomValues);
+	const targetValues = accountAttributes(target, targetCustomValues);
 	const conflicts = Object.keys(sourceValues).filter(
 		(key) =>
 			key in targetValues && !sameValue(sourceValues[key], targetValues[key]),
@@ -35,25 +60,53 @@ export async function executeRevenueAccountMerge(
 		throw new Error(`Choose a merge policy for: ${unresolved.join(", ")}.`);
 	}
 	const mergedValues = mergeValues(targetValues, sourceValues, fieldPolicies);
+	const mergedAttributes = splitAccountAttributes(mergedValues);
+	const mergeableKeys = new Set([
+		...Object.keys(sourceValues),
+		...Object.keys(targetValues),
+	]);
 	await db.$transaction(async (tx) => {
+		const duplicate = await tx.revenueAccountMerge.findFirst({
+			where: { operationId },
+			select: { sourceAccountId: true, targetAccountId: true },
+		});
+		if (duplicate) {
+			if (
+				duplicate.sourceAccountId !== sourceId ||
+				duplicate.targetAccountId !== targetId
+			)
+				throw new Error("This operationId belongs to a different merge.");
+			return;
+		}
 		const currentTarget = await tx.revenueAccount.findFirst({
 			where: {
 				AND: [{ id: targetId, archivedAt: null }, access.revenueAccountWhere],
 			},
-			select: { customValues: true },
+			select: {
+				name: true,
+				domain: true,
+				businessUnitId: true,
+				teamId: true,
+				ownerId: true,
+				customValues: true,
+			},
 		});
 		if (!currentTarget)
 			throw new Error("The target RevenueAccount changed before approval.");
 		const targetRaw = asMap(currentTarget.customValues);
-		const visibleKeys = new Set(
-			Object.keys(sourceValues).concat(Object.keys(targetValues)),
-		);
-		for (const [key, value] of Object.entries(mergedValues)) {
-			if (visibleKeys.has(key)) targetRaw[key] = value as Prisma.InputJsonValue;
+		for (const fieldKey of mergeableKeys) {
+			if (fieldKey.startsWith("system.")) continue;
+			if (fieldKey in mergedValues)
+				targetRaw[fieldKey] = mergedValues[fieldKey] as Prisma.InputJsonValue;
+			else delete targetRaw[fieldKey];
 		}
 		await tx.revenueAccount.update({
 			where: { id: targetId },
-			data: { customValues: targetRaw as Prisma.InputJsonValue },
+			data: {
+				name: mergedAttributes.name,
+				domain: mergedAttributes.domain,
+				customValues: targetRaw as Prisma.InputJsonValue,
+			},
 		});
 		await transferRelations(tx, sourceId, targetId, access);
 		await tx.revenueAccount.update({
@@ -74,7 +127,7 @@ export async function executeRevenueAccountMerge(
 				executedById: access.userId,
 			},
 		});
-		for (const fieldKey of Object.keys(mergedValues)) {
+		for (const fieldKey of mergeableKeys) {
 			if (!sameValue(targetValues[fieldKey], mergedValues[fieldKey])) {
 				await tx.revenueAccountAttributeHistory.create({
 					data: {
@@ -83,7 +136,8 @@ export async function executeRevenueAccountMerge(
 						fieldKey,
 						previousValue: (targetValues[fieldKey] ??
 							null) as Prisma.InputJsonValue,
-						nextValue: mergedValues[fieldKey] as Prisma.InputJsonValue,
+						nextValue: (mergedValues[fieldKey] ??
+							null) as Prisma.InputJsonValue,
 						changedByType: "AGENT",
 						changedById: access.userId,
 						source: "agent-revenue-account-merge",
@@ -115,6 +169,27 @@ export async function executeRevenueAccountMerge(
 				},
 			],
 		});
+		await tx.domainEvent.upsert({
+			where: {
+				eventKey: `revenue-account.merged:${targetId}:${operationId}`,
+			},
+			create: {
+				eventKey: `revenue-account.merged:${targetId}:${operationId}`,
+				type: "revenue-account.merged",
+				resource: "revenue-accounts",
+				recordId: targetId,
+				businessUnitId: currentTarget.businessUnitId,
+				teamId: currentTarget.teamId,
+				actorType: "AGENT",
+				actorId: access.userId,
+				payload: {
+					sourceAccountId: sourceId,
+					targetAccountId: targetId,
+					operationId,
+				},
+			},
+			update: {},
+		});
 	});
 	return {
 		merged: true as const,
@@ -140,7 +215,8 @@ export function mergeValues(
 		const policy = policies[key];
 		if (policy === "SOURCE") result[key] = sourceValue;
 		if (policy === "UNION") result[key] = unionValues(targetValue, sourceValue);
-		if (policy === "SKIP" || policy === "TARGET") result[key] = targetValue;
+		if (policy === "TARGET") result[key] = targetValue;
+		if (policy === "SKIP") delete result[key];
 	}
 	return result;
 }
