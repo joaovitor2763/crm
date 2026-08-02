@@ -1,5 +1,9 @@
 import { PipelineStageType } from "@crm/db";
 import { z } from "zod";
+import {
+	pipelineBlueprintInput,
+	pipelineRole,
+} from "./pipelines-blueprint.contracts";
 
 const stageType = z.enum(
 	Object.values(PipelineStageType) as [
@@ -43,3 +47,13 @@ export const pipelineStageReorderInput = z.object({
 });
 
 export const pipelineStageIdInput = z.object({ id: z.string() });
+
+export const pipelineBlueprintValidationInput = pipelineBlueprintInput;
+
+export const pipelineBlueprintTransitionInput = z.object({
+	blueprint: pipelineBlueprintInput,
+	fromStage: z.string().trim().min(1),
+	toStage: z.string().trim().min(1),
+	actingRole: pipelineRole.optional(),
+	handoverToRole: pipelineRole.optional(),
+});

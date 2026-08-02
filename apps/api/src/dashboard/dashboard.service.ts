@@ -1,7 +1,20 @@
 import { ActivityType, type Db, PipelineStageType, type Prisma } from "@crm/db";
-import { Injectable } from "@nestjs/common";
+import {
+	BadRequestException,
+	Injectable,
+	NotFoundException,
+} from "@nestjs/common";
+import type { EffectivePrincipal } from "../access-control/access-control.types";
 import { toCents } from "../crm/values";
 import { InjectDatabase } from "../database/database.constants";
+import { FieldsService } from "../fields/fields.service";
+import {
+	type AnalyticsActivity,
+	type AnalyticsDeal,
+	type AnalyticsPipeline,
+	buildRevenueAnalytics,
+} from "./analytics";
+import type { DashboardAnalyticsInput } from "./analytics.contracts";
 import type { DashboardSummaryInput } from "./dashboard.contracts";
 
 const OWNER_SELECT = {
@@ -37,9 +50,181 @@ function monthKey(date: Date): number {
 	return date.getFullYear() * 12 + date.getMonth();
 }
 
+function parseAnalyticsDate(value: string | undefined): Date | null {
+	if (!value) return null;
+	const date = new Date(value);
+	return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function pickCustomValue(value: unknown, key: string): Record<string, unknown> {
+	if (typeof value !== "object" || value === null || Array.isArray(value)) {
+		return {};
+	}
+	const record = value as Record<string, unknown>;
+	return Object.hasOwn(record, key) ? { [key]: record[key] } : {};
+}
+
 @Injectable()
 export class DashboardService {
-	constructor(@InjectDatabase() private readonly db: Db) {}
+	constructor(
+		@InjectDatabase() private readonly db: Db,
+		private readonly fields: FieldsService,
+	) {}
+
+	async analytics(
+		principal: EffectivePrincipal,
+		actingUserId: string,
+		input: DashboardAnalyticsInput,
+		dealScope: Prisma.DealWhereInput = {},
+		activityScope: Prisma.ActivityWhereInput = {},
+		pipelineScope: Prisma.PipelineWhereInput = {},
+		contactScope: Prisma.ContactWhereInput = {},
+	) {
+		const to = parseAnalyticsDate(input.to) ?? new Date();
+		const from =
+			parseAnalyticsDate(input.from) ??
+			new Date(to.getTime() - 90 * 24 * 60 * 60 * 1000);
+		const pipelineWhere: Prisma.PipelineWhereInput = {
+			AND: [
+				{ archivedAt: null },
+				pipelineScope,
+				input.pipelineId ? { id: input.pipelineId } : {},
+			],
+		};
+		const pipelines = await this.db.pipeline.findMany({
+			where: pipelineWhere,
+			select: {
+				id: true,
+				name: true,
+				stages: {
+					orderBy: { position: "asc" },
+					select: { id: true, name: true, position: true, type: true },
+				},
+			},
+		});
+		if (input.pipelineId && pipelines.length === 0) {
+			throw new NotFoundException("No pipeline is available in your scope.");
+		}
+		const attributeKey = input.dimensions.includes("dealAttribute")
+			? await this.readableDealAttribute(principal, input.attributeKey)
+			: undefined;
+
+		const pipelineIds = pipelines.map((pipeline) => pipeline.id);
+		const dealsWhere: Prisma.DealWhereInput = {
+			AND: [
+				input.scope === "me" ? { ownerId: actingUserId } : {},
+				dealScope,
+				{ archivedAt: null, pipelineId: { in: pipelineIds } },
+				{ createdAt: { lte: to } },
+				{ OR: [{ closedAt: null }, { closedAt: { gte: from } }] },
+			],
+		};
+		const dealRows = pipelineIds.length
+			? await this.db.deal.findMany({
+					where: dealsWhere,
+					select: {
+						id: true,
+						pipelineId: true,
+						stage: {
+							select: { id: true, name: true, position: true, type: true },
+						},
+						owner: { select: { id: true, name: true } },
+						createdAt: true,
+						closedAt: true,
+						amount: true,
+						customValues: true,
+						contacts: {
+							where: {
+								contact: { AND: [{ archivedAt: null }, contactScope] },
+							},
+							select: {
+								contact: {
+									select: {
+										utmSource: true,
+										utmMedium: true,
+										utmCampaign: true,
+										utmTerm: true,
+										utmContent: true,
+									},
+								},
+							},
+						},
+					},
+				})
+			: [];
+		const dealIds = dealRows.map((deal) => deal.id);
+		const activityRows = dealIds.length
+			? await this.db.activity.findMany({
+					where: {
+						AND: [{ dealId: { in: dealIds } }, activityScope],
+					},
+					select: {
+						dealId: true,
+						type: true,
+						occurredAt: true,
+						createdAt: true,
+						meta: true,
+					},
+				})
+			: [];
+
+		const pipelineInput: AnalyticsPipeline[] = pipelines;
+		const analyticsDeals: AnalyticsDeal[] = dealRows.map((deal) => ({
+			id: deal.id,
+			pipelineId: deal.pipelineId,
+			stage: deal.stage,
+			owner: deal.owner,
+			createdAt: deal.createdAt,
+			closedAt: deal.closedAt,
+			amountCents: toCents(deal.amount),
+			customValues: attributeKey
+				? pickCustomValue(deal.customValues, attributeKey)
+				: {},
+			contacts: deal.contacts.map(({ contact }) => contact),
+		}));
+		const analyticsActivities: AnalyticsActivity[] = activityRows.map(
+			(activity) => ({
+				dealId: activity.dealId,
+				type: activity.type,
+				occurredAt: activity.occurredAt,
+				createdAt: activity.createdAt,
+				meta: activity.meta,
+			}),
+		);
+
+		return buildRevenueAnalytics(
+			pipelineInput,
+			analyticsDeals,
+			analyticsActivities,
+			{
+				...input,
+				from,
+				to,
+				now: to,
+			},
+		);
+	}
+
+	private async readableDealAttribute(
+		principal: EffectivePrincipal,
+		attributeKey: string | undefined,
+	) {
+		if (!attributeKey) {
+			throw new BadRequestException(
+				"Choose a deal field for the attribute breakdown.",
+			);
+		}
+		const definitions = await this.fields.schema(principal, "deals");
+		const readable = definitions.some((definition) =>
+			definition.fields.some((field) => field.key === attributeKey),
+		);
+		if (!readable) {
+			throw new BadRequestException(
+				"That deal field is unknown or not readable in your scope.",
+			);
+		}
+		return attributeKey;
+	}
 
 	/**
 	 * How the rep is doing: what they have closed, what is still open, the rates

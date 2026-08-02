@@ -1,4 +1,4 @@
-import { PermissionAction } from "@crm/db";
+import { AccessScope, PermissionAction, type Prisma } from "@crm/db";
 import { Inject } from "@nestjs/common";
 import { Ctx, Input, Query, Router, UseMiddlewares } from "nestjs-trpc";
 import type { z } from "zod";
@@ -6,6 +6,7 @@ import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import type { AuthedTrpcContext } from "../trpc/context.types";
 import { AuthMiddleware } from "../trpc/middlewares/auth.middleware";
+import { dashboardAnalyticsInput } from "./analytics.contracts";
 import { dashboardSummaryInput } from "./dashboard.contracts";
 import { DashboardService } from "./dashboard.service";
 
@@ -41,6 +42,54 @@ export class DashboardRouter {
 				CRM_RESOURCE.activities,
 				PermissionAction.READ,
 			),
+		);
+	}
+
+	@Query({ input: dashboardAnalyticsInput })
+	async analytics(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardAnalyticsInput>,
+	) {
+		return this.dashboard.analytics(
+			ctx.principal,
+			ctx.user.id,
+			input,
+			this.accessControl.dealWhere(
+				ctx.principal,
+				CRM_RESOURCE.deals,
+				PermissionAction.READ,
+			),
+			this.accessControl.activityWhere(
+				ctx.principal,
+				CRM_RESOURCE.activities,
+				PermissionAction.READ,
+			),
+			this.accessControl.configurationWhere(
+				ctx.principal,
+				CRM_RESOURCE.pipelines,
+				PermissionAction.READ,
+				true,
+			),
+			this.relatedContactScope(ctx),
+		);
+	}
+
+	private relatedContactScope(
+		ctx: AuthedTrpcContext,
+	): Prisma.ContactWhereInput {
+		if (
+			this.accessControl.permission(
+				ctx.principal,
+				CRM_RESOURCE.contacts,
+				PermissionAction.READ,
+			) === AccessScope.NONE
+		) {
+			return { id: { in: [] } };
+		}
+		return this.accessControl.contactWhere(
+			ctx.principal,
+			CRM_RESOURCE.contacts,
+			PermissionAction.READ,
 		);
 	}
 }

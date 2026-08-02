@@ -14,6 +14,8 @@ import { AccessControlService } from "../access-control/access-control.service";
 import type { AuthedTrpcContext } from "../trpc/context.types";
 import { AuthMiddleware } from "../trpc/middlewares/auth.middleware";
 import {
+	pipelineBlueprintTransitionInput,
+	pipelineBlueprintValidationInput,
 	pipelineCreateInput,
 	pipelineIdInput,
 	pipelineListInput,
@@ -43,6 +45,28 @@ export class PipelinesRouter {
 			input.includeArchived,
 			this.scope(ctx, PermissionAction.READ, true),
 		);
+	}
+
+	@Query({ input: pipelineIdInput })
+	describe(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
+		return this.pipelines.describe(
+			id,
+			this.scope(ctx, PermissionAction.READ, true),
+		);
+	}
+
+	@Query({ input: pipelineBlueprintValidationInput })
+	validateBlueprint(
+		@Input() input: z.infer<typeof pipelineBlueprintValidationInput>,
+	) {
+		return this.pipelines.validateBlueprint(input);
+	}
+
+	@Query({ input: pipelineBlueprintTransitionInput })
+	validateTransition(
+		@Input() input: z.infer<typeof pipelineBlueprintTransitionInput>,
+	) {
+		return this.pipelines.validateBlueprintTransition(input.blueprint, input);
 	}
 
 	@Mutation({ input: pipelineCreateInput })

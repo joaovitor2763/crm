@@ -20,12 +20,13 @@ import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInp
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
 import { conversationListInput, conversationEventsInput, conversationSaveInput, conversationIdInput } from "../conversations/conversations.contracts";
 import { dashboardSummaryInput } from "../dashboard/dashboard.contracts";
+import { dashboardAnalyticsInput } from "../dashboard/analytics.contracts";
 import { dealListInput, dealIdInput, dealBoardInput, dealCreateInput, dealUpdateArgs, setStageInput, dealLineItemCreateInput, dealLineItemUpdateInput, dealLineItemIdInput } from "../deals/deals.contracts";
 import { fieldSchemaInput, objectDefinitionCreateInput, fieldCreateInput, fieldUpdateInput, fieldIdInput, fieldPermissionInput, relationDefinitionCreateInput, recordRelationCreateInput, customRecordCreateInput, recordCustomValuesInput } from "../fields/fields.contracts";
 import { setAutoCreateInput, suppressDomainInput, threadInput, calendarEventInput } from "../google/google.contracts";
 import { businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
-import { pipelineListInput, pipelineCreateInput, pipelineUpdateInput, pipelineIdInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
+import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
 import type { ActivitiesRouter } from "../activities/activities.router";
 import type { ApiCredentialsRouter } from "../api-credentials/api-credentials.router";
@@ -175,7 +176,10 @@ const appRouter = t.router({
   dashboard: t.router({
     summary: publicProcedure
       .input(dashboardSummaryInput)
-      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["summary"]>>)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["summary"]>>),
+    analytics: publicProcedure
+      .input(dashboardAnalyticsInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["analytics"]>>)
     }),
   deals: t.router({
     list: publicProcedure
@@ -336,6 +340,15 @@ const appRouter = t.router({
     list: publicProcedure
       .input(pipelineListInput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["list"]>>),
+    describe: publicProcedure
+      .input(pipelineIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["describe"]>>),
+    validateBlueprint: publicProcedure
+      .input(pipelineBlueprintValidationInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["validateBlueprint"]>>),
+    validateTransition: publicProcedure
+      .input(pipelineBlueprintTransitionInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["validateTransition"]>>),
     create: publicProcedure
       .input(pipelineCreateInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["create"]>>),

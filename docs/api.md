@@ -123,6 +123,13 @@ scoped contact endpoints after ingestion.
   `{ rows, total, facetCounts }`. Never return a whole table and filter in the
   browser, and never interpolate `sort` into a Prisma field name — resolve it
   through `resolveOrderBy` against the columns that module allows.
+- Revenue reporting follows the same boundary: `dashboard.analytics` receives
+  the caller's deal, activity and pipeline visibility predicates and returns
+  stage, timing, attribution and breakdown views as JSON-only ChartCDN payloads.
+  Pipeline role/handover blueprints are validated by
+  `pipelines.validateBlueprint` and `pipelines.validateTransition`; persistence
+  is intentionally deferred until the revenue-architecture ontology migration
+  adds those policy fields.
 - **The router type is generated**, not hand-written:
   `bun run --filter=api trpc:generate` writes `src/generated/server.ts`, which
   the app imports as `type { AppRouter } from "api/app-router"`. `bun run dev`

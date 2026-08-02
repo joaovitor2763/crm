@@ -10,6 +10,13 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
+import {
+	inferPipelineFunnelType,
+	type PipelineBlueprint,
+	type PipelineTransitionRequest,
+	validateBlueprintTransition,
+	validatePipelineBlueprint,
+} from "./pipeline-blueprint";
 import { lockDefaultPipeline, lockPipelines } from "./pipeline-locks";
 
 const STARTING_STAGES = [
@@ -50,6 +57,54 @@ export class PipelinesService {
 				_count: { select: { deals: true } },
 			},
 		});
+	}
+
+	async describe(id: string, scope: Prisma.PipelineWhereInput = {}) {
+		const pipeline = await this.db.pipeline.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				name: true,
+				businessUnitId: true,
+				archivedAt: true,
+				stages: {
+					orderBy: { position: "asc" },
+					select: { id: true, name: true, position: true, type: true },
+				},
+			},
+		});
+		if (!pipeline) throw new NotFoundException(`No pipeline with id ${id}.`);
+		return {
+			...pipeline,
+			type: inferPipelineFunnelType(pipeline.stages),
+			typeSource: "inferred_from_stage_outcomes" as const,
+			roles: {
+				configured: false,
+				message:
+					"Stage roles require the revenue-architecture schema extension.",
+			},
+			handovers: {
+				configured: false,
+				message:
+					"Handover rules require the revenue-architecture schema extension.",
+			},
+			schemaGap: [
+				"pipeline funnel type is inferred from stage outcome types",
+				"stage role policies are not persisted",
+				"stage handover rules are not persisted",
+			],
+		};
+	}
+
+	validateBlueprint(blueprint: PipelineBlueprint) {
+		return validatePipelineBlueprint(blueprint);
+	}
+
+	validateBlueprintTransition(
+		blueprint: PipelineBlueprint,
+		request: PipelineTransitionRequest,
+	) {
+		return validateBlueprintTransition(blueprint, request);
 	}
 
 	async create(name: string, businessUnitId: string | null = null) {
