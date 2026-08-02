@@ -39,6 +39,12 @@ import { useTRPC } from "@/lib/trpc/client";
 
 const UNSET = "";
 
+type PipelineOption = {
+	id: string;
+	isDefault: boolean;
+	stages: Array<{ id: string; name: string; type: string }>;
+};
+
 export function CreateDealSheet({
 	/** Pre-selects a company when opened from that company's page. */
 	companyId,
@@ -72,13 +78,16 @@ export function CreateDealSheet({
 	const pipelines = useQuery(
 		trpc.pipelines.list.queryOptions({ includeArchived: false }),
 	);
+	const pipelineOptions = pipelines.data as unknown as
+		| PipelineOption[]
+		| undefined;
 
 	// Whoever is adding the deal is almost always the one working it.
 	const resolvedOwner = ownerId || me.data?.id || UNSET;
 	const resolvedPipeline =
-		pipelines.data?.find((pipeline) => pipeline.id === pipelineId) ??
-		pipelines.data?.find((pipeline) => pipeline.isDefault) ??
-		pipelines.data?.[0];
+		pipelineOptions?.find((pipeline) => pipeline.id === pipelineId) ??
+		pipelineOptions?.find((pipeline) => pipeline.isDefault) ??
+		pipelineOptions?.[0];
 	const openStages =
 		resolvedPipeline?.stages.filter((stage) => stage.type === "OPEN") ?? [];
 	const resolvedStage =
