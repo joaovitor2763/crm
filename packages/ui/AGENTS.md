@@ -10,9 +10,11 @@ for the application.
   Prefer composition and existing variants.
 - Consumers must not restyle shared components. If the product needs a visual
   or behavioral option, add a typed variant here so all call sites share it.
-- Keep the CRM's square visual language: no rounded corners and no new arbitrary
-  radii. Use semantic theme tokens rather than raw colors, one-off shadows, or
-  manual dark-mode color pairs.
+- Keep the product's geometry restrained: use the shared radius scale for
+  controls, cards, and floating surfaces, while tables, dividers, attached
+  sheets, and structural edges stay square. Never add arbitrary radii or turn
+  every control into a pill. Use semantic theme tokens rather than raw colors,
+  one-off shadows, or manual dark-mode color pairs.
 - `className` inside a primitive may implement the primitive; at consumer call
   sites it is for layout only. Use `cn()` for conditional classes, `gap-*` for
   spacing, and `size-*` when width and height match.

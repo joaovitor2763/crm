@@ -19,7 +19,7 @@ const emptyVariants = cva(
 	// Sits at its natural height (a comfortable block) rather than stretching to
 	// fill a flex-1 page shell. Opt into full-height centering per-usage with
 	// `flex-1` on the className when needed.
-	"group/empty flex w-full min-w-0 flex-col items-center justify-center gap-4 rounded-none border-dashed px-6 py-12 text-center text-balance",
+				"group/empty flex w-full min-w-0 flex-col items-center justify-center gap-4 rounded-lg border-dashed px-6 py-12 text-center text-balance",
 	{
 		variants: {
 			width: {
@@ -68,7 +68,7 @@ const emptyMediaVariants = cva(
 		variants: {
 			variant: {
 				default: "bg-transparent",
-				icon: "flex size-8 shrink-0 items-center justify-center rounded-none bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4",
+				icon: "flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-foreground [&_svg:not([class*='size-'])]:size-4",
 			},
 		},
 		defaultVariants: {
