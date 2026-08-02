@@ -56,6 +56,8 @@ export type CrmCache = {
 	google(options?: Options): Promise<void>;
 	pipelines(options?: Options): Promise<void>;
 	products(options?: Options): Promise<void>;
+	/** An account write changes its detail, relations, lineage and list. */
+	revenueAccounts(id?: string, options?: Options): Promise<void>;
 	marketing(options?: Options): Promise<void>;
 	/** An import writes across every table, so nothing is assumed to survive. */
 	everything(): Promise<void>;
@@ -221,6 +223,24 @@ export function useCrmCache(): CrmCache {
 			run(
 				[trpc.products.list.queryKey()],
 				[trpc.deals.byId.queryKey()],
+				options,
+			),
+
+		revenueAccounts: (id, options) =>
+			run(
+				[
+					id
+						? trpc.revenueAccounts.byId.queryKey({ id })
+						: trpc.revenueAccounts.byId.queryKey(),
+					trpc.revenueAccounts.configuration.queryKey(),
+					trpc.revenueAccounts.history.queryKey(),
+				],
+				[
+					trpc.revenueAccounts.list.queryKey(),
+					trpc.revenueAccounts.mergeCandidates.queryKey(),
+					trpc.revenueAccounts.mergePreview.queryKey(),
+					trpc.dashboard.analytics.queryKey(),
+				],
 				options,
 			),
 

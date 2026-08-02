@@ -45,6 +45,12 @@ export default async function StudioPage({
 		fields: can("fields", "MANAGE"),
 		fieldsRead: can("fields", "READ") || can("fields", "MANAGE"),
 		automations: can("automations", "MANAGE"),
+		revenueAccountsRead:
+			can("revenue-accounts", "READ") || can("revenue-accounts", "MANAGE"),
+		// Conta configuration is intentionally global in the API; only expose its
+		// write controls when the principal is a global administrator.
+		revenueAccountsWrite: can("revenue-accounts", "MANAGE"),
+		revenueAccountsConfigure: capabilities.isAdmin,
 	};
 
 	const prefetches: Promise<void>[] = [
@@ -78,6 +84,23 @@ export default async function StudioPage({
 		prefetches.push(
 			queryClient.prefetchQuery(trpc.automations.list.queryOptions()),
 			queryClient.prefetchQuery(trpc.automations.webhooks.queryOptions()),
+		);
+	}
+	if (access.revenueAccountsRead) {
+		prefetches.push(
+			queryClient.prefetchQuery(
+				trpc.revenueAccounts.configuration.queryOptions(),
+			),
+			queryClient.prefetchQuery(
+				trpc.revenueAccounts.list.queryOptions({
+					q: "",
+					sort: "name",
+					dir: "asc",
+					page: 1,
+					pageSize: 50,
+					owner: "all",
+				}),
+			),
 		);
 	}
 	await Promise.all(prefetches);

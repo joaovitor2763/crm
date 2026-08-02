@@ -1,47 +1,40 @@
-import { Button } from "@crm/ui/components/button";
-import { CapabilityCard } from "@crm/ui/components/capability-card";
-import Link from "next/link";
+"use client";
 
-export function StudioAccounts() {
-	return (
-		<CapabilityCard
-			title="Account model"
-			description="A configurable account entity is not exposed by the current API contract."
-			status="Capability pending"
-			action={
-				<>
-					<Button asChild variant="outline" size="sm">
-						<Link href="/companies">Open companies</Link>
-					</Button>
-					<Button asChild variant="ghost" size="sm">
-						<Link href="/deals">Open deals</Link>
-					</Button>
-				</>
-			}
-		>
-			The current CRM keeps companies, contacts and deals as separate governed
-			records. The Studio reserves this surface for account aggregation rules
-			and will only activate it when those rules have a persisted schema.
-		</CapabilityCard>
-	);
-}
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@crm/ui/components/card";
+import { StudioAccounts } from "./studio-accounts";
 
-export function StudioLineage() {
+export { StudioAccounts };
+
+export function StudioLineage({
+	canManage,
+	canConfigure,
+}: {
+	canManage: boolean;
+	canConfigure: boolean;
+}) {
 	return (
-		<CapabilityCard
-			title="Lineage and guided merge"
-			description="Merge safety needs durable history and attribute-level provenance."
-			status="Capability pending"
-			action={
-				<Button asChild variant="outline" size="sm">
-					<Link href="/companies">Inspect source records</Link>
-				</Button>
-			}
-		>
-			No merge endpoint exists in the current tRPC router, so this view does not
-			pretend to merge records. The planned flow will preview conflicts,
-			preserve field history, retain source IDs and require an explicit human
-			confirmation.
-		</CapabilityCard>
+		<div className="flex flex-col gap-4">
+			<Card>
+				<CardHeader>
+					<CardTitle>Lineage and merge safety</CardTitle>
+					<CardDescription>
+						Every account attribute change, relation movement and merge keeps an
+						operation-level history for review.
+					</CardDescription>
+				</CardHeader>
+				<CardContent className="text-muted-foreground text-xs">
+					Select an account below to inspect its attribute history, lineage
+					events and guided merge preview. The merge action requires a second
+					explicit confirmation.
+				</CardContent>
+			</Card>
+			<StudioAccounts canManage={canManage} canConfigure={canConfigure} />
+		</div>
 	);
 }

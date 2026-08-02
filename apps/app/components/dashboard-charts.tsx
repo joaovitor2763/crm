@@ -26,3 +26,8 @@ export const DonutStat = dynamic(() => load().then((m) => m.DonutStat), {
 	ssr: false,
 	loading,
 });
+
+export const BarTrend = dynamic(() => load().then((m) => m.BarTrend), {
+	ssr: false,
+	loading,
+});

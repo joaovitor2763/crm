@@ -34,6 +34,9 @@ type StudioAccess = {
 	fields: boolean;
 	fieldsRead: boolean;
 	automations: boolean;
+	revenueAccountsRead: boolean;
+	revenueAccountsWrite: boolean;
+	revenueAccountsConfigure: boolean;
 };
 
 const NAV_ITEMS = [
@@ -180,8 +183,26 @@ export function RevenueStudio({ access }: { access: StudioAccess }) {
 						<AccessRequired label="automations" />
 					)
 				) : null}
-				{view === "accounts" ? <StudioAccounts /> : null}
-				{view === "lineage" ? <StudioLineage /> : null}
+				{view === "accounts" ? (
+					access.revenueAccountsRead ? (
+						<StudioAccounts
+							canManage={access.revenueAccountsWrite}
+							canConfigure={access.revenueAccountsConfigure}
+						/>
+					) : (
+						<AccessRequired label="revenue accounts" />
+					)
+				) : null}
+				{view === "lineage" ? (
+					access.revenueAccountsRead ? (
+						<StudioLineage
+							canManage={access.revenueAccountsWrite}
+							canConfigure={access.revenueAccountsConfigure}
+						/>
+					) : (
+						<AccessRequired label="revenue accounts" />
+					)
+				) : null}
 				{view === "dashboards" ? <StudioDashboards /> : null}
 			</section>
 		</div>
