@@ -29,6 +29,8 @@ export const dashboardAnalyticsInput = z
 			.max(ANALYTICS_DIMENSIONS.length)
 			.default(["channel", "owner", "utmSource", "utmMedium", "utmCampaign"]),
 		attributeKey: z.string().trim().min(1).max(80).optional(),
+		grain: z.enum(["day", "week", "month", "quarter"]).optional(),
+		comparison: z.enum(["none", "previousPeriod", "previousYear"]).optional(),
 		limit: z.number().int().min(1).max(100).default(25),
 	})
 	.superRefine((input, context) => {
@@ -72,7 +74,12 @@ export type ChartCdnDefinition = {
 };
 
 export type AnalyticsView = {
-	key: "conversionFunnel" | "conversionTime" | "stagePerformance" | "breakdown";
+	key:
+		| "conversionFunnel"
+		| "conversionTime"
+		| "stagePerformance"
+		| "breakdown"
+		| "timeSeries";
 	title: string;
 	description: string;
 	chart: ChartCdnDefinition;

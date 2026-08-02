@@ -142,6 +142,20 @@ scoped contact endpoints after ingestion.
   event emits `revenue-conversion.recorded` through the durable outbox, with a
   stable key based on entity and operation, and nullable typed links preserve a
   tombstone when an element is merged or hard-deleted.
+- Dashboard definitions use the same `dashboard` tRPC router and are
+  provider-neutral. `definitionsList`, `definition`, `definitionTemplates`,
+  `renderDefinition`, `createDefinition`, `updateDefinition`,
+  `duplicateDefinition`, `versionDefinition`, `publishDefinition` and
+  `archiveDefinition` cover the governed lifecycle. A definition stores its
+  metric/population, filters, time grain, groupings, comparison, visualization
+  options and layout as JSON. Every edit is a new version; publishing archives
+  the previous published version without deleting history. Rendering delegates
+  to the authorized analytics query and emits JSON-only Chart.js/ChartCDN data.
+  Credential-authenticated REST (`/api/v1/dashboards`) and MCP expose the
+  list/get/create/update/publish/export subset; both public publish operations
+  require `{ "confirmed": true }`. Time-series renders include created, won and
+  conversion-rate buckets at the definition's day/week/month/quarter grain;
+  unsupported comparison requests are returned as explicit metadata.
 - **The router type is generated**, not hand-written:
   `bun run --filter=api trpc:generate` writes `src/generated/server.ts`, which
   the app imports as `type { AppRouter } from "api/app-router"`. `bun run dev`

@@ -51,6 +51,8 @@ export type RevenueAnalyticsInput = {
 	from: AnalyticsDate;
 	to: AnalyticsDate;
 	now?: AnalyticsDate;
+	grain?: "day" | "week" | "month" | "quarter";
+	comparison?: "none" | "previousPeriod" | "previousYear";
 };
 
 type StageVisit = {
@@ -196,6 +198,9 @@ export function buildRevenueAnalytics(
 		.sort((left, right) => left.fromStage.localeCompare(right.fromStage));
 
 	const views: AnalyticsView[] = [
+		...(input.grain
+			? [buildTimeSeriesView(deals, input.from, input.to, input.grain)]
+			: []),
 		view(
 			"conversionFunnel",
 			"Conversion funnel",
@@ -257,6 +262,14 @@ export function buildRevenueAnalytics(
 			to: toDate(input.to).toISOString(),
 		},
 		dealCount: deals.length,
+		comparison:
+			input.comparison && input.comparison !== "none"
+				? {
+						requested: input.comparison,
+						supported: false,
+						reason: "Comparison windows are not materialized yet.",
+					}
+				: { requested: "none", supported: true },
 		views,
 		attribution: deals.map((deal) => ({
 			dealId: deal.id,
@@ -270,6 +283,126 @@ export function buildRevenueAnalytics(
 			lastPipelineEntryAt: lastConversionAt(activityByDeal.get(deal.id) ?? []),
 		})),
 	};
+}
+
+function buildTimeSeriesView(
+	deals: AnalyticsDeal[],
+	fromValue: AnalyticsDate,
+	toValue: AnalyticsDate,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+): AnalyticsView {
+	const from = toDate(fromValue);
+	const to = toDate(toValue);
+	const buckets = timeBuckets(from, to, grain);
+	const rows = buckets.map((bucket) => {
+		let created = 0;
+		let won = 0;
+		for (const deal of deals) {
+			if (
+				inRange(toDate(deal.createdAt), from, to) &&
+				inBucket(toDate(deal.createdAt), bucket)
+			)
+				created += 1;
+			if (
+				deal.closedAt &&
+				deal.stage.type === PipelineStageType.WON &&
+				inRange(toDate(deal.closedAt), from, to) &&
+				inBucket(toDate(deal.closedAt), bucket)
+			)
+				won += 1;
+		}
+		return {
+			period: bucket.label,
+			created,
+			won,
+			conversionRate: ratio(won, created),
+		};
+	});
+	const result = view(
+		"timeSeries",
+		"Conversion over time",
+		`Deals created, won and conversion rate by ${grain}.`,
+		"line",
+		rows.map((row) => ({ label: row.period, value: row.conversionRate ?? 0 })),
+		rows,
+	);
+	result.chart.data.datasets = [
+		{ label: "Deals created", data: rows.map((row) => row.created) },
+		{ label: "Deals won", data: rows.map((row) => row.won) },
+		{
+			label: "Conversion rate",
+			data: rows.map((row) => row.conversionRate ?? 0),
+		},
+	];
+	return result;
+}
+
+type TimeBucket = { start: Date; end: Date; label: string };
+
+function timeBuckets(
+	from: Date,
+	to: Date,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+) {
+	const buckets: TimeBucket[] = [];
+	let start = bucketStart(from, grain);
+	while (start < to) {
+		const end = bucketEnd(start, grain);
+		buckets.push({ start, end, label: periodLabel(start, grain) });
+		start = end;
+	}
+	return buckets;
+}
+
+function bucketStart(
+	date: Date,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+) {
+	const value = new Date(date);
+	value.setUTCHours(0, 0, 0, 0);
+	if (grain === "day") return value;
+	if (grain === "week") {
+		const day = value.getUTCDay();
+		value.setUTCDate(value.getUTCDate() - (day === 0 ? 6 : day - 1));
+		return value;
+	}
+	if (grain === "quarter") {
+		value.setUTCMonth(Math.floor(value.getUTCMonth() / 3) * 3, 1);
+		return value;
+	}
+	value.setUTCDate(1);
+	return value;
+}
+
+function bucketEnd(
+	start: Date,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+) {
+	const end = new Date(start);
+	if (grain === "day") end.setUTCDate(end.getUTCDate() + 1);
+	else if (grain === "week") end.setUTCDate(end.getUTCDate() + 7);
+	else if (grain === "quarter") end.setUTCMonth(end.getUTCMonth() + 3);
+	else end.setUTCMonth(end.getUTCMonth() + 1);
+	return end;
+}
+
+function periodLabel(
+	date: Date,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+) {
+	if (grain === "day") return date.toISOString().slice(0, 10);
+	if (grain === "week") return `Week of ${date.toISOString().slice(0, 10)}`;
+	if (grain === "quarter")
+		return `${date.getUTCFullYear()} Q${Math.floor(date.getUTCMonth() / 3) + 1}`;
+	return date.toISOString().slice(0, 7);
+}
+
+function inBucket(date: Date, bucket: TimeBucket) {
+	return date >= bucket.start && date < bucket.end;
+}
+
+function inRange(date: Date, from: Date, to: Date) {
+	return date >= from && date < to;
 }
 
 function view(

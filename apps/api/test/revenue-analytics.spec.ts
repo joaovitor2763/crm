@@ -222,7 +222,15 @@ describe("revenue analytics definitions", () => {
 			limit: 25,
 			dimensions: ["channel", "owner", "utmSource", "dealAttribute"],
 			attributeKey: "segment",
+			grain: "month",
 		});
+		const series = result.views.find((view) => view.key === "timeSeries");
+		expect(series?.rows).toContainEqual(
+			expect.objectContaining({ period: "2026-01", created: 2, won: 1 }),
+		);
+		expect(series?.chart.data.datasets.map((dataset) => dataset.label)).toEqual(
+			["Deals created", "Deals won", "Conversion rate"],
+		);
 		const funnel = result.views.find(
 			(view) => view.title === "Conversion funnel",
 		);

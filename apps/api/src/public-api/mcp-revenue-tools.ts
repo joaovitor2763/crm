@@ -15,6 +15,13 @@ import {
 } from "../dashboard/analytics.contracts";
 import type { DashboardService } from "../dashboard/dashboard.service";
 import {
+	dashboardDefinitionCreateInput,
+	dashboardDefinitionListInput,
+	dashboardDefinitionPublishInput,
+	dashboardDefinitionUpdateInput,
+} from "../dashboard/dashboard-definition.contracts";
+import type { DashboardDefinitionService } from "../dashboard/dashboard-definition.service";
+import {
 	revenueAccountCreateInput,
 	revenueAccountListInput,
 	revenueAccountMergeInput,
@@ -29,11 +36,76 @@ export function registerRevenueArchitectureTools(
 		accounts: RevenueAccountsService;
 		attribution: AttributionService;
 		dashboard: DashboardService;
+		definitions: DashboardDefinitionService;
 		accessControl: AccessControlService;
 		principal: EffectivePrincipal;
 	},
 ) {
-	const { accounts, dashboard, accessControl, principal } = dependencies;
+	const { accounts, dashboard, definitions, accessControl, principal } =
+		dependencies;
+
+	server.registerTool(
+		"list_dashboard_definitions",
+		{
+			description: "List governed dashboard definitions and their versions.",
+			inputSchema: dashboardDefinitionListInput,
+		},
+		async (input) => toolResult(await definitions.list(input, principal)),
+	);
+
+	server.registerTool(
+		"get_dashboard_definition",
+		{
+			description:
+				"Read one dashboard definition and its typed provider-neutral spec.",
+			inputSchema: { id: z.string() },
+		},
+		async ({ id }) => toolResult(await definitions.byId(id, principal)),
+	);
+
+	server.registerTool(
+		"create_dashboard_definition",
+		{
+			description: "Create a draft dashboard definition from a validated spec.",
+			inputSchema: dashboardDefinitionCreateInput,
+		},
+		async (input) => toolResult(await definitions.create(input, principal)),
+	);
+
+	server.registerTool(
+		"update_dashboard_definition",
+		{
+			description:
+				"Update a draft dashboard definition; published versions require a new version.",
+			inputSchema: dashboardDefinitionUpdateInput,
+		},
+		async (input) => toolResult(await definitions.update(input, principal)),
+	);
+
+	server.registerTool(
+		"publish_dashboard_definition",
+		{
+			description:
+				"Publish a reviewed dashboard definition; requires explicit confirmation.",
+			inputSchema: dashboardDefinitionPublishInput,
+		},
+		async ({ id, confirmed: _ }) =>
+			toolResult(await definitions.publish(id, principal)),
+	);
+
+	server.registerTool(
+		"export_dashboard_definition",
+		{
+			description:
+				"Export a dashboard definition with its current ChartCDN render payload.",
+			inputSchema: { id: z.string() },
+		},
+		async ({ id }) =>
+			toolResult({
+				definition: await definitions.byId(id, principal),
+				render: await definitions.render(id, principal),
+			}),
+	);
 
 	server.registerTool(
 		"record_attribution_event",

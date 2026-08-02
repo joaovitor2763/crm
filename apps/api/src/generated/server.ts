@@ -20,6 +20,7 @@ import { automationCreateInput, automationUpdateInput, automationIdInput, webhoo
 import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInput, companyUpdateArgs, setPrimaryContactInput } from "../companies/companies.contracts";
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
 import { conversationListInput, conversationEventsInput, conversationSaveInput, conversationIdInput } from "../conversations/conversations.contracts";
+import { dashboardDefinitionListInput, dashboardDefinitionIdInput, dashboardDefinitionCreateInput, dashboardDefinitionUpdateInput, dashboardDefinitionDuplicateInput, dashboardDefinitionVersionInput } from "../dashboard/dashboard-definition.contracts";
 import { dashboardSummaryInput } from "../dashboard/dashboard.contracts";
 import { dashboardAnalyticsInput } from "../dashboard/analytics.contracts";
 import { dealListInput, dealIdInput, dealBoardInput, dealCreateInput, dealUpdateArgs, setStageInput, dealLineItemCreateInput, dealLineItemUpdateInput, dealLineItemIdInput } from "../deals/deals.contracts";
@@ -189,6 +190,35 @@ const appRouter = t.router({
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<ConversationsRouter["remove"]>>)
     }),
   dashboard: t.router({
+    definitionsList: publicProcedure
+      .input(dashboardDefinitionListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["definitionsList"]>>),
+    definition: publicProcedure
+      .input(dashboardDefinitionIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["definition"]>>),
+    definitionTemplates: publicProcedure
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["definitionTemplates"]>>),
+    renderDefinition: publicProcedure
+      .input(dashboardDefinitionIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["renderDefinition"]>>),
+    createDefinition: publicProcedure
+      .input(dashboardDefinitionCreateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["createDefinition"]>>),
+    updateDefinition: publicProcedure
+      .input(dashboardDefinitionUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["updateDefinition"]>>),
+    duplicateDefinition: publicProcedure
+      .input(dashboardDefinitionDuplicateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["duplicateDefinition"]>>),
+    versionDefinition: publicProcedure
+      .input(dashboardDefinitionVersionInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["versionDefinition"]>>),
+    publishDefinition: publicProcedure
+      .input(dashboardDefinitionIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["publishDefinition"]>>),
+    archiveDefinition: publicProcedure
+      .input(dashboardDefinitionIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["archiveDefinition"]>>),
     summary: publicProcedure
       .input(dashboardSummaryInput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["summary"]>>),

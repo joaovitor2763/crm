@@ -10,6 +10,7 @@ import { AccessControlService } from "../access-control/access-control.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
 import { AttributionService } from "../attribution/attribution.service";
 import { DashboardService } from "../dashboard/dashboard.service";
+import { DashboardDefinitionService } from "../dashboard/dashboard-definition.service";
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { RevenueAccountsService } from "../revenue-accounts/revenue-accounts.service";
@@ -36,6 +37,8 @@ export class McpController {
 		@Inject(DashboardService) private readonly dashboard: DashboardService,
 		@Inject(AttributionService)
 		private readonly attribution: AttributionService,
+		@Inject(DashboardDefinitionService)
+		private readonly dashboardDefinitions: DashboardDefinitionService,
 		@InjectDatabase() private readonly db: Db,
 	) {}
 
@@ -71,6 +74,7 @@ export class McpController {
 			accounts: this.revenueAccounts,
 			attribution: this.attribution,
 			dashboard: this.dashboard,
+			definitions: this.dashboardDefinitions,
 			accessControl: this.accessControl,
 			principal,
 		});

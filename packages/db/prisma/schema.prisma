@@ -25,13 +25,13 @@ model User {
   // CRM ownership. Better Auth owns every field above and `bun run
   // auth:generate` rewrites them; these back-relations are ours and have to be
   // put back if that ever wipes them.
-  ownedCompanies Company[]           @relation("CompanyOwner")
-  ownedContacts  Contact[]           @relation("ContactOwner")
-  ownedDeals     Deal[]              @relation("DealOwner")
-  activities     Activity[]          @relation("ActivityAuthor")
-  mailboxSyncs   MailboxSync[]
-  factDecisions  ContactFact[]       @relation("FactDecider")
-  conversations  AgentConversation[] @relation("ConversationOwner")
+  ownedCompanies    Company[]             @relation("CompanyOwner")
+  ownedContacts     Contact[]             @relation("ContactOwner")
+  ownedDeals        Deal[]                @relation("DealOwner")
+  activities        Activity[]            @relation("ActivityAuthor")
+  mailboxSyncs      MailboxSync[]
+  factDecisions     ContactFact[]         @relation("FactDecider")
+  conversations     AgentConversation[]   @relation("ConversationOwner")
 
   // Governance is deliberately outside Better Auth's generated columns. The
   // identity provider owns authentication; CRM roles and scope memberships own
@@ -221,6 +221,12 @@ enum AccessScope {
   ALL
 }
 
+enum DashboardDefinitionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum BusinessUnitMembershipType {
   MEMBER
   MANAGER
@@ -343,31 +349,32 @@ model BusinessUnit {
   leader     User?     @relation("BusinessUnitLeader", fields: [leaderId], references: [id], onDelete: SetNull)
   archivedAt DateTime?
 
-  ancestorPaths     BusinessUnitClosure[]        @relation("BusinessUnitAncestor")
-  descendantPaths   BusinessUnitClosure[]        @relation("BusinessUnitDescendant")
-  teams             Team[]
-  memberships       BusinessUnitMembership[]
-  primaryUsers      UserAccess[]
-  contactStates     ContactBusinessUnitState[]
-  companyStates     CompanyBusinessUnitState[]
-  deals             Deal[]
-  activities        Activity[]
-  conversionEvents  ConversionAttributionEvent[] @relation("ConversionBusinessUnit")
-  pipelines         Pipeline[]
-  products          Product[]
-  marketingForms    MarketingForm[]
-  marketingEvents   MarketingEvent[]
-  objectDefinitions ObjectDefinition[]
-  customFields      CustomFieldDefinition[]
-  customRecords     CustomObjectRecord[]
-  relations         RecordRelation[]
-  leadSubmissions   LeadSubmission[]
-  credentialScopes  ApiCredentialBusinessUnit[]
-  automations       Automation[]
-  domainEvents      DomainEvent[]
-  webhookEndpoints  WebhookEndpoint[]
-  auditEvents       AuditEvent[]
-  revenueAccounts   RevenueAccount[]
+  ancestorPaths        BusinessUnitClosure[]        @relation("BusinessUnitAncestor")
+  descendantPaths      BusinessUnitClosure[]        @relation("BusinessUnitDescendant")
+  teams                Team[]
+  memberships          BusinessUnitMembership[]
+  primaryUsers         UserAccess[]
+  contactStates        ContactBusinessUnitState[]
+  companyStates        CompanyBusinessUnitState[]
+  deals                Deal[]
+  activities           Activity[]
+  conversionEvents     ConversionAttributionEvent[] @relation("ConversionBusinessUnit")
+  pipelines            Pipeline[]
+  products             Product[]
+  marketingForms       MarketingForm[]
+  marketingEvents      MarketingEvent[]
+  objectDefinitions    ObjectDefinition[]
+  customFields         CustomFieldDefinition[]
+  customRecords        CustomObjectRecord[]
+  relations            RecordRelation[]
+  leadSubmissions      LeadSubmission[]
+  credentialScopes     ApiCredentialBusinessUnit[]
+  automations          Automation[]
+  domainEvents         DomainEvent[]
+  webhookEndpoints     WebhookEndpoint[]
+  auditEvents          AuditEvent[]
+  revenueAccounts      RevenueAccount[]
+  dashboardDefinitions DashboardDefinition[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -538,6 +545,33 @@ model ObjectDefinition {
 
   @@index([businessUnitId, archivedAt])
   @@map("objectDefinition")
+}
+
+/// Provider-neutral dashboard definitions. Every version is retained so a
+/// published chart can be explained or reproduced after later edits.
+model DashboardDefinition {
+  id             String                    @id @default(cuid())
+  key            String
+  name           String
+  description    String?
+  version        Int                       @default(1)
+  status         DashboardDefinitionStatus @default(DRAFT)
+  spec           Json
+  businessUnitId String?
+  businessUnit   BusinessUnit?             @relation(fields: [businessUnitId], references: [id], onDelete: SetNull)
+  createdByType  AuditActorType
+  createdById    String?
+  updatedByType  AuditActorType?
+  updatedById    String?
+  publishedAt    DateTime?
+  archivedAt     DateTime?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@unique([key, version])
+  @@index([businessUnitId, status, updatedAt])
+  @@index([key, status])
+  @@map("dashboardDefinition")
 }
 
 model CustomFieldDefinition {
