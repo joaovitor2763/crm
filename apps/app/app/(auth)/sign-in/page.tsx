@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { AuthHeading, AuthShell } from "@/components/auth-shell";
 import { getSession } from "@/lib/session";
-import { GoogleSignIn } from "./google-sign-in";
+import { EmailSignIn } from "./email-sign-in";
 
 export const metadata: Metadata = {
 	title: "Sign in",
@@ -30,14 +30,13 @@ export default async function SignInPage() {
 		<AuthShell>
 			<AuthHeading
 				title="Welcome back"
-				description="Sign in with your Comp AI Google account to continue."
+				description="Sign in with your CRM credentials to continue."
 			/>
 
-			<GoogleSignIn />
+			<EmailSignIn />
 
 			<p className="text-center text-muted-foreground text-sm/5">
-				Comp AI CRM is internal. If you cannot get in, ask an admin to check
-				your Google account.
+				Comp AI CRM is private. Only allow-listed accounts can sign in.
 			</p>
 		</AuthShell>
 	);

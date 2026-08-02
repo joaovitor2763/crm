@@ -3,17 +3,16 @@ import { AppIconRail } from "@/components/app-icon-rail";
 import { QuickSwitcher } from "@/components/crm/quick-switcher";
 import { RecordSheetHost } from "@/components/crm/record-sheet/record-sheet-host";
 import { MobileNavProvider } from "@/components/mobile-nav";
-import { requireGoogleAccess } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 
 export default async function AppLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-	// Not just `requireSession`: mailbox access is a condition of using this
-	// tool, and a granular-consent untick would otherwise leave someone inside
-	// the app with a CRM that silently syncs nothing.
-	const { user } = await requireGoogleAccess();
+	// Direct credentials are sufficient for the CRM itself. Google access is an
+	// optional integration and can be connected later for mailbox/calendar sync.
+	const { user } = await requireSession();
 
 	return (
 		<MobileNavProvider>

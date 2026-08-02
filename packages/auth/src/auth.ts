@@ -59,7 +59,8 @@ export const auth = betterAuth({
 	}),
 
 	emailAndPassword: {
-		enabled: false,
+		enabled: true,
+		minPasswordLength: 12,
 	},
 
 	socialProviders,
@@ -104,9 +105,8 @@ export const auth = betterAuth({
 				/**
 				 * The actual door.
 				 *
-				 * Runs against the profile Google verified, before a row exists, so
-				 * a personal account that gets past the `hd` hint never becomes a
-				 * user. This is a single-tenant internal tool: an account outside
+				 * Runs before a row exists for both Google and direct email/password
+				 * accounts. This is a single-tenant internal tool: an account outside
 				 * the allow-list has nothing legitimate to do here, and every
 				 * record is visible to every signed-in person.
 				 *
