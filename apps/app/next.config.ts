@@ -6,31 +6,25 @@ import type { NextConfig } from "next";
 loadRootEnv();
 
 /**
- * The API origin, published to the browser.
+ * The auth origin published to the browser.
  *
- * Self-hosters set `API_URL` once and both sides of the app agree: the server
- * components fetching tRPC and the browser sending someone to sign in. This
- * used to be two separate `NEXT_PUBLIC_*` variables that had to hold the same
- * value, which is one variable more than there are origins.
+ * Usually this is the API itself. Deployments on unrelated hostnames (including
+ * two `*.vercel.app` projects) cannot share an auth cookie, though, so the
+ * browser may instead use the app's same-origin `/api/*` proxy while server
+ * components continue to call the real API through `API_URL`.
  *
  * `env` rather than a runtime read, because `NEXT_PUBLIC_*` is inlined at build
  * time and a value that only exists in the root `.env` would otherwise be
  * `undefined` in the bundle.
- *
- * `NEXT_PUBLIC_API_URL` is still honoured as a fallback. It is the name this
- * used to have, and a deployment that still sets it must not be silently
- * rewritten to `localhost` by the default below — that failure builds and
- * deploys cleanly, then every request from the browser goes to the reader's own
- * machine.
  */
-const apiUrl =
-	process.env.API_URL ??
+const publicApiUrl =
 	process.env.NEXT_PUBLIC_API_URL ??
+	process.env.API_URL ??
 	"http://localhost:3001";
 
 const nextConfig: NextConfig = {
 	env: {
-		NEXT_PUBLIC_API_URL: apiUrl,
+		NEXT_PUBLIC_API_URL: publicApiUrl,
 	},
 
 	// The @crm/* packages are just-in-time: they ship TypeScript sources, so

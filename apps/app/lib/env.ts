@@ -1,8 +1,11 @@
 /**
- * Where the NestJS API lives.
+ * Where the NestJS API actually lives.
  *
- * Public because the browser needs it for sign-in redirects; the server uses
- * the same value so there is only ever one origin to configure.
+ * Server-side calls and the same-origin `/api/*` proxy prefer the private
+ * `API_URL`. The browser may use a different `NEXT_PUBLIC_API_URL` (normally the
+ * app origin) when separate deployment hostnames cannot share cookies.
  */
 export const API_URL =
-	process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+	process.env.API_URL ??
+	process.env.NEXT_PUBLIC_API_URL ??
+	"http://localhost:3001";
