@@ -25,6 +25,7 @@ import { dashboardSummaryInput } from "../dashboard/dashboard.contracts";
 import { dashboardAnalyticsInput } from "../dashboard/analytics.contracts";
 import { dealListInput, dealIdInput, dealBoardInput, dealCreateInput, dealUpdateArgs, setStageInput, dealLineItemCreateInput, dealLineItemUpdateInput, dealLineItemIdInput } from "../deals/deals.contracts";
 import { fieldSchemaInput, objectDefinitionCreateInput, fieldCreateInput, fieldUpdateInput, fieldIdInput, fieldPermissionInput, relationDefinitionCreateInput, recordRelationCreateInput, customRecordCreateInput, recordCustomValuesInput } from "../fields/fields.contracts";
+import { ontologySchemaListInput, ontologyVersionIdInput, ontologyCreateDraftInput, ontologyReplaceDraftInput, ontologyPublishInput } from "../fields/ontology.contracts";
 import { setAutoCreateInput, suppressDomainInput, threadInput, calendarEventInput } from "../google/google.contracts";
 import { businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
@@ -41,6 +42,7 @@ import type { ConversationsRouter } from "../conversations/conversations.router"
 import type { DashboardRouter } from "../dashboard/dashboard.router";
 import type { DealsRouter } from "../deals/deals.router";
 import type { FieldsRouter } from "../fields/fields.router";
+import type { OntologyRouter } from "../fields/ontology.router";
 import type { GoogleRouter } from "../google/google.router";
 import type { GovernanceRouter } from "../governance/governance.router";
 import type { MarketingRouter } from "../marketing/marketing.router";
@@ -294,6 +296,26 @@ const appRouter = t.router({
     setRecordValues: publicProcedure
       .input(recordCustomValuesInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<FieldsRouter["setRecordValues"]>>)
+    }),
+  ontology: t.router({
+    list: publicProcedure
+      .input(ontologySchemaListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["list"]>>),
+    detail: publicProcedure
+      .input(ontologyVersionIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["detail"]>>),
+    impactPreview: publicProcedure
+      .input(ontologyVersionIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["impactPreview"]>>),
+    createDraft: publicProcedure
+      .input(ontologyCreateDraftInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["createDraft"]>>),
+    replaceDraft: publicProcedure
+      .input(ontologyReplaceDraftInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["replaceDraft"]>>),
+    publish: publicProcedure
+      .input(ontologyPublishInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<OntologyRouter["publish"]>>)
     }),
   google: t.router({
     status: publicProcedure

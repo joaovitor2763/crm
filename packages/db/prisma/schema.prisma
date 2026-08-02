@@ -294,6 +294,12 @@ enum RevenueAccountLineageEventType {
   MERGED_OUT
 }
 
+enum OntologySchemaVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
 enum LeadSubmissionStatus {
   ACCEPTED
   REJECTED
@@ -718,6 +724,42 @@ model ObjectRelationDefinition {
   @@unique([sourceObjectId, key])
   @@index([targetObjectId])
   @@map("objectRelationDefinition")
+}
+
+/// Versioned governance journal for the live Fields ontology. Definitions and
+/// records remain in their existing runtime tables; this snapshot is the
+/// auditable, immutable contract that was reviewed and published.
+model OntologySchemaDefinition {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+
+  versions  OntologySchemaVersion[]
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@map("ontologySchemaDefinition")
+}
+
+model OntologySchemaVersion {
+  id                 String                     @id @default(cuid())
+  schemaDefinitionId String
+  schemaDefinition   OntologySchemaDefinition  @relation(fields: [schemaDefinitionId], references: [id], onDelete: Cascade)
+  version            Int
+  status             OntologySchemaVersionStatus @default(DRAFT)
+  snapshot           Json
+  checksum           String
+  createdByType      AuditActorType
+  createdById        String?
+  publishedAt        DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime                   @default(now())
+
+  @@unique([schemaDefinitionId, version])
+  @@index([schemaDefinitionId, status])
+  @@index([status, createdAt])
+  @@map("ontologySchemaVersion")
 }
 
 model RecordRelation {

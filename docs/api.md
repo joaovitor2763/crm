@@ -156,6 +156,14 @@ scoped contact endpoints after ingestion.
   require `{ "confirmed": true }`. Time-series renders include created, won and
   conversion-rate buckets at the definition's day/week/month/quarter grain;
   unsupported comparison requests are returned as explicit metadata.
+- Ontology governance follows the same journal pattern. `ontology.list`,
+  `ontology.detail` and `ontology.impactPreview` inspect immutable snapshots;
+  `ontology.createDraft` starts from the published/runtime Fields schema and
+  `ontology.replaceDraft` creates a new numbered draft rather than mutating a
+  snapshot. `ontology.publish` requires `confirmed: true`, archives the prior
+  published version atomically, and writes an outbox event. The snapshot is a
+  contract and audit trail — the existing Fields tables remain the runtime
+  definition store, with no second record storage or tenant boundary.
 - **The router type is generated**, not hand-written:
   `bun run --filter=api trpc:generate` writes `src/generated/server.ts`, which
   the app imports as `type { AppRouter } from "api/app-router"`. `bun run dev`
