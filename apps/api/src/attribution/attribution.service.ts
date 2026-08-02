@@ -27,9 +27,9 @@ import {
 	activityTouch,
 	conversionEventSelect,
 	conversionEventTouch,
-	isPipelineEntry,
 	leadSubmissionAttributionSelect,
 	leadSubmissionTouch,
+	pipelineEntryCount,
 } from "./attribution.helpers";
 import type {
 	AttributionProjection,
@@ -40,6 +40,7 @@ type Subject = {
 	id: string;
 	businessUnitId: string;
 	teamId: string | null;
+	lineageIds?: string[];
 };
 
 type LinkedDeal = {
@@ -165,11 +166,12 @@ export class AttributionService {
 		const ordered = touches.sort(compareTouches);
 		const firstTouch = ordered[0] ?? null;
 		const currentTouch = ordered.at(-1) ?? null;
-		const firstConversion =
-			ordered.find((touch) => touch.conversionType !== "TOUCH") ?? null;
-		const touchCount = ordered.filter(
-			(touch) => touch.conversionType === "TOUCH",
-		).length;
+		const conversions = ordered.filter(
+			(touch) => touch.conversionType !== "TOUCH",
+		);
+		const firstConversion = conversions[0] ?? null;
+		const currentConversion = conversions.at(-1) ?? null;
+		const touchCount = ordered.length - conversions.length;
 
 		return {
 			entityType: input.entityType,
@@ -177,9 +179,10 @@ export class AttributionService {
 			firstTouch,
 			currentTouch,
 			firstConversion,
-			conversionCount: ordered.length - touchCount,
+			currentConversion,
+			conversionCount: conversions.length,
 			touchCount,
-			pipelineEntryCount: ordered.filter(isPipelineEntry).length,
+			pipelineEntryCount: pipelineEntryCount(ordered),
 			sourceHistory: uniqueValues(ordered.map((touch) => touch.source)),
 			channelHistory: uniqueValues(ordered.map((touch) => touch.channel)),
 			events: input.includeEvents ? ordered : [],
@@ -369,7 +372,10 @@ export class AttributionService {
 		const events = await this.db.conversionAttributionEvent.findMany({
 			where: {
 				AND: [
-					{ entityType: input.entityType, entityId: subject.id },
+					{
+						entityType: input.entityType,
+						entityId: { in: subject.lineageIds ?? [subject.id] },
+					},
 					eventScope,
 				],
 			},
@@ -393,9 +399,11 @@ export class AttributionService {
 		return [
 			...events.map(conversionEventTouch),
 			...activities.map((activity) =>
-				activityTouch(activity, input.entityType),
+				activityTouch(activity, input.entityType, subject.id),
 			),
-			...submissions.map((submission) => leadSubmissionTouch(submission)),
+			...submissions.map((submission) =>
+				leadSubmissionTouch(submission, subject.id),
+			),
 		];
 	}
 
@@ -459,30 +467,12 @@ export class AttributionService {
 	private eventWhere(
 		principal: EffectivePrincipal,
 	): Prisma.ConversionAttributionEventWhereInput {
-		const scope = this.accessControl.assert(
+		this.accessControl.assert(
 			principal,
 			CRM_RESOURCE.activities,
 			PermissionAction.READ,
 		);
-		if (scope === AccessScope.ALL) return {};
-		if (scope === AccessScope.OWNED) {
-			return principal.actorId
-				? { actorId: principal.actorId }
-				: { id: { in: [] } };
-		}
-		if (scope === AccessScope.TEAM)
-			return { teamId: { in: principal.teamIds } };
-		if (scope === AccessScope.MANAGED_TEAMS) {
-			return { teamId: { in: principal.managedTeamIds } };
-		}
-		return {
-			businessUnitId: {
-				in:
-					scope === AccessScope.BUSINESS_UNIT_TREE
-						? principal.businessUnitTreeIds
-						: principal.businessUnitIds,
-			},
-		};
+		return {};
 	}
 
 	private leadSubmissionWhere(principal: EffectivePrincipal) {

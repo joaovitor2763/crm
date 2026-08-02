@@ -7,6 +7,7 @@ export type AttributionTouch = {
 	id: string;
 	origin: AttributionOrigin;
 	sourceRecordId: string;
+	entityId: string;
 	entityType: "CONTACT" | "COMPANY" | "DEAL" | "REVENUE_ACCOUNT";
 	channel: string | null;
 	source: string | null;
@@ -32,6 +33,7 @@ export type AttributionProjection = {
 	firstTouch: AttributionTouch | null;
 	currentTouch: AttributionTouch | null;
 	firstConversion: AttributionTouch | null;
+	currentConversion: AttributionTouch | null;
 	conversionCount: number;
 	touchCount: number;
 	pipelineEntryCount: number;

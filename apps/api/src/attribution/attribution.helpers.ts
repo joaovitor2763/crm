@@ -62,6 +62,7 @@ export function conversionEventTouch(
 		id: row.id,
 		origin: "CONVERSION_EVENT",
 		sourceRecordId: row.id,
+		entityId: row.entityId,
 		entityType: row.entityType,
 		channel: row.channel,
 		source: row.source,
@@ -85,6 +86,7 @@ export function conversionEventTouch(
 export function activityTouch(
 	row: ActivityRow,
 	entityType: AttributionTouch["entityType"],
+	entityId: string,
 ): AttributionTouch {
 	const meta = asRecord(row.meta);
 	const isStageChange = row.type === "STAGE_CHANGE";
@@ -92,6 +94,7 @@ export function activityTouch(
 		id: row.id,
 		origin: "ACTIVITY",
 		sourceRecordId: row.id,
+		entityId,
 		entityType,
 		channel: stringValue(meta.channel),
 		source:
@@ -115,12 +118,16 @@ export function activityTouch(
 	};
 }
 
-export function leadSubmissionTouch(row: LeadSubmissionRow): AttributionTouch {
+export function leadSubmissionTouch(
+	row: LeadSubmissionRow,
+	entityId: string,
+): AttributionTouch {
 	const payload = asRecord(row.normalizedPayload);
 	return {
 		id: row.id,
 		origin: "LEAD_SUBMISSION",
 		sourceRecordId: row.id,
+		entityId,
 		entityType: "CONTACT",
 		channel: row.source,
 		source: row.source,
@@ -153,8 +160,35 @@ export function stringValue(value: unknown): string | null {
 
 export function isPipelineEntry(touch: AttributionTouch): boolean {
 	return (
-		touch.pipelineId !== null ||
-		touch.conversionType === "PIPELINE_ENTRY" ||
-		touch.conversionType === "PIPELINE_STAGE_CHANGE"
+		touch.origin === "CONVERSION_EVENT" &&
+		touch.conversionType === "PIPELINE_ENTRY"
 	);
+}
+
+export function pipelineEntryCount(touches: AttributionTouch[]): number {
+	const explicitEntries = touches.filter(isPipelineEntry);
+	const explicitPairs = new Set(
+		explicitEntries
+			.filter(
+				(
+					touch,
+				): touch is AttributionTouch & {
+					dealId: string;
+					pipelineId: string;
+				} => Boolean(touch.dealId && touch.pipelineId),
+			)
+			.map((touch) => `${touch.dealId}\u0000${touch.pipelineId}`),
+	);
+	const legacyPairs = new Set(
+		touches
+			.filter(
+				(touch) =>
+					touch.origin !== "CONVERSION_EVENT" &&
+					touch.dealId !== null &&
+					touch.pipelineId !== null,
+			)
+			.map((touch) => `${touch.dealId}\u0000${touch.pipelineId}`)
+			.filter((pair) => !explicitPairs.has(pair)),
+	);
+	return explicitEntries.length + legacyPairs.size;
 }

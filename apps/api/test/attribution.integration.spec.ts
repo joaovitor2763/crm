@@ -261,6 +261,7 @@ describe("attribution conversion lineage", () => {
 			projection.events.find((event) => event.id === first.id)?.id,
 		);
 		expect(projection.currentTouch?.id).toBe(current.id);
+		expect(projection.currentConversion?.id).toBe(current.id);
 		expect(projection.sourceHistory).toEqual(
 			expect.arrayContaining([
 				"community",

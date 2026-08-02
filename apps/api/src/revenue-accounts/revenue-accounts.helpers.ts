@@ -24,6 +24,38 @@ export function accountAttributes(account: AccountAttributes): JsonMap {
 	};
 }
 
+export function mergeableAccountAttributes(
+	account: AccountAttributes,
+): JsonMap {
+	return {
+		"system.name": account.name,
+		...(account.domain === null ? {} : { "system.domain": account.domain }),
+		...asJsonMap(account.customValues),
+	};
+}
+
+export function splitMergeableAccountAttributes(
+	values: JsonMap,
+	target: Pick<AccountAttributes, "businessUnitId" | "teamId" | "ownerId">,
+) {
+	const name = values["system.name"];
+	if (typeof name !== "string" || !name.trim()) {
+		throw new Error("A merged Account needs a name.");
+	}
+	return {
+		system: {
+			name,
+			domain: nullableString(values["system.domain"]),
+			businessUnitId: target.businessUnitId,
+			teamId: target.teamId,
+			ownerId: target.ownerId,
+		},
+		customValues: Object.fromEntries(
+			Object.entries(values).filter(([key]) => !key.startsWith(SYSTEM_PREFIX)),
+		) as JsonMap,
+	};
+}
+
 export function splitAccountAttributes(values: JsonMap) {
 	const name = values["system.name"];
 	const businessUnitId = values["system.businessUnitId"];

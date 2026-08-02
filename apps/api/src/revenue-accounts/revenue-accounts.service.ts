@@ -1,7 +1,6 @@
 import { AccessScope, type Db, PermissionAction, type Prisma } from "@crm/db";
 import {
 	BadRequestException,
-	ConflictException,
 	ForbiddenException,
 	Inject,
 	Injectable,
@@ -16,11 +15,29 @@ import type { EffectivePrincipal } from "../access-control/access-control.types"
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { type ListResult, paginate } from "../trpc/list-input";
+import { loadAccountConfiguration } from "./revenue-account-config";
 import {
 	writeAccountDomainEvent,
 	writeAccountHistory,
 	writeAccountLineage,
 } from "./revenue-account-events";
+import {
+	mergeRevenueAccounts,
+	previewRevenueAccountMerge,
+} from "./revenue-account-merge";
+import {
+	ACCOUNT_SELECT,
+	accountWhere,
+	findDetailedAccount,
+	readableAccountLineageIds,
+	searchWhere,
+	visibleAccount,
+} from "./revenue-account-queries";
+import {
+	assertCardinality,
+	assertTarget,
+	relationPolicy,
+} from "./revenue-account-relations";
 import type {
 	RevenueAccountAssociationInput,
 	RevenueAccountConfigurationInput,
@@ -34,27 +51,8 @@ import {
 	accountAttributes,
 	asJsonMap,
 	changedKeys,
-	mergeValues,
 	normalizeMatch,
-	splitAccountAttributes,
 } from "./revenue-accounts.helpers";
-
-const ACCOUNT_SELECT = {
-	id: true,
-	name: true,
-	domain: true,
-	businessUnitId: true,
-	teamId: true,
-	ownerId: true,
-	customValues: true,
-	archivedAt: true,
-	mergedAt: true,
-	mergedIntoId: true,
-	createdAt: true,
-	updatedAt: true,
-	owner: { select: { id: true, name: true, email: true, image: true } },
-	_count: { select: { contacts: true, companies: true, deals: true } },
-} as const;
 
 @Injectable()
 export class RevenueAccountsService {
@@ -72,7 +70,7 @@ export class RevenueAccountsService {
 			CRM_RESOURCE.revenueAccounts,
 			PermissionAction.READ,
 		);
-		return this.loadConfiguration();
+		return loadAccountConfiguration(this.db);
 	}
 
 	async updateConfiguration(
@@ -117,7 +115,7 @@ export class RevenueAccountsService {
 				principal,
 				{ enabled: input.enabled },
 			);
-			return this.loadConfiguration(tx);
+			return loadAccountConfiguration(tx);
 		});
 	}
 
@@ -125,9 +123,13 @@ export class RevenueAccountsService {
 		input: RevenueAccountListInput,
 		principal: EffectivePrincipal,
 	): Promise<ListResult<unknown>> {
-		const scope = this.accountWhere(principal, PermissionAction.READ);
+		const scope = accountWhere(
+			this.accessControl,
+			principal,
+			PermissionAction.READ,
+		);
 		const where: Prisma.RevenueAccountWhereInput = {
-			AND: [scope, { archivedAt: null }, this.searchWhere(input.q)],
+			AND: [scope, { archivedAt: null }, searchWhere(input.q)],
 		};
 		const { skip, take } = paginate(input);
 		const orderBy =
@@ -165,66 +167,20 @@ export class RevenueAccountsService {
 	}
 
 	async byId(id: string, principal: EffectivePrincipal) {
-		const resolution = await this.db.revenueAccount.findFirst({
-			where: {
-				AND: [{ id }, this.accountWhere(principal, PermissionAction.READ)],
-			},
-			select: { mergedIntoId: true },
-		});
-		if (!resolution)
-			throw new NotFoundException("Conta not found in your scope.");
-		const resolvedId = resolution.mergedIntoId ?? id;
-		const account = await this.db.revenueAccount.findFirst({
-			where: {
-				AND: [
-					{ id: resolvedId },
-					this.accountWhere(principal, PermissionAction.READ),
-				],
-			},
-			include: {
-				owner: { select: { id: true, name: true, email: true, image: true } },
-				contacts: {
-					where: {
-						AND: [
-							{ archivedAt: null },
-							{ contact: { is: this.relatedContactWhere(principal) } },
-						],
-					},
-					include: {
-						contact: {
-							select: {
-								id: true,
-								firstName: true,
-								lastName: true,
-								email: true,
-							},
-						},
-					},
-				},
-				companies: {
-					where: {
-						AND: [
-							{ archivedAt: null },
-							{ company: { is: this.relatedCompanyWhere(principal) } },
-						],
-					},
-					include: {
-						company: { select: { id: true, name: true, domain: true } },
-					},
-				},
-				deals: {
-					where: {
-						AND: [
-							{ archivedAt: null },
-							{ deal: { is: this.relatedDealWhere(principal) } },
-						],
-					},
-					include: {
-						deal: { select: { id: true, name: true, companyId: true } },
-					},
-				},
-			},
-		});
+		const resolved = await visibleAccount(
+			this.db,
+			this.accessControl,
+			id,
+			principal,
+			PermissionAction.READ,
+		);
+		const resolvedId = resolved.id;
+		const account = await findDetailedAccount(
+			this.db,
+			this.accessControl,
+			resolvedId,
+			principal,
+		);
 		if (!account) throw new NotFoundException("Conta not found in your scope.");
 		return {
 			...account,
@@ -240,15 +196,24 @@ export class RevenueAccountsService {
 
 	/** Record services use this narrow projection to authorize ontology events. */
 	async assertReadable(id: string, principal: EffectivePrincipal) {
-		const account = await this.visibleAccount(
+		const account = await visibleAccount(
+			this.db,
+			this.accessControl,
 			id,
 			principal,
 			PermissionAction.READ,
+		);
+		const lineageIds = await readableAccountLineageIds(
+			this.db,
+			this.accessControl,
+			account.id,
+			principal,
 		);
 		return {
 			id: account.id,
 			businessUnitId: account.businessUnitId,
 			teamId: account.teamId,
+			lineageIds,
 		};
 	}
 
@@ -323,7 +288,11 @@ export class RevenueAccountsService {
 
 	async update(input: RevenueAccountUpdateArgs, principal: EffectivePrincipal) {
 		await this.assertEnabled();
-		const scope = this.accountWhere(principal, PermissionAction.UPDATE);
+		const scope = accountWhere(
+			this.accessControl,
+			principal,
+			PermissionAction.UPDATE,
+		);
 		const current = await this.db.revenueAccount.findFirst({
 			where: { AND: [{ id: input.id }, scope] },
 		});
@@ -405,7 +374,11 @@ export class RevenueAccountsService {
 	}
 
 	async archive(id: string, principal: EffectivePrincipal) {
-		const scope = this.accountWhere(principal, PermissionAction.ARCHIVE);
+		const scope = accountWhere(
+			this.accessControl,
+			principal,
+			PermissionAction.ARCHIVE,
+		);
 		const current = await this.db.revenueAccount.findFirst({
 			where: { AND: [{ id, archivedAt: null }, scope] },
 		});
@@ -436,16 +409,23 @@ export class RevenueAccountsService {
 		principal: EffectivePrincipal,
 	) {
 		await this.assertEnabled();
-		const account = await this.visibleAccount(
+		const account = await visibleAccount(
+			this.db,
+			this.accessControl,
 			input.revenueAccountId,
 			principal,
 			PermissionAction.UPDATE,
 		);
-		const policy = await this.policy(input.targetKind);
+		const policy = await relationPolicy(this.db, input.targetKind);
 		if (!policy?.attachEnabled)
 			throw new ForbiddenException("This Conta relation is disabled.");
-		await this.assertTarget(input.targetKind, input.targetId, principal);
-		await this.assertCardinality(input, policy.cardinality);
+		await assertTarget(
+			this.accessControl,
+			input.targetKind,
+			input.targetId,
+			principal,
+		);
+		await assertCardinality(this.db, input, policy.cardinality);
 		const operationId = crypto.randomUUID();
 		return this.db.$transaction(async (tx) => {
 			const data = {
@@ -530,12 +510,14 @@ export class RevenueAccountsService {
 		input: RevenueAccountAssociationInput,
 		principal: EffectivePrincipal,
 	) {
-		const account = await this.visibleAccount(
+		const account = await visibleAccount(
+			this.db,
+			this.accessControl,
 			input.revenueAccountId,
 			principal,
 			PermissionAction.UPDATE,
 		);
-		const policy = await this.policy(input.targetKind);
+		const policy = await relationPolicy(this.db, input.targetKind);
 		if (!policy?.detachEnabled)
 			throw new ForbiddenException("This Conta relation is disabled.");
 		const operationId = crypto.randomUUID();
@@ -592,7 +574,10 @@ export class RevenueAccountsService {
 	async history(id: string, principal: EffectivePrincipal) {
 		const account = await this.db.revenueAccount.findFirst({
 			where: {
-				AND: [{ id }, this.accountWhere(principal, PermissionAction.READ)],
+				AND: [
+					{ id },
+					accountWhere(this.accessControl, principal, PermissionAction.READ),
+				],
 			},
 			select: { id: true },
 		});
@@ -610,7 +595,11 @@ export class RevenueAccountsService {
 	}
 
 	async mergeCandidates(q: string, principal: EffectivePrincipal) {
-		const scope = this.accountWhere(principal, PermissionAction.READ);
+		const scope = accountWhere(
+			this.accessControl,
+			principal,
+			PermissionAction.READ,
+		);
 		const query = normalizeMatch(q);
 		const rows = await this.db.revenueAccount.findMany({
 			where: { AND: [scope, { archivedAt: null, mergedIntoId: null }] },
@@ -636,531 +625,28 @@ export class RevenueAccountsService {
 		input: RevenueAccountMergePreviewInput,
 		principal: EffectivePrincipal,
 	) {
-		const [source, target] = await Promise.all([
-			this.visibleAccount(
-				input.sourceAccountId,
-				principal,
-				PermissionAction.UPDATE,
-			),
-			this.visibleAccount(
-				input.targetAccountId,
-				principal,
-				PermissionAction.UPDATE,
-			),
-		]);
-		if (source.id === target.id)
-			throw new BadRequestException("A Conta cannot merge into itself.");
-		await Promise.all([
-			this.assertAccountRelationsInScope(source.id, principal),
-			this.assertAccountRelationsInScope(target.id, principal),
-		]);
-		const [projectedSource, projectedTarget] = await Promise.all([
-			this.fields.projectChannelValues(
-				"revenue-accounts",
-				source.customValues,
-				principal,
-				"api",
-			),
-			this.fields.projectChannelValues(
-				"revenue-accounts",
-				target.customValues,
-				principal,
-				"api",
-			),
-		]);
-		const sourceAttributes = accountAttributes({
-			...source,
-			customValues: projectedSource,
-		});
-		const targetAttributes = accountAttributes({
-			...target,
-			customValues: projectedTarget,
-		});
-		const values = mergeValues(targetAttributes, sourceAttributes, {});
-		return {
-			source: { ...source, customValues: projectedSource },
-			target: { ...target, customValues: projectedTarget },
-			conflicts: values.conflicts,
-			fieldGuide: changedKeys(targetAttributes, sourceAttributes).map(
-				(fieldKey) => ({
-					fieldKey,
-					targetValue: targetAttributes[fieldKey],
-					sourceValue: sourceAttributes[fieldKey],
-					valueKind:
-						Array.isArray(targetAttributes[fieldKey]) ||
-						Array.isArray(sourceAttributes[fieldKey])
-							? "LIST"
-							: "SCALAR",
-					requiresPolicy: values.conflicts.includes(fieldKey),
-				}),
-			),
-			relationCounts: {
-				source: await this.relationCounts(source.id),
-				target: await this.relationCounts(target.id),
-			},
-			policy: (await this.loadConfiguration()).mergePolicy,
-		};
+		return previewRevenueAccountMerge(
+			this.db,
+			this.accessControl,
+			this.fields,
+			input,
+			principal,
+		);
 	}
 
 	async merge(input: RevenueAccountMergeInput, principal: EffectivePrincipal) {
 		await this.assertEnabled();
-		const [source, target] = await Promise.all([
-			this.visibleAccount(
-				input.sourceAccountId,
-				principal,
-				PermissionAction.UPDATE,
-			),
-			this.visibleAccount(
-				input.targetAccountId,
-				principal,
-				PermissionAction.UPDATE,
-			),
-		]);
-		if (source.id === target.id)
-			throw new BadRequestException("A Conta cannot merge into itself.");
-		await Promise.all([
-			this.assertAccountRelationsInScope(source.id, principal),
-			this.assertAccountRelationsInScope(target.id, principal),
-		]);
-		const configuredPolicy = (await this.loadConfiguration())
-			.mergePolicy as Record<string, "TARGET" | "SOURCE" | "UNION" | "SKIP">;
-		const fieldPolicies = { ...configuredPolicy, ...input.fieldPolicies };
-		const merged = mergeValues(
-			accountAttributes(target),
-			accountAttributes(source),
-			fieldPolicies,
-		);
-		if (merged.conflicts.length > 0)
-			throw new BadRequestException(
-				`Choose a merge policy for: ${merged.conflicts.join(", ")}.`,
-			);
-		const mergedAttributes = splitAccountAttributes(merged.values);
-		const requestedCustomValues = Object.fromEntries(
-			Object.keys(input.fieldPolicies)
-				.filter((fieldKey) => !fieldKey.startsWith("system."))
-				.map((fieldKey) => [
-					fieldKey,
-					merged.values[fieldKey] ??
-						asJsonMap(target.customValues)[fieldKey] ??
-						asJsonMap(source.customValues)[fieldKey],
-				])
-				.filter((entry) => entry[1] !== undefined),
-		);
-		await this.fields.validateChannelValues(
-			"revenue-accounts",
-			mergedAttributes.system.businessUnitId,
-			requestedCustomValues,
+		return mergeRevenueAccounts(
+			this.db,
+			this.accessControl,
+			this.fields,
+			input,
 			principal,
-			"api",
-		);
-		await this.accessControl.assertAssignment(
-			principal,
-			CRM_RESOURCE.revenueAccounts,
-			PermissionAction.UPDATE,
-			mergedAttributes.system,
-		);
-		const operationId = input.operationId ?? crypto.randomUUID();
-		return this.db.$transaction(async (tx) => {
-			const updatedTarget = await tx.revenueAccount.update({
-				where: { id: target.id },
-				data: {
-					...mergedAttributes.system,
-					customValues: mergedAttributes.customValues,
-				},
-			});
-			await this.transferRelations(tx, source.id, target.id, principal);
-			await tx.revenueAccount.update({
-				where: { id: source.id },
-				data: {
-					archivedAt: new Date(),
-					mergedAt: new Date(),
-					mergedIntoId: target.id,
-				},
-			});
-			await tx.revenueAccountMerge.create({
-				data: {
-					sourceAccountId: source.id,
-					targetAccountId: target.id,
-					operationId,
-					policy: fieldPolicies,
-					executedByType: principal.actorType,
-					executedById: principal.actorId,
-				},
-			});
-			await writeAccountHistory(
-				tx,
-				target.id,
-				operationId,
-				accountAttributes(target),
-				accountAttributes(updatedTarget),
-				principal,
-				"merge",
-			);
-			await writeAccountLineage(
-				tx,
-				target.id,
-				operationId,
-				"MERGED_IN",
-				principal,
-				{ sourceAccountId: source.id, fieldPolicies },
-			);
-			await writeAccountLineage(
-				tx,
-				source.id,
-				operationId,
-				"MERGED_OUT",
-				principal,
-				{ targetAccountId: target.id },
-			);
-			await writeAccountDomainEvent(
-				tx,
-				"revenue-account.merged",
-				target.id,
-				operationId,
-				principal,
-				{ sourceAccountId: source.id, targetAccountId: target.id },
-				updatedTarget.businessUnitId,
-				updatedTarget.teamId,
-			);
-			return {
-				...updatedTarget,
-				customValues: await this.fields.projectChannelValues(
-					"revenue-accounts",
-					updatedTarget.customValues,
-					principal,
-					"api",
-				),
-			};
-		});
-	}
-
-	private async loadConfiguration(
-		client: Db | Prisma.TransactionClient = this.db,
-	) {
-		const config = await client.revenueAccountConfig.findUnique({
-			where: { id: "revenue-account-config" },
-			include: { relationPolicies: { orderBy: { targetKind: "asc" } } },
-		});
-		return (
-			config ?? {
-				id: "revenue-account-config",
-				enabled: false,
-				mergePolicy: {},
-				relationPolicies: [],
-			}
 		);
 	}
 
 	private async assertEnabled() {
-		if (!(await this.loadConfiguration()).enabled)
+		if (!(await loadAccountConfiguration(this.db)).enabled)
 			throw new BadRequestException("Conta is disabled for this CRM.");
-	}
-
-	private accountWhere(
-		principal: EffectivePrincipal,
-		action: PermissionAction,
-	): Prisma.RevenueAccountWhereInput {
-		const scope = this.accessControl.assert(
-			principal,
-			CRM_RESOURCE.revenueAccounts,
-			action,
-		);
-		if (scope === AccessScope.ALL) return {};
-		if (scope === AccessScope.OWNED)
-			return principal.userId
-				? { ownerId: principal.userId }
-				: { id: { in: [] } };
-		if (scope === AccessScope.TEAM)
-			return { teamId: { in: principal.teamIds } };
-		if (scope === AccessScope.MANAGED_TEAMS)
-			return { teamId: { in: principal.managedTeamIds } };
-		return {
-			businessUnitId: {
-				in:
-					scope === AccessScope.BUSINESS_UNIT_TREE
-						? principal.businessUnitTreeIds
-						: principal.businessUnitIds,
-			},
-		};
-	}
-
-	private async visibleAccount(
-		id: string,
-		principal: EffectivePrincipal,
-		action: PermissionAction,
-	) {
-		const account = await this.db.revenueAccount.findFirst({
-			where: {
-				AND: [{ id, archivedAt: null }, this.accountWhere(principal, action)],
-			},
-		});
-		if (!account) throw new NotFoundException("Conta not found in your scope.");
-		return account;
-	}
-
-	private async policy(targetKind: "CONTACT" | "COMPANY" | "DEAL") {
-		return (await this.loadConfiguration()).relationPolicies.find(
-			(relation) => relation.targetKind === targetKind,
-		);
-	}
-
-	private async assertTarget(
-		targetKind: "CONTACT" | "COMPANY" | "DEAL",
-		targetId: string,
-		principal: EffectivePrincipal,
-	) {
-		const resource =
-			targetKind === "CONTACT"
-				? CRM_RESOURCE.contacts
-				: targetKind === "COMPANY"
-					? CRM_RESOURCE.companies
-					: CRM_RESOURCE.deals;
-		await this.accessControl.assertRecord(
-			principal,
-			resource,
-			PermissionAction.READ,
-			targetId,
-		);
-	}
-
-	private relatedContactWhere(
-		principal: EffectivePrincipal,
-	): Prisma.ContactWhereInput {
-		if (
-			this.accessControl.permission(
-				principal,
-				CRM_RESOURCE.contacts,
-				PermissionAction.READ,
-			) === AccessScope.NONE
-		)
-			return { id: { in: [] } };
-		return this.accessControl.contactWhere(
-			principal,
-			CRM_RESOURCE.contacts,
-			PermissionAction.READ,
-		);
-	}
-
-	private relatedCompanyWhere(
-		principal: EffectivePrincipal,
-	): Prisma.CompanyWhereInput {
-		if (
-			this.accessControl.permission(
-				principal,
-				CRM_RESOURCE.companies,
-				PermissionAction.READ,
-			) === AccessScope.NONE
-		)
-			return { id: { in: [] } };
-		return this.accessControl.companyWhere(
-			principal,
-			CRM_RESOURCE.companies,
-			PermissionAction.READ,
-		);
-	}
-
-	private relatedDealWhere(
-		principal: EffectivePrincipal,
-	): Prisma.DealWhereInput {
-		if (
-			this.accessControl.permission(
-				principal,
-				CRM_RESOURCE.deals,
-				PermissionAction.READ,
-			) === AccessScope.NONE
-		)
-			return { id: { in: [] } };
-		return this.accessControl.dealWhere(
-			principal,
-			CRM_RESOURCE.deals,
-			PermissionAction.READ,
-		);
-	}
-
-	private async assertAccountRelationsInScope(
-		accountId: string,
-		principal: EffectivePrincipal,
-	) {
-		const [contacts, companies, deals] = await Promise.all([
-			this.db.revenueAccountContact.findMany({
-				where: { revenueAccountId: accountId, archivedAt: null },
-				select: { contactId: true },
-			}),
-			this.db.revenueAccountCompany.findMany({
-				where: { revenueAccountId: accountId, archivedAt: null },
-				select: { companyId: true },
-			}),
-			this.db.revenueAccountDeal.findMany({
-				where: { revenueAccountId: accountId, archivedAt: null },
-				select: { dealId: true },
-			}),
-		]);
-		await Promise.all([
-			...contacts.map((relation) =>
-				this.assertTarget("CONTACT", relation.contactId, principal),
-			),
-			...companies.map((relation) =>
-				this.assertTarget("COMPANY", relation.companyId, principal),
-			),
-			...deals.map((relation) =>
-				this.assertTarget("DEAL", relation.dealId, principal),
-			),
-		]);
-	}
-
-	private async assertCardinality(
-		input: RevenueAccountAssociationInput,
-		cardinality: "ONE_TO_ONE" | "ONE_TO_MANY" | "MANY_TO_MANY",
-	) {
-		if (cardinality === "MANY_TO_MANY") return;
-		const accountCount = await this.activeRelationCount(input.targetKind, {
-			revenueAccountId: input.revenueAccountId,
-		});
-		if (cardinality === "ONE_TO_ONE" && accountCount > 0)
-			throw new ConflictException(
-				"This Conta already has a relation of that type.",
-			);
-		const targetCount = await this.activeRelationCount(input.targetKind, {
-			targetId: input.targetId,
-		});
-		if (
-			targetCount > 0 &&
-			(cardinality === "ONE_TO_ONE" || cardinality === "ONE_TO_MANY")
-		)
-			throw new ConflictException(
-				"This record is already attached to another Conta.",
-			);
-	}
-
-	private activeRelationCount(
-		targetKind: "CONTACT" | "COMPANY" | "DEAL",
-		key: { revenueAccountId?: string; targetId?: string },
-	) {
-		if (targetKind === "CONTACT")
-			return this.db.revenueAccountContact.count({
-				where: {
-					...(key.revenueAccountId
-						? { revenueAccountId: key.revenueAccountId }
-						: {}),
-					...(key.targetId ? { contactId: key.targetId } : {}),
-					archivedAt: null,
-				},
-			});
-		if (targetKind === "COMPANY")
-			return this.db.revenueAccountCompany.count({
-				where: {
-					...(key.revenueAccountId
-						? { revenueAccountId: key.revenueAccountId }
-						: {}),
-					...(key.targetId ? { companyId: key.targetId } : {}),
-					archivedAt: null,
-				},
-			});
-		return this.db.revenueAccountDeal.count({
-			where: {
-				...(key.revenueAccountId
-					? { revenueAccountId: key.revenueAccountId }
-					: {}),
-				...(key.targetId ? { dealId: key.targetId } : {}),
-				archivedAt: null,
-			},
-		});
-	}
-
-	private async relationCounts(id: string) {
-		const [contacts, companies, deals] = await Promise.all([
-			this.db.revenueAccountContact.count({
-				where: { revenueAccountId: id, archivedAt: null },
-			}),
-			this.db.revenueAccountCompany.count({
-				where: { revenueAccountId: id, archivedAt: null },
-			}),
-			this.db.revenueAccountDeal.count({
-				where: { revenueAccountId: id, archivedAt: null },
-			}),
-		]);
-		return { contacts, companies, deals };
-	}
-
-	private async transferRelations(
-		tx: Prisma.TransactionClient,
-		sourceId: string,
-		targetId: string,
-		principal: EffectivePrincipal,
-	) {
-		const [contacts, companies, deals] = await Promise.all([
-			tx.revenueAccountContact.findMany({
-				where: { revenueAccountId: sourceId, archivedAt: null },
-			}),
-			tx.revenueAccountCompany.findMany({
-				where: { revenueAccountId: sourceId, archivedAt: null },
-			}),
-			tx.revenueAccountDeal.findMany({
-				where: { revenueAccountId: sourceId, archivedAt: null },
-			}),
-		]);
-		for (const relation of contacts)
-			await tx.revenueAccountContact.upsert({
-				where: {
-					revenueAccountId_contactId: {
-						revenueAccountId: targetId,
-						contactId: relation.contactId,
-					},
-				},
-				create: {
-					...relation,
-					revenueAccountId: targetId,
-					attachedByType: principal.actorType,
-					attachedById: principal.actorId,
-					archivedAt: null,
-				},
-				update: { archivedAt: null },
-			});
-		for (const relation of companies)
-			await tx.revenueAccountCompany.upsert({
-				where: {
-					revenueAccountId_companyId: {
-						revenueAccountId: targetId,
-						companyId: relation.companyId,
-					},
-				},
-				create: {
-					...relation,
-					revenueAccountId: targetId,
-					attachedByType: principal.actorType,
-					attachedById: principal.actorId,
-					archivedAt: null,
-				},
-				update: { archivedAt: null },
-			});
-		for (const relation of deals)
-			await tx.revenueAccountDeal.upsert({
-				where: {
-					revenueAccountId_dealId: {
-						revenueAccountId: targetId,
-						dealId: relation.dealId,
-					},
-				},
-				create: {
-					...relation,
-					revenueAccountId: targetId,
-					attachedByType: principal.actorType,
-					attachedById: principal.actorId,
-					archivedAt: null,
-				},
-				update: { archivedAt: null },
-			});
-	}
-
-	private searchWhere(q: string): Prisma.RevenueAccountWhereInput {
-		const query = q.trim();
-		return query
-			? {
-					OR: [
-						{ name: { contains: query, mode: "insensitive" } },
-						{ domain: { contains: query, mode: "insensitive" } },
-					],
-				}
-			: {};
 	}
 }

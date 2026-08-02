@@ -1630,7 +1630,7 @@ model RevenueAccountMerge {
 
   @@index([sourceAccountId, createdAt])
   @@index([targetAccountId, createdAt])
-  @@index([operationId])
+  @@unique([operationId])
   @@map("revenueAccountMerge")
 }
 

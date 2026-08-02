@@ -219,3 +219,76 @@ export function stagePolicyEnabled(stage: {
 		readStringArray(stage.allowedNextStageIds).length > 0
 	);
 }
+
+const HANDOVER_RULE_SELECT = {
+	fromStageId: true,
+	toStageId: true,
+	fromRoleKey: true,
+	toRoleKey: true,
+	acceptanceRequired: true,
+	acceptanceSlaMinutes: true,
+	assignmentStrategy: true,
+} as const;
+
+export async function createBlueprintVersion(
+	tx: Prisma.TransactionClient,
+	pipelineId: string,
+	version: number,
+	funnelType: DbPipelineFunnelType,
+	handoverInput: PipelineBlueprint["handovers"] = [],
+) {
+	const stages = (await tx.pipelineStage.findMany({
+		where: { pipelineId },
+		orderBy: { position: "asc" },
+		select: STAGE_POLICY_SELECT,
+	})) as StagePolicyRow[];
+	const stageIds = new Set(stages.map((stage) => stage.id));
+	const existingVersion = await tx.pipelineBlueprintVersion.findUnique({
+		where: {
+			pipelineId_version: { pipelineId, version: Math.max(1, version - 1) },
+		},
+		select: { handoverRules: { select: HANDOVER_RULE_SELECT } },
+	});
+	const byKey = new Map(stages.map((stage) => [stage.key, stage.id]));
+	const rules: HandoverRuleRow[] =
+		handoverInput.length > 0
+			? handoverInput
+					.map((rule) => ({
+						fromStageId: byKey.get(rule.fromStage) ?? rule.fromStage,
+						toStageId: byKey.get(rule.toStage) ?? rule.toStage,
+						fromRoleKey: rule.fromRole,
+						toRoleKey: rule.toRole,
+						acceptanceRequired: rule.acceptanceRequired ?? false,
+						acceptanceSlaMinutes: rule.acceptanceSlaMinutes ?? null,
+						assignmentStrategy: rule.assignmentStrategy ?? "manual",
+					}))
+					.filter(
+						(rule) =>
+							stageIds.has(rule.fromStageId) && stageIds.has(rule.toStageId),
+					)
+			: (existingVersion?.handoverRules ?? []).filter(
+					(rule) =>
+						stageIds.has(rule.fromStageId) && stageIds.has(rule.toStageId),
+				);
+	const snapshot = snapshotFor(fromDbFunnelType(funnelType), stages, rules);
+	return tx.pipelineBlueprintVersion.create({
+		data: {
+			pipelineId,
+			version,
+			funnelType,
+			snapshot: snapshot as unknown as Prisma.InputJsonObject,
+			handoverRules: {
+				create: rules.map((rule) => ({
+					fromStageId: rule.fromStageId,
+					toStageId: rule.toStageId,
+					fromRoleKey: rule.fromRoleKey,
+					toRoleKey: rule.toRoleKey,
+					acceptanceRequired: rule.acceptanceRequired,
+					acceptanceSlaMinutes: rule.acceptanceSlaMinutes,
+					assignmentStrategy: rule.assignmentStrategy,
+				})),
+			},
+		},
+		select: { version: true },
+	});
+}
