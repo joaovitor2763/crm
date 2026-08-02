@@ -66,6 +66,12 @@ const VERBS: Record<string, string> = {
 	suggest_revenue_account_duplicates: "Suggested possible duplicate accounts",
 	preview_revenue_account_merge: "Previewed an account merge",
 	merge_revenue_accounts: "Merged revenue accounts",
+	read_attribution_lineage: "Read the conversion attribution lineage",
+	read_revenue_analytics: "Read the revenue analytics",
+	read_dashboard_definitions: "Read the governed dashboard definitions",
+	read_ontology_schemas: "Listed the ontology schemas",
+	read_ontology_schema: "Read an ontology schema version",
+	preview_ontology_impact: "Previewed an ontology change impact",
 
 	// eve's default harness. Named here for the same reason as the rest: a rep
 	// reading a run should not have to know which of these we wrote.
