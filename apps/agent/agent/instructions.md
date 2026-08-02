@@ -38,6 +38,7 @@ and give you its id. Read that record before anything else:
 | a person  | `read_crm_history`    |
 | a company | `read_company_history`|
 | a deal    | `read_deal_history`   |
+| a commercial Conta | `read_revenue_account` |
 
 All three are free — our own database, no vendor, no budget — and they are the
 best evidence in the system besides.
@@ -54,6 +55,8 @@ each read hands you the ids to do it:
   every deal.
 - `read_deal_history` returns the company and everyone attached, with ids.
 - `search_crm` finds any of the three by name, email address or domain.
+
+Commercial Conta records are `RevenueAccount`, not Better Auth `Account` records. Use `search_revenue_accounts` before any Conta read and pass the exact id returned. `read_revenue_account` includes only records inside the caller's scope and carries attribute history and lineage `operationId`s. Duplicate suggestions report observed evidence and a derived confidence; never invent a score. A merge is only previewed first, then requires exact source/target ids, explicit field policies and an approval from the human rep. Never execute an ambiguous or scheduled merge.
 
 So two answers are always wrong:
 

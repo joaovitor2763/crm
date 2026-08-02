@@ -14,11 +14,20 @@ type EveContext = {
 
 export type AgentAccess = {
 	isSystem: boolean;
+	isAdmin: boolean;
 	userId: string | null;
 	contactWhere: Prisma.ContactWhereInput;
 	companyWhere: Prisma.CompanyWhereInput;
 	dealWhere: Prisma.DealWhereInput;
+	revenueAccountWhere: Prisma.RevenueAccountWhereInput;
 	activityWhere: Prisma.ActivityWhereInput;
+	fieldPermissions: readonly FieldPermission[];
+};
+
+export type FieldPermission = {
+	fieldId: string;
+	canRead: boolean;
+	canUpdate: boolean;
 };
 
 /**
@@ -29,7 +38,7 @@ export type AgentAccess = {
 export async function crmAccess(
 	ctx: EveContext,
 	action: PermissionAction,
-	requiredResource?: "contacts" | "companies" | "deals",
+	requiredResource?: "contacts" | "companies" | "deals" | "revenue-accounts",
 ): Promise<AgentAccess> {
 	const auth = ctx.session.auth.current;
 	if (auth?.principalType !== "user") {
@@ -40,11 +49,14 @@ export async function crmAccess(
 		) {
 			return {
 				isSystem: true,
+				isAdmin: true,
 				userId: null,
 				contactWhere: {},
 				companyWhere: {},
 				dealWhere: {},
+				revenueAccountWhere: {},
 				activityWhere: {},
+				fieldPermissions: [],
 			};
 		}
 		throw new Error("An authenticated CRM identity is required.");
@@ -54,7 +66,7 @@ export async function crmAccess(
 	const access = await db.userAccess.findUnique({
 		where: { userId },
 		include: {
-			role: { include: { permissions: true } },
+			role: { include: { permissions: true, fieldPermissions: true } },
 			user: {
 				select: {
 					businessUnitMemberships: { select: { businessUnitId: true } },
@@ -69,11 +81,14 @@ export async function crmAccess(
 	if (access.role.isAdmin) {
 		return {
 			isSystem: false,
+			isAdmin: access.role.isAdmin,
 			userId,
 			contactWhere: {},
 			companyWhere: {},
 			dealWhere: {},
+			revenueAccountWhere: {},
 			activityWhere: {},
+			fieldPermissions: access.role.fieldPermissions,
 		};
 	}
 	const permissions = new Map(
@@ -120,6 +135,7 @@ export async function crmAccess(
 
 	return {
 		isSystem: false,
+		isAdmin: false,
 		userId,
 		contactWhere: contactWhere(
 			userId,
@@ -145,6 +161,14 @@ export async function crmAccess(
 			teamIds,
 			managedTeamIds,
 		),
+		revenueAccountWhere: revenueAccountWhere(
+			userId,
+			permissions.get("revenue-accounts") ?? AccessScope.NONE,
+			unitIds,
+			treeIds,
+			teamIds,
+			managedTeamIds,
+		),
 		activityWhere: activityWhere(
 			userId,
 			permissions.get("activities") ?? AccessScope.NONE,
@@ -153,6 +177,7 @@ export async function crmAccess(
 			teamIds,
 			managedTeamIds,
 		),
+		fieldPermissions: access.role.fieldPermissions,
 	};
 }
 
@@ -195,6 +220,26 @@ export async function assertDeal(
 		select: { id: true },
 	});
 	if (!record) throw new Error("Deal not found or outside your CRM scope.");
+	return access;
+}
+
+export async function assertRevenueAccount(
+	ctx: EveContext,
+	revenueAccountId: string,
+	action: PermissionAction,
+) {
+	const access = await crmAccess(ctx, action, "revenue-accounts");
+	const record = await db.revenueAccount.findFirst({
+		where: {
+			AND: [
+				{ id: revenueAccountId, archivedAt: null },
+				access.revenueAccountWhere,
+			],
+		},
+		select: { id: true },
+	});
+	if (!record)
+		throw new Error("RevenueAccount not found or outside your CRM scope.");
 	return access;
 }
 
@@ -250,6 +295,28 @@ function dealWhere(
 	teamIds: string[],
 	managedTeamIds: string[],
 ): Prisma.DealWhereInput {
+	if (scope === AccessScope.NONE) return { id: "__denied__" };
+	if (scope === AccessScope.ALL) return {};
+	if (scope === AccessScope.OWNED) return { ownerId: userId };
+	if (scope === AccessScope.TEAM) return { teamId: { in: teamIds } };
+	if (scope === AccessScope.MANAGED_TEAMS) {
+		return { teamId: { in: managedTeamIds } };
+	}
+	return {
+		businessUnitId: {
+			in: scope === AccessScope.BUSINESS_UNIT_TREE ? treeIds : unitIds,
+		},
+	};
+}
+
+function revenueAccountWhere(
+	userId: string,
+	scope: AccessScope,
+	unitIds: string[],
+	treeIds: string[],
+	teamIds: string[],
+	managedTeamIds: string[],
+): Prisma.RevenueAccountWhereInput {
 	if (scope === AccessScope.NONE) return { id: "__denied__" };
 	if (scope === AccessScope.ALL) return {};
 	if (scope === AccessScope.OWNED) return { ownerId: userId };

@@ -109,25 +109,32 @@ export function capabilitiesMarkdown(): string {
 			"often enough to settle who somebody is. Record what it shows, and",
 			"leave the rest empty.",
 		);
-		return lines.join("\n");
-	}
-
-	lines.push("Available:");
-	for (const capability of on) {
-		lines.push(`- **${capability.label}** — ${capability.gives}.`);
-	}
-
-	if (off.length > 0) {
-		lines.push("", "Not configured here, so do not plan around them:");
-		for (const capability of off) {
-			lines.push(`- ${capability.label}`);
+	} else {
+		lines.push("Available:");
+		for (const capability of on) {
+			lines.push(`- **${capability.label}** — ${capability.gives}.`);
 		}
-		lines.push(
-			"",
-			"Their tools will tell you the same thing if you call them. Note what",
-			"you could not check rather than guessing at it.",
-		);
+
+		if (off.length > 0) {
+			lines.push("", "Not configured here, so do not plan around them:");
+			for (const capability of off) {
+				lines.push(`- ${capability.label}`);
+			}
+			lines.push(
+				"",
+				"Their tools will tell you the same thing if you call them. Note what",
+				"you could not check rather than guessing at it.",
+			);
+		}
 	}
 
+	lines.push(
+		"",
+		"## Commercial Conta (RevenueAccount)",
+		"",
+		"Conta is the commercial RevenueAccount entity; it is separate from the Better Auth Account used for OAuth credentials.",
+		"Use `search_revenue_accounts` and then exact ids with `read_revenue_account`. The read includes scoped neighboring contacts, companies, deals, attribute history and lineage grouped by operationId.",
+		"`suggest_revenue_account_duplicates` derives evidence and confidence from CRM observations only. `preview_revenue_account_merge` is read-only. `merge_revenue_accounts` requires exact source and target ids, explicit per-field policies and a human approval; ambiguous or scheduled merges must never run.",
+	);
 	return lines.join("\n");
 }
