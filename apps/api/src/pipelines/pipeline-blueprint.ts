@@ -1,7 +1,23 @@
 import { PipelineStageType } from "@crm/db";
 
-export const PIPELINE_FUNNEL_TYPES = ["full_bowtie", "side_bowtie"] as const;
+export const PIPELINE_FUNNEL_TYPES = [
+	"full_bowtie",
+	"left_side",
+	"right_side",
+	"custom",
+	/** @deprecated Use left_side or right_side for new blueprints. */
+	"side_bowtie",
+] as const;
 export type PipelineFunnelType = (typeof PIPELINE_FUNNEL_TYPES)[number];
+
+export const PIPELINE_ASSIGNMENT_STRATEGIES = [
+	"manual",
+	"role_default",
+	"round_robin",
+	"owner",
+] as const;
+export type PipelineAssignmentStrategy =
+	(typeof PIPELINE_ASSIGNMENT_STRATEGIES)[number];
 
 export const PIPELINE_ROLES = ["sdr", "closer", "account_manager"] as const;
 /** Standard roles are suggestions; companies may use their own role keys. */
@@ -11,8 +27,10 @@ export type PipelineBlueprintStage = {
 	key: string;
 	position: number;
 	type: PipelineStageType;
+	semanticPhase?: string;
 	allowedRoles: readonly PipelineRole[];
 	responsibleRole: PipelineRole;
+	defaultResponsibleRole?: PipelineRole;
 	allowedNextStages?: readonly string[];
 };
 
@@ -21,6 +39,9 @@ export type PipelineHandover = {
 	toStage: string;
 	fromRole: PipelineRole;
 	toRole: PipelineRole;
+	acceptanceRequired?: boolean;
+	acceptanceSlaMinutes?: number;
+	assignmentStrategy?: PipelineAssignmentStrategy;
 };
 
 export type PipelineBlueprint = {
@@ -34,6 +55,7 @@ export type PipelineTransitionRequest = {
 	toStage: string;
 	actingRole?: PipelineRole;
 	handoverToRole?: PipelineRole;
+	handoverAccepted?: boolean;
 };
 
 export type BlueprintIssue = {
@@ -48,9 +70,9 @@ export type BlueprintValidation = {
 };
 
 /**
- * Validates a proposed funnel without persisting it. Pipeline and stage rows
- * currently have no role/handover columns, so this is the safe contract for
- * clients building a configuration before the ontology migration lands.
+ * Validates a proposed funnel before it is published as an immutable version.
+ * The same rules are reused by the persistence service and the transition
+ * guard in DealsService.
  */
 export function validatePipelineBlueprint(
 	blueprint: PipelineBlueprint,
@@ -97,6 +119,15 @@ export function validatePipelineBlueprint(
 				message: "The responsible role must be allowed on the stage.",
 			});
 		}
+		if (
+			stage.defaultResponsibleRole &&
+			!stage.allowedRoles.includes(stage.defaultResponsibleRole)
+		) {
+			errors.push({
+				path: `${path}.defaultResponsibleRole`,
+				message: "The default responsible role must be allowed on the stage.",
+			});
+		}
 	}
 	for (const [index, stage] of blueprint.stages.entries()) {
 		for (const nextStage of stage.allowedNextStages ?? []) {
@@ -131,11 +162,24 @@ export function validatePipelineBlueprint(
 				});
 			}
 		}
-	} else if (terminalTypes.size === 0) {
-		errors.push({
-			path: "type",
-			message: "A side bowtie needs at least one outcome branch.",
-		});
+	} else if (
+		blueprint.type === "left_side" ||
+		blueprint.type === "right_side" ||
+		blueprint.type === "side_bowtie"
+	) {
+		if (terminalTypes.size === 0) {
+			errors.push({
+				path: "type",
+				message: "A side bowtie needs at least one outcome branch.",
+			});
+		}
+	} else if (blueprint.type === "custom") {
+		if (terminalTypes.size > 1) {
+			warnings.push({
+				path: "type",
+				message: "Custom funnels may expose multiple outcome branches.",
+			});
+		}
 	} else if (terminalTypes.size > 1) {
 		warnings.push({
 			path: "type",
@@ -177,6 +221,16 @@ export function validatePipelineBlueprint(
 				path: `${path}.fromRole`,
 				message:
 					"The handover source role differs from the stage responsible role.",
+			});
+		}
+		if (
+			handover.acceptanceSlaMinutes !== undefined &&
+			(!Number.isInteger(handover.acceptanceSlaMinutes) ||
+				handover.acceptanceSlaMinutes <= 0)
+		) {
+			errors.push({
+				path: `${path}.acceptanceSlaMinutes`,
+				message: "An acceptance SLA must be a positive number of minutes.",
 			});
 		}
 	}
@@ -250,6 +304,12 @@ export function validateBlueprintTransition(
 		errors.push({
 			path: "handoverToRole",
 			message: "The handover target role does not match the configured rule.",
+		});
+	}
+	if (handover?.acceptanceRequired && request.handoverAccepted !== true) {
+		errors.push({
+			path: "handoverAccepted",
+			message: "This handover must be explicitly accepted.",
 		});
 	}
 	if (

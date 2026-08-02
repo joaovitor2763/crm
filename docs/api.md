@@ -127,9 +127,10 @@ scoped contact endpoints after ingestion.
   the caller's deal, activity and pipeline visibility predicates and returns
   stage, timing, attribution and breakdown views as JSON-only ChartCDN payloads.
   Pipeline role/handover blueprints are validated by
-  `pipelines.validateBlueprint` and `pipelines.validateTransition`; persistence
-  is intentionally deferred until the revenue-architecture ontology migration
-  adds those policy fields.
+  `pipelines.validateBlueprint` and `pipelines.validateTransition`, then
+  published as immutable `PipelineBlueprintVersion` snapshots. Deals enforce
+  the active stage transition and handover policy; legacy snapshots with empty
+  role arrays retain the previous permissive behaviour.
 - **The router type is generated**, not hand-written:
   `bun run --filter=api trpc:generate` writes `src/generated/server.ts`, which
   the app imports as `type { AppRouter } from "api/app-router"`. `bun run dev`

@@ -15,6 +15,7 @@ import type { AuthedTrpcContext } from "../trpc/context.types";
 import { AuthMiddleware } from "../trpc/middlewares/auth.middleware";
 import {
 	pipelineBlueprintTransitionInput,
+	pipelineBlueprintUpdateInput,
 	pipelineBlueprintValidationInput,
 	pipelineCreateInput,
 	pipelineIdInput,
@@ -69,6 +70,17 @@ export class PipelinesRouter {
 		return this.pipelines.validateBlueprintTransition(input.blueprint, input);
 	}
 
+	@Mutation({ input: pipelineBlueprintUpdateInput })
+	publishBlueprint(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof pipelineBlueprintUpdateInput>,
+	) {
+		return this.pipelines.publishBlueprint(
+			input,
+			this.scope(ctx, PermissionAction.MANAGE, false),
+		);
+	}
+
 	@Mutation({ input: pipelineCreateInput })
 	async create(
 		@Ctx() ctx: AuthedTrpcContext,
@@ -82,7 +94,7 @@ export class PipelinesRouter {
 			PermissionAction.MANAGE,
 			{ businessUnitId },
 		);
-		return this.pipelines.create(input.name, businessUnitId);
+		return this.pipelines.create(input.name, businessUnitId, input.funnelType);
 	}
 
 	@Mutation({ input: pipelineUpdateInput })

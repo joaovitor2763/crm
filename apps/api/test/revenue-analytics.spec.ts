@@ -97,13 +97,20 @@ describe("revenue pipeline blueprint", () => {
 
 	it("infers stored topology and parses the serializable contract", () => {
 		expect(inferPipelineFunnelType(Object.values(stages))).toBe("full_bowtie");
-		expect(
-			pipelineBlueprintInput.safeParse({
-				type: "side_bowtie",
-				stages: [stages.discovery],
-				handovers: [],
-			}).success,
-		).toBe(true);
+		for (const type of [
+			"left_side",
+			"right_side",
+			"custom",
+			"side_bowtie",
+		] as const) {
+			expect(
+				pipelineBlueprintInput.safeParse({
+					type,
+					stages: [stages.discovery],
+					handovers: [],
+				}).success,
+			).toBe(true);
+		}
 	});
 });
 

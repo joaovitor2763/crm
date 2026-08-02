@@ -127,6 +127,15 @@ enum PipelineStageType {
   UNQUALIFIED
 }
 
+/// The revenue motion a pipeline represents. The API uses stable lower-case
+/// wire values and maps them to this persisted enum.
+enum PipelineFunnelType {
+  FULL_BOWTIE
+  LEFT_SIDE
+  RIGHT_SIDE
+  CUSTOM
+}
+
 enum ActivityType {
   NOTE
   CALL
@@ -1221,15 +1230,18 @@ model Deal {
 }
 
 model Pipeline {
-  id             String        @id @default(cuid())
-  name           String
-  isDefault      Boolean       @default(false)
-  archivedAt     DateTime?
-  businessUnitId String?
-  businessUnit   BusinessUnit? @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  id               String             @id @default(cuid())
+  name             String
+  isDefault        Boolean            @default(false)
+  archivedAt       DateTime?
+  businessUnitId   String?
+  businessUnit     BusinessUnit?      @relation(fields: [businessUnitId], references: [id], onDelete: Cascade)
+  funnelType       PipelineFunnelType @default(FULL_BOWTIE)
+  blueprintVersion Int                @default(1)
 
-  stages PipelineStage[]
-  deals  Deal[]
+  stages            PipelineStage[]
+  deals             Deal[]
+  blueprintVersions PipelineBlueprintVersion[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1240,12 +1252,19 @@ model Pipeline {
 }
 
 model PipelineStage {
-  id         String            @id @default(cuid())
-  pipelineId String
-  pipeline   Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  name       String
-  position   Int
-  type       PipelineStageType @default(OPEN)
+  id                        String            @id @default(cuid())
+  pipelineId                String
+  pipeline                  Pipeline          @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  /// Stable ontology key. Historical snapshots keep this value even if a label changes.
+  key                       String            @default(cuid())
+  name                      String
+  position                  Int
+  type                      PipelineStageType @default(OPEN)
+  semanticPhase             String            @default("conversion")
+  allowedRoleKeys           Json              @default("[]")
+  responsibleRoleKey        String?
+  defaultResponsibleRoleKey String?
+  allowedNextStageIds       Json              @default("[]")
 
   deals Deal[]
 
@@ -1253,9 +1272,48 @@ model PipelineStage {
   updatedAt DateTime @updatedAt
 
   @@unique([pipelineId, position])
+  @@unique([pipelineId, key])
   @@unique([id, pipelineId])
   @@index([pipelineId, type])
   @@map("pipelineStage")
+}
+
+/// Immutable policy snapshot. A pipeline's `blueprintVersion` points at the
+/// current row; old rows remain available for explaining historical deals.
+model PipelineBlueprintVersion {
+  id         String             @id @default(cuid())
+  pipelineId String
+  pipeline   Pipeline           @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  version    Int
+  funnelType PipelineFunnelType
+  snapshot   Json               @default("{}")
+  createdAt  DateTime           @default(now())
+
+  handoverRules PipelineHandoverRule[]
+
+  @@unique([pipelineId, version])
+  @@index([pipelineId, createdAt])
+  @@map("pipelineBlueprintVersion")
+}
+
+/// A handover is attached to a version so changes never rewrite the rule that
+/// was active when a deal crossed the boundary.
+model PipelineHandoverRule {
+  id                   String                   @id @default(cuid())
+  blueprintVersionId   String
+  blueprintVersion     PipelineBlueprintVersion @relation(fields: [blueprintVersionId], references: [id], onDelete: Cascade)
+  fromStageId          String
+  toStageId            String
+  fromRoleKey          String
+  toRoleKey            String
+  acceptanceRequired   Boolean                  @default(false)
+  acceptanceSlaMinutes Int?
+  assignmentStrategy   String                   @default("manual")
+  createdAt            DateTime                 @default(now())
+
+  @@unique([blueprintVersionId, fromStageId, toStageId, fromRoleKey, toRoleKey])
+  @@index([blueprintVersionId, fromStageId, toStageId])
+  @@map("pipelineHandoverRule")
 }
 
 model Product {

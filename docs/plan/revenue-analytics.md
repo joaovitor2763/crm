@@ -29,22 +29,20 @@ only that one authorized key is projected from `customValues`. The pure builder
 in `apps/api/src/dashboard/analytics.ts` is deterministic and reusable by
 exports, jobs and CLI consumers.
 
-## Schema gap for persistence
+## Persisted revenue motion
 
-The current `Pipeline` and `PipelineStage` models contain no funnel-type,
-role-policy or handover-rule storage. The API therefore deliberately does not
-pretend that blueprint input was saved and does not use an in-memory registry.
-The `describe` response marks these policies as `configured: false` and lists
-the gap.
+The pipeline persistence migration adds four wire-level funnel types:
+`full_bowtie`, `left_side`, `right_side` and `custom` (the old
+`side_bowtie` input remains a compatibility alias for `left_side`). Each stage
+stores a stable key, semantic phase, allowed role keys, accountable role,
+optional default role and an allow-list of next stages.
 
-The follow-up ontology migration should add, at minimum:
-
-1. a versioned funnel type on `Pipeline` (`full_bowtie` or `side_bowtie`);
-2. a stage policy (allowed roles, responsible role and optional transition
-   allow-list) keyed by `PipelineStage`;
-3. explicit, auditable handover rules keyed by source/target stage and role;
-4. immutable policy snapshots or a lineage link so reports can explain which
-   rules were active when a deal moved.
-
-Until then, existing `PipelineStageType` plus `STAGE_CHANGE` activities remain
-the source of truth for outcome topology and historical transitions.
+Publishing a blueprint creates a new `PipelineBlueprintVersion` and copies its
+handover rules into `PipelineHandoverRule`. Handover rows carry source/target
+roles, acceptance, SLA minutes and assignment strategy. The current version is
+selected by `Pipeline.blueprintVersion`; snapshots are never updated in place.
+Existing pipelines are backfilled with an empty policy snapshot, so their
+legacy transitions remain permissive until a blueprint is published. Once a
+pipeline has deals, outcome-type changes remain blocked while policy edits
+publish a successor version, preserving the configuration used by historical
+stage-change activities.

@@ -133,7 +133,7 @@ export class DealsRouter {
 		@Input() input: z.infer<typeof setStageInput>,
 	) {
 		await this.deals.byId(input.id, this.writeScope(ctx));
-		return this.deals.setStage(input, ctx.user.id);
+		return this.deals.setStage(input, ctx.user.id, ctx.principal.roleKey);
 	}
 
 	@Mutation({ input: dealIdInput })

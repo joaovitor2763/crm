@@ -26,7 +26,7 @@ import { fieldSchemaInput, objectDefinitionCreateInput, fieldCreateInput, fieldU
 import { setAutoCreateInput, suppressDomainInput, threadInput, calendarEventInput } from "../google/google.contracts";
 import { businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
-import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
+import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineBlueprintUpdateInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
 import { revenueAccountConfigurationInput, revenueAccountListInput, revenueAccountIdInput, revenueAccountCreateInput, revenueAccountUpdateArgs, revenueAccountAssociationInput, revenueAccountMergePreviewInput, revenueAccountMergeInput } from "../revenue-accounts/revenue-accounts.contracts";
 import type { ActivitiesRouter } from "../activities/activities.router";
@@ -351,6 +351,9 @@ const appRouter = t.router({
     validateTransition: publicProcedure
       .input(pipelineBlueprintTransitionInput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["validateTransition"]>>),
+    publishBlueprint: publicProcedure
+      .input(pipelineBlueprintUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["publishBlueprint"]>>),
     create: publicProcedure
       .input(pipelineCreateInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<PipelinesRouter["create"]>>),

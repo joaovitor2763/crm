@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { ActivityType, db } from "@crm/db";
+import { ActivityType, db, PipelineStageType } from "@crm/db";
 import { activityCreateInput } from "../src/activities/activities.contracts";
 import { ActivitiesService } from "../src/activities/activities.service";
 import { ContactsService } from "../src/contacts/contacts.service";
@@ -20,6 +20,7 @@ const productId = `crm-foundations-product-${suffix}`;
 const generatedPipelineName = `CRM Foundations Generated Pipeline ${suffix}`;
 const marketingEventName = `CRM Foundations Event ${suffix}`;
 const guardPipelineName = `CRM Foundations Open Guard ${suffix}`;
+const handoverPipelineName = `CRM Foundations Handover Pipeline ${suffix}`;
 const primaryContactId = `crm-foundations-primary-${suffix}`;
 
 let deals: DealsService;
@@ -36,6 +37,7 @@ async function cleanup() {
 	await db.marketingEvent.deleteMany({ where: { name: marketingEventName } });
 	await db.pipeline.deleteMany({ where: { name: generatedPipelineName } });
 	await db.pipeline.deleteMany({ where: { name: guardPipelineName } });
+	await db.pipeline.deleteMany({ where: { name: handoverPipelineName } });
 	await db.pipeline.deleteMany({ where: { id: pipelineId } });
 	await db.user.deleteMany({ where: { id: userId } });
 }
@@ -159,6 +161,95 @@ describe("configurable CRM foundations", () => {
 		);
 		const archivedDeals = await deals.archived();
 		expect(archivedDeals.map((deal) => deal.id)).toContain(generatedDealId);
+	});
+
+	it("publishes immutable handovers and enforces them when a deal moves", async () => {
+		const pipeline = await pipelines.create(handoverPipelineName);
+		const stages = await db.pipelineStage.findMany({
+			where: { pipelineId: pipeline.id },
+			orderBy: { position: "asc" },
+		});
+		const first = stages[0];
+		const second = stages[1];
+		const won = stages.find((stage) => stage.type === PipelineStageType.WON);
+		const lost = stages.find((stage) => stage.type === PipelineStageType.LOST);
+		if (!first || !second || !won || !lost)
+			throw new Error("expected pipeline stages");
+
+		const blueprint = {
+			type: "full_bowtie" as const,
+			stages: stages.map((stage) => ({
+				key: stage.key,
+				position: stage.position,
+				type: stage.type,
+				semanticPhase: stage.semanticPhase,
+				allowedRoles: [
+					...(stage === first ? ["sdr", "closer"] : []),
+					...(stage === second ? ["closer"] : []),
+					...(stage !== first && stage !== second ? ["account_manager"] : []),
+				],
+				responsibleRole:
+					stage === first
+						? "sdr"
+						: stage === second
+							? "closer"
+							: "account_manager",
+				...(stage === first ? { allowedNextStages: [second.key] } : {}),
+			})),
+			handovers: [
+				{
+					fromStage: first.key,
+					toStage: second.key,
+					fromRole: "sdr",
+					toRole: "closer",
+					acceptanceRequired: true,
+					acceptanceSlaMinutes: 60,
+					assignmentStrategy: "role_default" as const,
+				},
+			],
+		};
+		await pipelines.publishBlueprint({ id: pipeline.id, blueprint });
+		const versions = await db.pipelineBlueprintVersion.findMany({
+			where: { pipelineId: pipeline.id },
+			orderBy: { version: "asc" },
+			include: { handoverRules: true },
+		});
+		expect(versions.map((version) => version.version)).toEqual([1, 2]);
+		expect(versions[1]?.handoverRules[0]).toMatchObject({
+			fromRoleKey: "sdr",
+			toRoleKey: "closer",
+			acceptanceRequired: true,
+			acceptanceSlaMinutes: 60,
+			assignmentStrategy: "role_default",
+		});
+
+		const deal = await deals.create({
+			name: "CRM Foundations Handover Deal",
+			companyId,
+			ownerId: userId,
+			pipelineId: pipeline.id,
+		});
+		expect(
+			deals.setStage({ id: deal.id, stageId: won.id }, userId, "sdr"),
+		).rejects.toThrow("not allowed from the current stage");
+		expect(
+			deals.setStage({ id: deal.id, stageId: second.id }, userId, "sdr"),
+		).rejects.toThrow("explicitly accepted");
+		expect(
+			deals.setStage(
+				{ id: deal.id, stageId: second.id, handoverAccepted: true },
+				userId,
+				"closer",
+			),
+		).rejects.toThrow("does not own this handover");
+		await deals.setStage(
+			{ id: deal.id, stageId: second.id, handoverAccepted: true },
+			userId,
+			"sdr",
+		);
+
+		await deals.archive(deal.id);
+		await pipelines.archive(pipeline.id);
 	});
 
 	it("keeps at least one open stage in every active pipeline", async () => {

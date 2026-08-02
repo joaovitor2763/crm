@@ -16,6 +16,10 @@ import { fromCents, toCents } from "../crm/values";
 import { InjectDatabase } from "../database/database.constants";
 import { lockPipelines } from "../pipelines/pipeline-locks";
 import {
+	readStringArray,
+	stagePolicyEnabled,
+} from "../pipelines/pipeline-persistence";
+import {
 	countsByKey,
 	FACET_ALL,
 	FACET_UNASSIGNED,
@@ -51,12 +55,23 @@ const COMPANY_SELECT = {
 
 const STAGE_SELECT = {
 	id: true,
+	key: true,
 	name: true,
 	position: true,
 	type: true,
+	semanticPhase: true,
+	allowedRoleKeys: true,
+	responsibleRoleKey: true,
+	defaultResponsibleRoleKey: true,
+	allowedNextStageIds: true,
 } as const;
 
-const PIPELINE_SELECT = { id: true, name: true } as const;
+const PIPELINE_SELECT = {
+	id: true,
+	name: true,
+	funnelType: true,
+	blueprintVersion: true,
+} as const;
 
 const SORTABLE: Record<
 	string,
@@ -408,12 +423,18 @@ export class DealsService {
 		}
 	}
 
-	async setStage(input: SetStageInput, actingUserId: string) {
+	async setStage(
+		input: SetStageInput,
+		actingUserId: string,
+		actingRoleKey?: string,
+	) {
 		const locatedTarget = await this.db.pipelineStage.findUnique({
 			where: { id: input.stageId },
 			select: {
 				pipelineId: true,
-				pipeline: { select: { businessUnitId: true } },
+				pipeline: {
+					select: { businessUnitId: true, blueprintVersion: true },
+				},
 			},
 		});
 		if (!locatedTarget)
@@ -494,6 +515,39 @@ export class DealsService {
 					changedAt: null,
 				};
 			}
+
+			if (deal.pipelineId === target.pipelineId) {
+				const version = await tx.pipelineBlueprintVersion.findUnique({
+					where: {
+						pipelineId_version: {
+							pipelineId: deal.pipelineId,
+							version: deal.pipeline.blueprintVersion,
+						},
+					},
+					select: {
+						handoverRules: {
+							select: {
+								fromStageId: true,
+								toStageId: true,
+								fromRoleKey: true,
+								toRoleKey: true,
+								acceptanceRequired: true,
+								acceptanceSlaMinutes: true,
+								assignmentStrategy: true,
+							},
+						},
+					},
+				});
+				if (version) {
+					validatePersistedTransition(
+						deal.stage,
+						target,
+						version.handoverRules,
+						input,
+						actingRoleKey,
+					);
+				}
+			}
 			if (isLosingStage(target.type) && !closedReason) {
 				throw new BadRequestException(
 					"Say why it was lost or unqualified before moving it there.",
@@ -541,6 +595,13 @@ export class DealsService {
 						to: target.name,
 						toId: target.id,
 						toPipeline: target.pipeline.name,
+						...(input.handoverAccepted !== undefined || input.handoverToRole
+							? {
+									handoverAccepted: input.handoverAccepted ?? false,
+									handoverToRole: input.handoverToRole ?? null,
+									actingRole: actingRoleKey ?? null,
+								}
+							: {}),
 					},
 				},
 			});
@@ -863,6 +924,96 @@ export class DealsService {
 			);
 		}
 		return error;
+	}
+}
+
+type PersistedTransitionStage = {
+	id: string;
+	allowedRoleKeys: Prisma.JsonValue;
+	responsibleRoleKey: string | null;
+	defaultResponsibleRoleKey: string | null;
+	allowedNextStageIds: Prisma.JsonValue;
+};
+
+type PersistedHandover = {
+	fromStageId: string;
+	toStageId: string;
+	fromRoleKey: string;
+	toRoleKey: string;
+	acceptanceRequired: boolean;
+	acceptanceSlaMinutes: number | null;
+	assignmentStrategy: string;
+};
+
+function validatePersistedTransition(
+	from: PersistedTransitionStage,
+	to: PersistedTransitionStage,
+	rules: PersistedHandover[],
+	input: SetStageInput,
+	actingRoleKey?: string,
+) {
+	if (
+		!stagePolicyEnabled(from) &&
+		!stagePolicyEnabled(to) &&
+		rules.length === 0
+	) {
+		return;
+	}
+	const allowedNextStageIds = readStringArray(from.allowedNextStageIds);
+	if (allowedNextStageIds.length > 0 && !allowedNextStageIds.includes(to.id)) {
+		throw new BadRequestException(
+			"The target stage is not allowed from the current stage.",
+		);
+	}
+	const allowedRoles = readStringArray(from.allowedRoleKeys);
+	if (
+		actingRoleKey &&
+		allowedRoles.length > 0 &&
+		!allowedRoles.includes(actingRoleKey)
+	) {
+		throw new BadRequestException(
+			"The acting role is not allowed on the current stage.",
+		);
+	}
+	const rule = rules.find(
+		(candidate) =>
+			candidate.fromStageId === from.id && candidate.toStageId === to.id,
+	);
+	const roleChanged =
+		from.responsibleRoleKey !== null &&
+		to.responsibleRoleKey !== null &&
+		from.responsibleRoleKey !== to.responsibleRoleKey;
+	if (roleChanged && !rule) {
+		throw new BadRequestException(
+			"A role change requires an explicit handover rule.",
+		);
+	}
+	if (!rule) {
+		if (
+			input.handoverToRole &&
+			to.responsibleRoleKey &&
+			input.handoverToRole !== to.responsibleRoleKey
+		) {
+			throw new BadRequestException(
+				"The handover target role does not own the target stage.",
+			);
+		}
+		return;
+	}
+	if (!actingRoleKey || actingRoleKey !== rule.fromRoleKey) {
+		throw new BadRequestException(
+			"The acting role does not own this handover.",
+		);
+	}
+	if (input.handoverToRole && input.handoverToRole !== rule.toRoleKey) {
+		throw new BadRequestException(
+			"The handover target role does not match the configured rule.",
+		);
+	}
+	if (rule.acceptanceRequired && input.handoverAccepted !== true) {
+		throw new BadRequestException(
+			"This handover must be explicitly accepted before the deal moves.",
+		);
 	}
 }
 

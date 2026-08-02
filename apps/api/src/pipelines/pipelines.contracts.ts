@@ -2,6 +2,7 @@ import { PipelineStageType } from "@crm/db";
 import { z } from "zod";
 import {
 	pipelineBlueprintInput,
+	pipelineFunnelType,
 	pipelineRole,
 } from "./pipelines-blueprint.contracts";
 
@@ -19,6 +20,7 @@ export const pipelineListInput = z.object({
 export const pipelineCreateInput = z.object({
 	name: z.string().trim().min(1, "A pipeline needs a name."),
 	businessUnitId: z.string().nullable().optional(),
+	funnelType: pipelineFunnelType.default("full_bowtie"),
 });
 
 export const pipelineUpdateInput = z.object({
@@ -27,18 +29,35 @@ export const pipelineUpdateInput = z.object({
 	isDefault: z.boolean().optional(),
 });
 
+export const pipelineBlueprintUpdateInput = z.object({
+	id: z.string(),
+	blueprint: pipelineBlueprintInput,
+});
+
 export const pipelineIdInput = z.object({ id: z.string() });
 
 export const pipelineStageCreateInput = z.object({
 	pipelineId: z.string(),
 	name: z.string().trim().min(1, "A stage needs a name."),
 	type: stageType.default(PipelineStageType.OPEN),
+	key: z.string().trim().min(1).max(80).optional(),
+	semanticPhase: z.string().trim().min(1).max(80).optional(),
+	allowedRoles: z.array(pipelineRole).min(1).optional(),
+	responsibleRole: pipelineRole.optional(),
+	defaultResponsibleRole: pipelineRole.optional(),
+	allowedNextStages: z.array(z.string().trim().min(1)).optional(),
 });
 
 export const pipelineStageUpdateInput = z.object({
 	id: z.string(),
 	name: z.string().trim().min(1).optional(),
 	type: stageType.optional(),
+	key: z.string().trim().min(1).max(80).optional(),
+	semanticPhase: z.string().trim().min(1).max(80).optional(),
+	allowedRoles: z.array(pipelineRole).min(1).optional(),
+	responsibleRole: pipelineRole.nullable().optional(),
+	defaultResponsibleRole: pipelineRole.nullable().optional(),
+	allowedNextStages: z.array(z.string().trim().min(1)).optional(),
 });
 
 export const pipelineStageReorderInput = z.object({
@@ -56,4 +75,5 @@ export const pipelineBlueprintTransitionInput = z.object({
 	toStage: z.string().trim().min(1),
 	actingRole: pipelineRole.optional(),
 	handoverToRole: pipelineRole.optional(),
+	handoverAccepted: z.boolean().optional(),
 });

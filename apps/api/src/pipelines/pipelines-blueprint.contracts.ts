@@ -1,12 +1,14 @@
 import { PipelineStageType } from "@crm/db";
 import { z } from "zod";
 import {
+	PIPELINE_ASSIGNMENT_STRATEGIES,
 	PIPELINE_FUNNEL_TYPES,
 	type PipelineBlueprint,
 } from "./pipeline-blueprint";
 
-const funnelType = z.enum(PIPELINE_FUNNEL_TYPES);
+export const pipelineFunnelType = z.enum(PIPELINE_FUNNEL_TYPES);
 export const pipelineRole = z.string().trim().min(1).max(80);
+const assignmentStrategy = z.enum(PIPELINE_ASSIGNMENT_STRATEGIES);
 const stageType = z.enum([
 	PipelineStageType.OPEN,
 	PipelineStageType.WON,
@@ -15,15 +17,17 @@ const stageType = z.enum([
 ] as const);
 
 export const pipelineBlueprintInput = z.object({
-	type: funnelType,
+	type: pipelineFunnelType,
 	stages: z
 		.array(
 			z.object({
 				key: z.string().trim().min(1).max(80),
 				position: z.number().int().min(0),
 				type: stageType,
+				semanticPhase: z.string().trim().min(1).max(80).optional(),
 				allowedRoles: z.array(pipelineRole).min(1),
 				responsibleRole: pipelineRole,
+				defaultResponsibleRole: pipelineRole.optional(),
 				allowedNextStages: z.array(z.string().trim().min(1)).optional(),
 			}),
 		)
@@ -35,6 +39,9 @@ export const pipelineBlueprintInput = z.object({
 				toStage: z.string().trim().min(1),
 				fromRole: pipelineRole,
 				toRole: pipelineRole,
+				acceptanceRequired: z.boolean().optional(),
+				acceptanceSlaMinutes: z.number().int().positive().optional(),
+				assignmentStrategy: assignmentStrategy.optional(),
 			}),
 		)
 		.default([]),

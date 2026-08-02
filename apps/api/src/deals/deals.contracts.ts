@@ -79,6 +79,9 @@ export const setStageInput = z.object({
 	stageId: z.string(),
 	/** Why it was lost or disqualified. Required for the losing stages. */
 	closedReason: z.string().trim().optional(),
+	/** Required when a persisted handover rule asks the receiving role to accept. */
+	handoverAccepted: z.boolean().optional(),
+	handoverToRole: z.string().trim().min(1).max(80).optional(),
 });
 
 export type SetStageInput = z.infer<typeof setStageInput>;
