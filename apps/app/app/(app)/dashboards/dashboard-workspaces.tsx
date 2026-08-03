@@ -3,6 +3,7 @@
 import Add from "@carbon/icons-react/es/Add";
 import ArrowLeft from "@carbon/icons-react/es/ArrowLeft";
 import ArrowsVertical from "@carbon/icons-react/es/ArrowsVertical";
+import Draggable from "@carbon/icons-react/es/Draggable";
 import Locked from "@carbon/icons-react/es/Locked";
 import OverflowMenuHorizontal from "@carbon/icons-react/es/OverflowMenuHorizontal";
 import SettingsAdjust from "@carbon/icons-react/es/SettingsAdjust";
@@ -1133,23 +1134,11 @@ function WorkspaceWidget({
 			ref={cardRef}
 			className={cn(
 				"group/widget relative z-10 min-w-0 transition-opacity",
-				canEdit && "cursor-grab active:cursor-grabbing",
 				dragging && "opacity-50",
 				dropTarget && "ring-1 ring-ring",
 				preview !== null && "select-none ring-1 ring-ring",
 				spanClass(preview?.width ?? widget.width),
 			)}
-			draggable={canEdit && preview === null}
-			onDragStart={(event) => {
-				// A resize gesture must never become a reorder drag; the ref is
-				// set synchronously on the handle's pointerdown, the state isn't.
-				if (resizeStart.current) {
-					event.preventDefault();
-					return;
-				}
-				onDragStart(event);
-			}}
-			onDragEnd={onDragEnd}
 			onDragOver={onDragOver}
 			onDragLeave={onDragLeave}
 			onDrop={onDrop}
@@ -1160,7 +1149,17 @@ function WorkspaceWidget({
 					<CardDescription>{widget.description}</CardDescription>
 				</div>
 				{canEdit ? (
-					<CardAction>
+					<CardAction className="flex items-center gap-1">
+						<button
+							type="button"
+							aria-label={`Move ${widget.title}`}
+							draggable
+							onDragStart={onDragStart}
+							onDragEnd={onDragEnd}
+							className="flex size-7 cursor-grab items-center justify-center text-muted-foreground opacity-50 transition-opacity hover:opacity-100 active:cursor-grabbing group-hover/widget:opacity-100"
+						>
+							<Icon icon={Draggable} />
+						</button>
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
 								<Button
