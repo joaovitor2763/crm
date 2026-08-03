@@ -122,7 +122,8 @@ real customer data.
   permissions and API/agent exposure. Roles combine with hierarchical business
   units and teams for record visibility.
 - Durable automations react to domain events and signed webhooks deliver the
-  same outbox externally. Scoped API keys power `/api/v1` and `/mcp` for agents.
+  same outbox externally. Restricted or live user-delegate API keys power
+  `/api/v1` and `/mcp` for agents.
 
 ## The agent
 

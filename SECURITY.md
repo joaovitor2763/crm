@@ -25,10 +25,12 @@ read-only or hidden per role. New identities start read-only. This remains one
 organization and one database, not a multi-tenant boundary.
 
 **External access is delegated, not anonymous.** `/api/v1` and `/mcp` require a
-hashed bearer credential whose role, units and teams are fixed when issued.
-The plaintext token is shown once. Credentials and automations cannot use the
-Global Admin role, and a delegated `ALL` permission is capped to its assigned
-unit tree. Only a Global Admin can issue or revoke external credentials.
+hashed bearer credential. A restricted credential fixes its role, units and
+teams when issued; its `ALL` permission is capped to that assigned unit tree.
+A “Clone my access” credential instead resolves the issuing user's current
+role and memberships on every request, including Global Admin access, so
+suspending or demoting that user immediately changes the clone. The plaintext
+token is shown once. Only a Global Admin can issue or revoke credentials.
 
 An unset `ALLOWED_SIGN_IN` fails closed: nobody can sign in. A list that names a consumer domain
 (`gmail.com`) is an open door, which is why single addresses are supported.
@@ -69,7 +71,9 @@ existing endpoint secrets; rotate endpoints immediately afterward.
 - Serve both processes over HTTPS. Secure cookies switch on with `NODE_ENV=production`.
 - Set `CRON_SECRET` if you expose the sync route at all.
 - Set a distinct `WEBHOOK_SIGNING_SECRET` before enabling outbound webhooks.
-- Give API credentials the narrowest role and unit/team set that can do the job.
+- Give integrations the narrowest role and unit/team set that can do the job.
+  Use “Clone my access” only for an agent that genuinely needs to act as you,
+  and revoke it immediately if exposed.
 - Keep the database off the public internet.
 - Start with no optional API keys and add them one at a time, so you know what is leaving.
 

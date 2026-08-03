@@ -7,15 +7,22 @@ import type { Request, Response } from "express";
 import { z } from "zod";
 import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
+import { ActivitiesService } from "../activities/activities.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
 import { AttributionService } from "../attribution/attribution.service";
+import { CompaniesService } from "../companies/companies.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { DashboardService } from "../dashboard/dashboard.service";
 import { DashboardDefinitionService } from "../dashboard/dashboard-definition.service";
 import { InjectDatabase } from "../database/database.constants";
+import { DealsService } from "../deals/deals.service";
 import { FieldsService } from "../fields/fields.service";
+import { PipelinesService } from "../pipelines/pipelines.service";
+import { ProductsService } from "../products/products.service";
 import { RevenueAccountsService } from "../revenue-accounts/revenue-accounts.service";
 import { leadIngestionInput } from "./lead-ingestion.contracts";
 import { LeadIngestionService } from "./lead-ingestion.service";
+import { registerCrmOperationTools } from "./mcp-crm-tools";
 import { toolError, toolResult } from "./mcp-result";
 import { registerRevenueArchitectureTools } from "./mcp-revenue-tools";
 import { scopedContactUnitStateWhere } from "./scoped-unit-state";
@@ -30,6 +37,18 @@ export class McpController {
 		private readonly accessControl: AccessControlService,
 		@Inject(LeadIngestionService)
 		private readonly leads: LeadIngestionService,
+		@Inject(ActivitiesService)
+		private readonly activities: ActivitiesService,
+		@Inject(CompaniesService)
+		private readonly companies: CompaniesService,
+		@Inject(ContactsService)
+		private readonly contacts: ContactsService,
+		@Inject(DealsService)
+		private readonly deals: DealsService,
+		@Inject(PipelinesService)
+		private readonly pipelines: PipelinesService,
+		@Inject(ProductsService)
+		private readonly products: ProductsService,
 		@Inject(FieldsService)
 		private readonly fields: FieldsService,
 		@Inject(RevenueAccountsService)
@@ -56,7 +75,7 @@ export class McpController {
 			"submit_lead",
 			{
 				description:
-					"Submit a contact lead to the CRM with idempotency and preserved validation outcomes.",
+					"Ingest a new lead idempotently. Reusing an idempotencyKey returns the original submission and does not edit the contact; use update_contact for changes.",
 				inputSchema: leadIngestionInput,
 			},
 			async (input) => {
@@ -76,6 +95,18 @@ export class McpController {
 			dashboard: this.dashboard,
 			definitions: this.dashboardDefinitions,
 			accessControl: this.accessControl,
+			principal,
+		});
+
+		registerCrmOperationTools(server, {
+			accessControl: this.accessControl,
+			activities: this.activities,
+			companies: this.companies,
+			contacts: this.contacts,
+			deals: this.deals,
+			pipelines: this.pipelines,
+			products: this.products,
+			db: this.db,
 			principal,
 		});
 
@@ -204,6 +235,8 @@ function mcpContactSelect(
 		title: true,
 		globalLifecycleStage: true,
 		globalMarketingScore: true,
+		company: { select: { id: true, name: true, domain: true } },
+		owner: { select: { id: true, name: true, email: true } },
 		customValues: true,
 		unitStates: {
 			where: scopedContactUnitStateWhere(principal, scope),

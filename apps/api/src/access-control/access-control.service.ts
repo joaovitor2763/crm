@@ -158,6 +158,14 @@ export class AccessControlService {
 			},
 		});
 		if (!credential) throw new ForbiddenException("Invalid API credential.");
+		if (credential.accessMode === "USER_DELEGATE") {
+			const delegated = await this.forUser(credential.createdById);
+			return {
+				...delegated,
+				actorType: AuditActorType.API_KEY,
+				actorId: credential.id,
+			};
+		}
 
 		const businessUnitIds = credential.businessUnits.map(
 			(scope) => scope.businessUnitId,

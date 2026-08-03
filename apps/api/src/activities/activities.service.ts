@@ -1,6 +1,7 @@
 import { ActivityType, type Db, type Prisma } from "@crm/db";
 import {
 	BadRequestException,
+	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
@@ -75,7 +76,7 @@ export class ActivitiesService {
 
 	constructor(
 		@InjectDatabase() private readonly db: Db,
-		private readonly stamp: ActivityStampService,
+		@Inject(ActivityStampService) private readonly stamp: ActivityStampService,
 	) {}
 
 	/**

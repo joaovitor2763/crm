@@ -7,6 +7,7 @@ import {
 import {
 	BadRequestException,
 	ConflictException,
+	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
@@ -97,7 +98,7 @@ export class DealsService {
 
 	constructor(
 		@InjectDatabase() private readonly db: Db,
-		private readonly stamp: ActivityStampService,
+		@Inject(ActivityStampService) private readonly stamp: ActivityStampService,
 	) {}
 
 	async list(input: DealListInput, scope: Prisma.DealWhereInput = {}) {

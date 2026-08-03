@@ -345,6 +345,11 @@ export function AutomationsSettings({
 					))}
 					{filteredWebhooks.map((webhook) => {
 						const latestDelivery = webhook.deliveries[0];
+						const scopeLabel = webhook.businessUnitId
+							? (governance.data?.businessUnits.find(
+									(unit) => unit.id === webhook.businessUnitId,
+								)?.name ?? "Selected business unit")
+							: "Global · all pipelines";
 						const latestTest =
 							lastWebhookTest?.webhookId === webhook.id
 								? lastWebhookTest.result
@@ -358,6 +363,7 @@ export function AutomationsSettings({
 							>
 								<div className="min-w-0">
 									<p className="text-sm font-medium">{webhook.name}</p>
+									<p className="text-muted-foreground text-xs">{scopeLabel}</p>
 									<p className="text-muted-foreground text-xs">
 										{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
 										{webhook._count.deliveries} deliveries
@@ -493,7 +499,7 @@ function AutomationForm({
 				mutate({
 					name: String(form.get("name")),
 					roleId: String(form.get("roleId")),
-					businessUnitId: unit || null,
+					businessUnitId: unit === "global" || !unit ? null : unit,
 					trigger: { eventTypes: [eventType] },
 					conditions: [],
 					actions: [
@@ -536,12 +542,15 @@ function AutomationForm({
 				</Field>
 				<Field>
 					<FieldLabel>Business unit</FieldLabel>
-					<Select name="businessUnitId">
+					<Select name="businessUnitId" defaultValue="global">
 						<SelectTrigger>
-							<SelectValue placeholder="Global" />
+							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
 							<SelectGroup>
+								<SelectItem value="global">
+									Global · all business units and pipelines
+								</SelectItem>
 								{data?.businessUnits.map((unit) => (
 									<SelectItem key={unit.id} value={unit.id}>
 										{unit.name}
@@ -550,6 +559,10 @@ function AutomationForm({
 							</SelectGroup>
 						</SelectContent>
 					</Select>
+					<FieldDescription>
+						Global sends matching events from every pipeline, team and business
+						unit.
+					</FieldDescription>
 				</Field>
 				<Field>
 					<FieldLabel>When this happens</FieldLabel>
@@ -823,8 +836,8 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 			<CardHeader>
 				<CardTitle>External agents and API</CardTitle>
 				<CardDescription>
-					One credential, one role, explicit unit and team scopes. The same key
-					authenticates REST and MCP.
+					Clone your own live access for an agent, or create a restricted key
+					for forms and integrations. The same key authenticates REST and MCP.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
@@ -861,8 +874,8 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 							Issue a credential
 						</h3>
 						<p className="text-muted-foreground text-xs/relaxed">
-							The selected role controls permitted actions. Business-unit and
-							team scopes limit which records the connected system can reach.
+							A clone follows your current permissions automatically. Scoped
+							access uses the selected role and business unit.
 						</p>
 					</div>
 					<CredentialForm data={governance.data} mutate={create.mutate} />
@@ -886,6 +899,7 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 							const unitIds = credential.businessUnits
 								.map(({ businessUnit }) => businessUnit.id)
 								.join(", ");
+							const isClone = credential.accessMode === "USER_DELEGATE";
 							return (
 								<div
 									key={credential.id}
@@ -894,15 +908,25 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 									<div className="min-w-0">
 										<p className="text-sm font-medium">{credential.name}</p>
 										<p className="text-muted-foreground text-xs">
-											{credential.role.name} · {credential.prefix}…
-											{credential.lastFour} · {credential.status}
+											{isClone
+												? `Clone of ${credential.createdBy.name}`
+												: credential.role.name}{" "}
+											· {credential.prefix}…{credential.lastFour} ·{" "}
+											{credential.status}
 										</p>
+										{isClone ? (
+											<p className="text-muted-foreground text-xs">
+												Live access · {credential.createdBy.email}
+											</p>
+										) : (
+											<p className="text-muted-foreground text-xs">
+												Business unit ID:{" "}
+												<code className="font-mono">{unitIds}</code>
+											</p>
+										)}
 										<p className="text-muted-foreground text-xs">
-											Business unit ID:{" "}
-											<code className="font-mono">{unitIds}</code>
-										</p>
-										<p className="text-muted-foreground text-xs">
-											Scope: {units || "No business units"}
+											Scope:{" "}
+											{isClone ? "Same as user" : units || "No business units"}
 											{teams ? ` · Teams: ${teams}` : ""} · Last used:{" "}
 											{credential.lastUsedAt
 												? `${utcDateTime.format(
@@ -1016,6 +1040,11 @@ curl --request PATCH \\
 						configuration names can vary; the endpoint and header above are the
 						authoritative values.
 					</p>
+					<p className="text-muted-foreground">
+						With “Clone my access”, the agent can search and edit contacts, find
+						companies, create and move deals, add products, and read, create or
+						complete tasks—subject to your live permissions.
+					</p>
 					<CodeSample label="Copy MCP config" value={mcpConfig} />
 				</TabsContent>
 				<TabsContent value="lead" className="flex flex-col gap-2">
@@ -1115,21 +1144,29 @@ function CredentialForm({
 	data?: Overview;
 	mutate: (input: {
 		name: string;
-		roleId: string;
+		accessMode: "SCOPED_ROLE" | "USER_DELEGATE";
+		roleId?: string;
 		businessUnitIds: string[];
 		teamIds: string[];
 	}) => void;
 }) {
+	const [accessMode, setAccessMode] = useState<"SCOPED_ROLE" | "USER_DELEGATE">(
+		"USER_DELEGATE",
+	);
 	return (
 		<form
-			className="grid gap-2 md:grid-cols-4 md:items-end"
+			className="grid gap-2 md:grid-cols-5 md:items-end"
 			onSubmit={(event) => {
 				event.preventDefault();
 				const form = new FormData(event.currentTarget);
+				const delegated = accessMode === "USER_DELEGATE";
 				mutate({
 					name: String(form.get("name")),
-					roleId: String(form.get("roleId")),
-					businessUnitIds: [String(form.get("businessUnitId"))],
+					accessMode,
+					roleId: delegated ? undefined : String(form.get("roleId")),
+					businessUnitIds: delegated
+						? []
+						: [String(form.get("businessUnitId"))],
 					teamIds: [],
 				});
 			}}
@@ -1144,39 +1181,67 @@ function CredentialForm({
 				/>
 			</Field>
 			<Field>
-				<FieldLabel>Role</FieldLabel>
-				<Select name="roleId" required>
+				<FieldLabel>Access</FieldLabel>
+				<Select
+					value={accessMode}
+					onValueChange={(value) =>
+						setAccessMode(value as "SCOPED_ROLE" | "USER_DELEGATE")
+					}
+				>
 					<SelectTrigger>
-						<SelectValue placeholder="Role" />
+						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
 						<SelectGroup>
-							{data?.roles.map((role) => (
-								<SelectItem key={role.id} value={role.id}>
-									{role.name}
-								</SelectItem>
-							))}
+							<SelectItem value="USER_DELEGATE">Clone my access</SelectItem>
+							<SelectItem value="SCOPED_ROLE">Restricted role</SelectItem>
 						</SelectGroup>
 					</SelectContent>
 				</Select>
 			</Field>
-			<Field>
-				<FieldLabel>Business unit</FieldLabel>
-				<Select name="businessUnitId" required>
-					<SelectTrigger>
-						<SelectValue placeholder="Unit" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectGroup>
-							{data?.businessUnits.map((unit) => (
-								<SelectItem key={unit.id} value={unit.id}>
-									{unit.name}
-								</SelectItem>
-							))}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
-			</Field>
+			{accessMode === "SCOPED_ROLE" ? (
+				<div className="grid gap-2 md:col-span-2 md:grid-cols-2">
+					<Field>
+						<FieldLabel>Role</FieldLabel>
+						<Select name="roleId" required>
+							<SelectTrigger>
+								<SelectValue placeholder="Role" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectGroup>
+									{data?.roles.map((role) => (
+										<SelectItem key={role.id} value={role.id}>
+											{role.name}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+					</Field>
+					<Field>
+						<FieldLabel>Business unit</FieldLabel>
+						<Select name="businessUnitId" required>
+							<SelectTrigger>
+								<SelectValue placeholder="Unit" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectGroup>
+									{data?.businessUnits.map((unit) => (
+										<SelectItem key={unit.id} value={unit.id}>
+											{unit.name}
+										</SelectItem>
+									))}
+								</SelectGroup>
+							</SelectContent>
+						</Select>
+					</Field>
+				</div>
+			) : (
+				<p className="self-center text-muted-foreground text-xs md:col-span-2">
+					Can read and act exactly as you can. Permission changes apply
+					immediately.
+				</p>
+			)}
 			<Button type="submit">Create key</Button>
 		</form>
 	);

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
 	AccessScope,
+	ApiCredentialAccessMode,
 	AuditActorType,
 	AutomationStatus,
 	CustomFieldIndexMode,
@@ -41,6 +42,8 @@ let updateBearer: string;
 let updateCredentialId: string;
 let createOnlyBearer: string;
 let createOnlyCredentialId: string;
+let cloneBearer: string;
+let cloneCredentialId: string;
 
 async function cleanup() {
 	await db.domainEvent.deleteMany({
@@ -70,7 +73,8 @@ async function cleanup() {
 		otherTeamCredentialId ||
 		noTeamCredentialId ||
 		updateCredentialId ||
-		createOnlyCredentialId
+		createOnlyCredentialId ||
+		cloneCredentialId
 	) {
 		await db.apiCredential.deleteMany({
 			where: {
@@ -81,6 +85,7 @@ async function cleanup() {
 						noTeamCredentialId,
 						updateCredentialId,
 						createOnlyCredentialId,
+						cloneCredentialId,
 					].filter(Boolean),
 				},
 			},
@@ -158,6 +163,15 @@ beforeAll(async () => {
 	);
 	token = created.token;
 	credentialId = created.id;
+	const clone = await credentials.create(
+		{
+			name: `External API Clone ${suffix}`,
+			accessMode: ApiCredentialAccessMode.USER_DELEGATE,
+		},
+		principal,
+	);
+	cloneBearer = clone.token;
+	cloneCredentialId = clone.id;
 });
 
 beforeAll(async () => {
@@ -269,6 +283,20 @@ describe("external CRM API", () => {
 				"submit_lead",
 				"get_contact",
 				"search_contacts",
+				"update_contact",
+				"search_companies",
+				"create_company",
+				"list_pipelines",
+				"list_products",
+				"search_deals",
+				"get_deal",
+				"create_deal",
+				"move_deal",
+				"add_deal_product",
+				"read_timeline",
+				"create_activity",
+				"list_my_tasks",
+				"complete_task",
 				"search_revenue_accounts",
 				"list_dashboard_definitions",
 				"get_dashboard_definition",
@@ -283,6 +311,178 @@ describe("external CRM API", () => {
 				"read_revenue_analytics",
 			]),
 		);
+	});
+
+	it("lets a clone credential edit records and create tasks as its user", async () => {
+		const access = app.get(AccessControlService);
+		const delegated = await access.forApiCredential(cloneCredentialId);
+		expect(delegated).toEqual(
+			expect.objectContaining({
+				actorType: AuditActorType.API_KEY,
+				actorId: cloneCredentialId,
+				userId,
+				isAdmin: true,
+			}),
+		);
+
+		const company = await db.company.create({
+			data: {
+				name: `Clone company ${suffix}`,
+				unitStates: {
+					create: {
+						businessUnitId: "business-unit-default",
+						teamId: "team-default",
+						ownerId: userId,
+					},
+				},
+			},
+		});
+		const contact = await db.contact.create({
+			data: {
+				firstName: "Clone tool",
+				email: `clone-tool-${suffix}@example.test`,
+				unitStates: {
+					create: {
+						businessUnitId: "business-unit-default",
+						teamId: "team-default",
+						ownerId: userId,
+					},
+				},
+			},
+		});
+		try {
+			const updated = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 20,
+					method: "tools/call",
+					params: {
+						name: "update_contact",
+						arguments: {
+							id: contact.id,
+							data: {
+								title: "Updated by clone",
+								companyId: company.id,
+							},
+						},
+					},
+				})
+				.expect(200);
+			expect(mcpPayload(updated).result.isError).not.toBe(true);
+			expect(
+				await db.contact.findUnique({
+					where: { id: contact.id },
+					select: { title: true },
+				}),
+			).toEqual({ title: "Updated by clone" });
+
+			const task = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 21,
+					method: "tools/call",
+					params: {
+						name: "create_activity",
+						arguments: {
+							type: "TASK",
+							subject: "Follow up",
+							contactId: contact.id,
+						},
+					},
+				})
+				.expect(200);
+			if (mcpPayload(task).result.isError) {
+				throw new Error(JSON.stringify(mcpPayload(task).result));
+			}
+			expect(
+				await db.activity.count({
+					where: { contactId: contact.id, createdById: userId, type: "TASK" },
+				}),
+			).toBe(1);
+
+			const createdDeal = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 22,
+					method: "tools/call",
+					params: {
+						name: "create_deal",
+						arguments: {
+							name: `Clone deal ${suffix}`,
+							contactId: contact.id,
+						},
+					},
+				})
+				.expect(200);
+			if (mcpPayload(createdDeal).result.isError) {
+				throw new Error(JSON.stringify(mcpPayload(createdDeal).result));
+			}
+			const deal = await db.deal.findFirstOrThrow({
+				where: { name: `Clone deal ${suffix}` },
+				select: { id: true, companyId: true, pipelineId: true, stageId: true },
+			});
+			expect(deal.companyId).toBe(company.id);
+			expect(
+				await db.dealContact.count({
+					where: { dealId: deal.id, contactId: contact.id },
+				}),
+			).toBe(1);
+			const targetStage = await db.pipelineStage.findFirst({
+				where: {
+					pipelineId: deal.pipelineId,
+					id: { not: deal.stageId },
+					type: "OPEN",
+				},
+				orderBy: { position: "asc" },
+				select: { id: true },
+			});
+			if (!targetStage)
+				throw new Error("Expected another open pipeline stage.");
+			const moved = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 23,
+					method: "tools/call",
+					params: {
+						name: "move_deal",
+						arguments: { id: deal.id, stageId: targetStage.id },
+					},
+				})
+				.expect(200);
+			if (mcpPayload(moved).result.isError) {
+				throw new Error(JSON.stringify(mcpPayload(moved).result));
+			}
+			expect(
+				await db.deal.findUnique({
+					where: { id: deal.id },
+					select: { stageId: true },
+				}),
+			).toEqual({ stageId: targetStage.id });
+		} finally {
+			await db.activity.deleteMany({
+				where: {
+					OR: [
+						{ contactId: contact.id },
+						{ deal: { name: `Clone deal ${suffix}` } },
+					],
+				},
+			});
+			await db.deal.deleteMany({ where: { name: `Clone deal ${suffix}` } });
+			await db.contact.delete({ where: { id: contact.id } });
+			await db.company.delete({ where: { id: company.id } });
+		}
 	});
 
 	it("exposes scoped Account search and revenue analytics over REST", async () => {

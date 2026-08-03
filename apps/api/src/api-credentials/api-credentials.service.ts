@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { ApiCredentialStatus, type Db } from "@crm/db";
+import { ApiCredentialAccessMode, ApiCredentialStatus, type Db } from "@crm/db";
 import {
 	ForbiddenException,
 	Injectable,
@@ -17,10 +17,12 @@ export type ApiCredentialRow = {
 	prefix: string;
 	lastFour: string;
 	status: ApiCredentialStatus;
+	accessMode: ApiCredentialAccessMode;
 	expiresAt: Date | null;
 	lastUsedAt: Date | null;
 	createdAt: Date;
 	role: { id: string; key: string; name: string };
+	createdBy: { id: string; name: string; email: string };
 	businessUnits: { businessUnit: { id: string; name: string } }[];
 	teams: { team: { id: string; name: string } }[];
 };
@@ -38,10 +40,12 @@ export class ApiCredentialsService {
 				prefix: true,
 				lastFour: true,
 				status: true,
+				accessMode: true,
 				expiresAt: true,
 				lastUsedAt: true,
 				createdAt: true,
 				role: { select: { id: true, key: true, name: true } },
+				createdBy: { select: { id: true, name: true, email: true } },
 				businessUnits: {
 					select: { businessUnit: { select: { id: true, name: true } } },
 				},
@@ -52,14 +56,18 @@ export class ApiCredentialsService {
 
 	async create(input: ApiCredentialCreateInput, actor: EffectivePrincipal) {
 		if (!actor.userId) throw new ForbiddenException();
+		const accessMode = input.accessMode ?? ApiCredentialAccessMode.SCOPED_ROLE;
+		const delegated = accessMode === ApiCredentialAccessMode.USER_DELEGATE;
+		const roleId = delegated ? actor.roleId : input.roleId;
+		if (!roleId) throw new NotFoundException("Role not found.");
 		const role = await this.db.role.findFirst({
-			where: { id: input.roleId, archivedAt: null },
+			where: { id: roleId, archivedAt: null },
 			select: { id: true, isAdmin: true },
 		});
 		if (!role) throw new NotFoundException("Role not found.");
-		if (role.isAdmin) {
+		if (!delegated && role.isAdmin) {
 			throw new ForbiddenException(
-				"API credentials cannot use a global administrator role.",
+				"Scoped API credentials cannot use a global administrator role.",
 			);
 		}
 		const prefix = randomBytes(6).toString("hex");
@@ -68,19 +76,24 @@ export class ApiCredentialsService {
 		const credential = await this.db.apiCredential.create({
 			data: {
 				name: input.name,
+				accessMode,
 				prefix,
 				secretHash: hashToken(token),
 				lastFour: secret.slice(-4),
-				roleId: input.roleId,
+				roleId,
 				createdById: actor.userId,
 				expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
 				businessUnits: {
-					create: input.businessUnitIds.map((businessUnitId) => ({
-						businessUnitId,
-					})),
+					create: (delegated ? [] : (input.businessUnitIds ?? [])).map(
+						(businessUnitId) => ({
+							businessUnitId,
+						}),
+					),
 				},
 				teams: {
-					create: input.teamIds.map((teamId) => ({ teamId })),
+					create: (delegated ? [] : (input.teamIds ?? [])).map((teamId) => ({
+						teamId,
+					})),
 				},
 			},
 			select: { id: true, name: true, prefix: true, lastFour: true },

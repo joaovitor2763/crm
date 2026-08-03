@@ -76,15 +76,20 @@ tenant. They are not billing, identity or data-isolation tenants.
 `AccessControlService` resolves one principal per request. All list, detail,
 search, dashboard, activity and mutation paths use its record predicates. New
 users start read-only in the root unit; migrated users keep access as Global
-Admin. API credentials and automations use the same roles but never receive the
-Global Admin bypass.
+Admin. Restricted API credentials and automations use fixed roles and never
+receive the Global Admin bypass. A `USER_DELEGATE` credential is different by
+design: it resolves the issuing user's current principal on every request and
+keeps the API-key actor ID for audit, so it can act exactly as that user while
+remaining independently revocable.
 
 ## tRPC is the app surface; REST and MCP are explicit integration surfaces
 
 Everything the browser app reads or writes goes through `nestjs-trpc` routers
 under `/api/trpc`. REST also serves `/api/auth/*`, `/health`, internal workers,
 and the bearer-authenticated `/api/v1` integration surface. `/mcp` exposes the
-same bounded credential as stateless Streamable HTTP tools for external agents.
+same credential as stateless Streamable HTTP tools for external agents. A key
+is either a bounded role/unit delegate or an explicitly powerful live user
+delegate.
 Neither public surface accepts a session cookie as authority.
 
 The `@crm/cli` workspace is the scriptable client for these surfaces. Run it

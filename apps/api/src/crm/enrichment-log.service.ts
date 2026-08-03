@@ -1,5 +1,5 @@
 import { ActivityType, type Db } from "@crm/db";
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { InjectDatabase } from "../database/database.constants";
 import { ActivityStampService } from "./activity-stamp.service";
 
@@ -29,7 +29,7 @@ export type EnrichmentEvent = {
 export class EnrichmentLogService {
 	constructor(
 		@InjectDatabase() private readonly db: Db,
-		private readonly stamp: ActivityStampService,
+		@Inject(ActivityStampService) private readonly stamp: ActivityStampService,
 	) {}
 
 	/**

@@ -326,6 +326,11 @@ enum ApiCredentialStatus {
   REVOKED
 }
 
+enum ApiCredentialAccessMode {
+  SCOPED_ROLE
+  USER_DELEGATE
+}
+
 enum AutomationStatus {
   DRAFT
   ACTIVE
@@ -1922,12 +1927,13 @@ model AuditEvent {
 }
 
 model ApiCredential {
-  id          String              @id @default(cuid())
+  id          String                  @id @default(cuid())
   name        String
-  prefix      String              @unique
+  prefix      String                  @unique
   secretHash  String
   lastFour    String
-  status      ApiCredentialStatus @default(ACTIVE)
+  status      ApiCredentialStatus     @default(ACTIVE)
+  accessMode  ApiCredentialAccessMode @default(SCOPED_ROLE)
   roleId      String
   role        Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
   expiresAt   DateTime?
@@ -1943,6 +1949,7 @@ model ApiCredential {
   updatedAt DateTime @updatedAt
 
   @@index([roleId, status])
+  @@index([accessMode, status])
   @@index([expiresAt])
   @@map("apiCredential")
 }
