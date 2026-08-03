@@ -125,6 +125,11 @@ export type WorkflowStep =
 			ifFalse: WorkflowStep[];
 	  };
 
+const workflowNodePosition = z.object({
+	x: z.number().finite().min(-100_000).max(100_000),
+	y: z.number().finite().min(-100_000).max(100_000),
+});
+
 const workflowStep: z.ZodType<WorkflowStep> = z.lazy(() =>
 	z.discriminatedUnion("type", [
 		workflowDelay,
@@ -146,6 +151,9 @@ export const automationWorkflow = z
 		version: z.literal(1),
 		trigger: eventTrigger,
 		steps: z.array(workflowStep).min(1).max(100),
+		layout: z
+			.record(z.string().trim().min(1).max(80), workflowNodePosition)
+			.default({}),
 	})
 	.superRefine((workflow, context) => {
 		const ids = new Set<string>();
@@ -167,6 +175,14 @@ export const automationWorkflow = z
 			}
 		};
 		visit(workflow.steps);
+		for (const nodeId of Object.keys(workflow.layout)) {
+			if (!ids.has(nodeId)) {
+				context.addIssue({
+					code: "custom",
+					message: `Workflow layout references unknown node ${nodeId}.`,
+				});
+			}
+		}
 		if (count > 100) {
 			context.addIssue({
 				code: "custom",

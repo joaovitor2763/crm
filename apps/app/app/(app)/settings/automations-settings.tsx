@@ -40,15 +40,26 @@ import {
 	TabsTrigger,
 } from "@crm/ui/components/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
-import {
-	AutomationWorkflowBuilder,
-	type AutomationWorkflowDraft,
-} from "./automation-workflow-builder";
+import type { AutomationWorkflowDraft } from "./automation-workflow-builder";
+
+const AutomationWorkflowBuilder = dynamic(
+	() =>
+		import("./automation-workflow-builder").then(
+			(module) => module.AutomationWorkflowBuilder,
+		),
+	{
+		ssr: false,
+		loading: () => (
+			<div className="min-h-96 animate-pulse border bg-muted/20" />
+		),
+	},
+);
 
 type Overview = RouterOutputs["governance"]["directory"];
 type EventCatalog = ReadonlyArray<
@@ -1177,6 +1188,7 @@ function workflowDraftFor(automation: AutomationRow): AutomationWorkflowDraft {
 			eventTypes: eventTypes.length > 0 ? eventTypes : ["lead.submitted"],
 		},
 		steps,
+		layout: {},
 	};
 }
 

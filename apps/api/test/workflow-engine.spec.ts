@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import type { AutomationWorkflow } from "../src/automations/automations.contracts";
+import {
+	type AutomationWorkflow,
+	automationWorkflow,
+} from "../src/automations/automations.contracts";
 import {
 	legacyWorkflow,
 	matchesRules,
@@ -11,6 +14,7 @@ describe("automation workflow engine", () => {
 		const workflow: AutomationWorkflow = {
 			version: 1,
 			trigger: { eventTypes: ["lead.submitted"] },
+			layout: {},
 			steps: [
 				{
 					id: "paid-source",
@@ -89,6 +93,29 @@ describe("automation workflow engine", () => {
 			actions: [{ type: "archive_contact" }],
 		});
 		expect(workflow.version).toBe(1);
+		expect(workflow.layout).toEqual({});
 		expect(workflow.steps[0]?.type).toBe("condition");
+	});
+
+	it("persists positions only for nodes that belong to the workflow", () => {
+		const input = {
+			version: 1 as const,
+			trigger: { eventTypes: ["lead.submitted"] },
+			steps: [
+				{
+					id: "action",
+					type: "action" as const,
+					action: { type: "archive_contact" as const },
+				},
+			],
+			layout: { action: { x: 240, y: 120 } },
+		};
+		expect(automationWorkflow.parse(input).layout).toEqual(input.layout);
+		expect(() =>
+			automationWorkflow.parse({
+				...input,
+				layout: { removed: { x: 0, y: 0 } },
+			}),
+		).toThrow("Workflow layout references unknown node removed.");
 	});
 });

@@ -38,6 +38,7 @@ export function legacyWorkflow(input: {
 	return {
 		version: 1,
 		trigger,
+		layout: {},
 		steps:
 			conditions.length === 0
 				? actionSteps

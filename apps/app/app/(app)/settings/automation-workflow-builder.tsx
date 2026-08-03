@@ -25,13 +25,22 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
+import { AutomationFlowCanvas } from "./automation-flow-canvas";
+import {
+	cleanWorkflowLayout,
+	duplicateWorkflowStep,
+	findWorkflowStep,
+	insertWorkflowStep,
+	removeWorkflowStep,
+	updateWorkflowStep,
+} from "./automation-flow-model";
 
 type Overview = RouterOutputs["governance"]["directory"];
 type EventCatalog = ReadonlyArray<
 	RouterOutputs["automations"]["eventCatalog"][number]
 >;
 type Pipelines = RouterOutputs["pipelines"]["list"];
-type RuleOperator =
+export type RuleOperator =
 	| "eq"
 	| "neq"
 	| "exists"
@@ -46,13 +55,13 @@ type RuleOperator =
 	| "lte"
 	| "in"
 	| "not_in";
-type Rule = {
+export type Rule = {
 	id?: string;
 	path: string;
 	operator: RuleOperator;
 	value?: unknown;
 };
-type AutomationAction =
+export type AutomationAction =
 	| {
 			type: "set_lifecycle";
 			lifecycleStage: (typeof lifecycleStages)[number];
@@ -93,8 +102,10 @@ export type AutomationWorkflowDraft = {
 	version: 1;
 	trigger: { eventTypes: string[] };
 	steps: WorkflowStep[];
+	layout: Record<string, WorkflowNodePosition>;
 };
-type WorkflowStep =
+export type WorkflowNodePosition = { x: number; y: number };
+export type WorkflowStep =
 	| {
 			id: string;
 			type: "delay";
@@ -112,8 +123,8 @@ type WorkflowStep =
 			ifTrue: WorkflowStep[];
 			ifFalse: WorkflowStep[];
 	  };
-type ActionStep = Extract<WorkflowStep, { type: "action" }>;
-type ConditionStep = Extract<WorkflowStep, { type: "condition" }>;
+export type ActionStep = Extract<WorkflowStep, { type: "action" }>;
+export type ConditionStep = Extract<WorkflowStep, { type: "condition" }>;
 export type AutomationBuilderInput = {
 	name: string;
 	description?: string | null;
@@ -193,6 +204,10 @@ export function AutomationWorkflowBuilder({
 		initialWorkflow.trigger.eventTypes[0] ?? "lead.submitted",
 	);
 	const [steps, setSteps] = useState<WorkflowStep[]>(initialWorkflow.steps);
+	const [layout, setLayout] = useState<Record<string, WorkflowNodePosition>>(
+		initialWorkflow.layout ?? {},
+	);
+	const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const ai = useEveAgent();
 	const aiDraft = automationDraftFromMessages(ai.data.messages);
@@ -210,7 +225,9 @@ export function AutomationWorkflowBuilder({
 		version: 1,
 		trigger: { eventTypes: [eventType] },
 		steps,
+		layout,
 	};
+	const selectedStep = findWorkflowStep(steps, selectedNodeId);
 
 	return (
 		<div className="flex flex-col gap-5">
@@ -258,6 +275,7 @@ export function AutomationWorkflowBuilder({
 										setBusinessUnitId,
 										setEventType,
 										setSteps,
+										setLayout,
 									},
 								);
 								toast.success("Quick editable draft generated.");
@@ -284,6 +302,7 @@ export function AutomationWorkflowBuilder({
 									setBusinessUnitId,
 									setEventType,
 									setSteps,
+									setLayout,
 								});
 								toast.success("AI draft applied to the canvas.");
 							}}
@@ -406,19 +425,155 @@ export function AutomationWorkflowBuilder({
 					>
 						<div>
 							<h3 id="workflow-canvas-title" className="font-medium text-sm">
-								Workflow canvas
+								Visual workflow builder
 							</h3>
 							<p className="text-muted-foreground text-xs/relaxed">
-								Nodes run top to bottom. Conditions open independent Yes and No
+								Drag nodes, pan or zoom the canvas, and click a node to
+								configure it. Conditions split into independent Yes and No
 								branches.
 							</p>
 						</div>
-						<div className="border-l pl-4">
-							<NodeList
+						<div className="grid overflow-hidden rounded-lg border xl:grid-cols-[minmax(0,1fr)_22rem]">
+							<AutomationFlowCanvas
 								steps={steps}
-								pipelines={pipelines}
-								onChange={setSteps}
+								layout={layout}
+								eventLabel={
+									eligibleEvents.find((item) => item.id === eventType)?.label ??
+									eventType
+								}
+								selectedId={selectedNodeId}
+								onSelect={setSelectedNodeId}
+								onChange={(nextSteps, nextLayout) => {
+									setSteps(nextSteps);
+									setLayout(nextLayout);
+								}}
 							/>
+							<aside className="max-h-[42rem] overflow-y-auto border-t bg-muted/10 p-4 xl:border-t-0 xl:border-l">
+								{selectedStep ? (
+									<div className="flex flex-col gap-4">
+										<div>
+											<p className="font-medium text-sm">Configure node</p>
+											<p className="text-muted-foreground text-xs/relaxed">
+												{nodeTitle(selectedStep)}
+											</p>
+										</div>
+										<Field>
+											<FieldLabel htmlFor="workflow-node-label">
+												Node label
+											</FieldLabel>
+											<Input
+												id="workflow-node-label"
+												value={selectedStep.label ?? ""}
+												onChange={(event) =>
+													setSteps(
+														updateWorkflowStep(steps, selectedStep.id, {
+															...selectedStep,
+															label: event.target.value || undefined,
+														}),
+													)
+												}
+												placeholder="Optional friendly name"
+											/>
+										</Field>
+										{selectedStep.type === "condition" ? (
+											<ConditionEditor
+												step={selectedStep}
+												onChange={(next) =>
+													setSteps(updateWorkflowStep(steps, next.id, next))
+												}
+											/>
+										) : selectedStep.type === "delay" ? (
+											<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+												<Input
+													type="number"
+													min={1}
+													value={selectedStep.duration}
+													onChange={(event) =>
+														setSteps(
+															updateWorkflowStep(steps, selectedStep.id, {
+																...selectedStep,
+																duration: Number(event.target.value),
+															}),
+														)
+													}
+													aria-label="Delay duration"
+												/>
+												<Select
+													value={selectedStep.unit}
+													onValueChange={(unit) =>
+														setSteps(
+															updateWorkflowStep(steps, selectedStep.id, {
+																...selectedStep,
+																unit: unit as typeof selectedStep.unit,
+															}),
+														)
+													}
+												>
+													<SelectTrigger>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														<SelectGroup>
+															<SelectItem value="minutes">Minutes</SelectItem>
+															<SelectItem value="hours">Hours</SelectItem>
+															<SelectItem value="days">Days</SelectItem>
+														</SelectGroup>
+													</SelectContent>
+												</Select>
+											</div>
+										) : (
+											<ActionEditor
+												step={selectedStep}
+												pipelines={pipelines}
+												onChange={(next) =>
+													setSteps(updateWorkflowStep(steps, next.id, next))
+												}
+											/>
+										)}
+										<div className="flex gap-2 border-t pt-4">
+											<Button
+												type="button"
+												variant="outline"
+												size="sm"
+												onClick={() => {
+													const duplicate = duplicateWorkflowStep(selectedStep);
+													setSteps(
+														insertWorkflowStep(
+															steps,
+															duplicate,
+															selectedStep.id,
+														),
+													);
+													setSelectedNodeId(duplicate.id);
+												}}
+											>
+												Duplicate
+											</Button>
+											<Button
+												type="button"
+												variant="destructive"
+												size="sm"
+												onClick={() => {
+													const nextSteps = removeWorkflowStep(
+														steps,
+														selectedStep.id,
+													);
+													setSteps(nextSteps);
+													setLayout(cleanWorkflowLayout(layout, nextSteps));
+													setSelectedNodeId(null);
+												}}
+											>
+												Remove
+											</Button>
+										</div>
+									</div>
+								) : (
+									<div className="flex min-h-48 items-center justify-center text-center text-muted-foreground text-xs/relaxed">
+										Select a node in the canvas to configure its rules and
+										actions.
+									</div>
+								)}
+							</aside>
 						</div>
 					</section>
 
@@ -502,148 +657,11 @@ export function AutomationWorkflowBuilder({
 	);
 }
 
-function NodeList({
-	steps,
-	pipelines,
-	onChange,
-	branch,
-}: {
-	steps: WorkflowStep[];
-	pipelines: Pipelines;
-	onChange: (steps: WorkflowStep[]) => void;
-	branch?: "Yes" | "No";
-}) {
-	const update = (index: number, step: WorkflowStep) =>
-		onChange(
-			steps.map((item, candidate) => (candidate === index ? step : item)),
-		);
-	return (
-		<div className="flex flex-col gap-3">
-			{branch ? <p className="font-medium text-xs">{branch} branch</p> : null}
-			{steps.map((step, index) => (
-				<div key={step.id} className="relative border bg-background p-3">
-					<div className="mb-3 flex items-center justify-between gap-2">
-						<p className="font-medium text-xs">{nodeTitle(step)}</p>
-						<div className="flex gap-1">
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								disabled={index === 0}
-								onClick={() => onChange(move(steps, index, -1))}
-							>
-								↑
-							</Button>
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								disabled={index === steps.length - 1}
-								onClick={() => onChange(move(steps, index, 1))}
-							>
-								↓
-							</Button>
-							<Button
-								type="button"
-								size="sm"
-								variant="ghost"
-								onClick={() =>
-									onChange(steps.filter((_, candidate) => candidate !== index))
-								}
-							>
-								Remove
-							</Button>
-						</div>
-					</div>
-					{step.type === "condition" ? (
-						<ConditionEditor
-							step={step}
-							pipelines={pipelines}
-							onChange={(next) => update(index, next)}
-						/>
-					) : step.type === "delay" ? (
-						<div className="grid gap-2 sm:grid-cols-2">
-							<Input
-								type="number"
-								min={1}
-								value={step.duration}
-								onChange={(event) =>
-									update(index, {
-										...step,
-										duration: Number(event.target.value),
-									})
-								}
-								aria-label="Delay duration"
-							/>
-							<Select
-								value={step.unit}
-								onValueChange={(unit) =>
-									update(index, { ...step, unit: unit as typeof step.unit })
-								}
-							>
-								<SelectTrigger>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectGroup>
-										<SelectItem value="minutes">Minutes</SelectItem>
-										<SelectItem value="hours">Hours</SelectItem>
-										<SelectItem value="days">Days</SelectItem>
-									</SelectGroup>
-								</SelectContent>
-							</Select>
-						</div>
-					) : (
-						<ActionEditor
-							step={step}
-							pipelines={pipelines}
-							onChange={(next) => update(index, next)}
-						/>
-					)}
-				</div>
-			))}
-			<div className="flex flex-wrap gap-2">
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					onClick={() => onChange([...steps, defaultCondition()])}
-				>
-					+ If / Else
-				</Button>
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					onClick={() =>
-						onChange([
-							...steps,
-							{ id: nodeId(), type: "delay", duration: 10, unit: "minutes" },
-						])
-					}
-				>
-					+ Delay
-				</Button>
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					onClick={() => onChange([...steps, defaultAction()])}
-				>
-					+ Action
-				</Button>
-			</div>
-		</div>
-	);
-}
-
 function ConditionEditor({
 	step,
-	pipelines,
 	onChange,
 }: {
 	step: ConditionStep;
-	pipelines: Pipelines;
 	onChange: (step: ConditionStep) => void;
 }) {
 	return (
@@ -667,7 +685,7 @@ function ConditionEditor({
 			{step.rules.map((rule, index) => (
 				<div
 					key={`${step.id}-${rule.id ?? `${rule.path}-${rule.operator}-${displayValue(rule.value)}`}`}
-					className="grid gap-2 md:grid-cols-[1fr_11rem_1fr_auto]"
+					className="flex flex-col gap-2"
 				>
 					<SearchCombobox
 						value={rule.path}
@@ -753,23 +771,13 @@ function ConditionEditor({
 			>
 				+ Add rule
 			</Button>
-			<div className="grid gap-4 border-t pt-3 lg:grid-cols-2">
-				<div className="border-l border-foreground/30 pl-3">
-					<NodeList
-						branch="Yes"
-						steps={step.ifTrue}
-						pipelines={pipelines}
-						onChange={(ifTrue) => onChange({ ...step, ifTrue })}
-					/>
-				</div>
-				<div className="border-l border-dashed pl-3">
-					<NodeList
-						branch="No"
-						steps={step.ifFalse}
-						pipelines={pipelines}
-						onChange={(ifFalse) => onChange({ ...step, ifFalse })}
-					/>
-				</div>
+			<div className="grid gap-2 border-t pt-3 sm:grid-cols-2 xl:grid-cols-1">
+				<p className="text-muted-foreground text-xs">
+					Yes branch · {countNodes(step.ifTrue)} nodes
+				</p>
+				<p className="text-muted-foreground text-xs">
+					No branch · {countNodes(step.ifFalse)} nodes
+				</p>
 			</div>
 		</div>
 	);
@@ -811,7 +819,7 @@ function ActionEditor({
 				</SelectContent>
 			</Select>
 			{action.type === "set_lifecycle" ? (
-				<div className="grid gap-2 sm:grid-cols-2">
+				<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
 					<Select
 						value={action.lifecycleStage}
 						onValueChange={(lifecycleStage) =>
@@ -854,7 +862,7 @@ function ActionEditor({
 					placeholder="Owner user ID"
 				/>
 			) : action.type === "update_contact" ? (
-				<div className="grid gap-2 sm:grid-cols-2">
+				<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
 					<Input
 						value={action.fields.title ?? ""}
 						onChange={(event) =>
@@ -883,7 +891,7 @@ function ActionEditor({
 					/>
 				</div>
 			) : action.type === "create_task" ? (
-				<div className="grid gap-2 sm:grid-cols-[1fr_10rem]">
+				<div className="grid gap-2 sm:grid-cols-[1fr_10rem] xl:grid-cols-1">
 					<Input
 						value={action.subject}
 						onChange={(event) =>
@@ -915,7 +923,7 @@ function ActionEditor({
 					placeholder="Note written by this automation"
 				/>
 			) : action.type === "move_deal" ? (
-				<div className="grid gap-2 sm:grid-cols-2">
+				<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
 					<Select
 						value={action.stageId}
 						onValueChange={(stageId) => setAction({ ...action, stageId })}
@@ -985,6 +993,7 @@ function defaultWorkflow(): AutomationWorkflowDraft {
 		version: 1,
 		trigger: { eventTypes: ["lead.submitted"] },
 		steps: [defaultAction()],
+		layout: {},
 	};
 }
 
@@ -997,17 +1006,6 @@ function defaultAction(): ActionStep {
 			lifecycleStage: "MQL",
 			qualificationReason: "Matched workflow rules",
 		},
-	};
-}
-
-function defaultCondition(): ConditionStep {
-	return {
-		id: nodeId(),
-		type: "condition",
-		logic: "all",
-		rules: [defaultRule()],
-		ifTrue: [defaultAction()],
-		ifFalse: [],
 	};
 }
 
@@ -1133,19 +1131,11 @@ function draftFromDescription(
 			action: { type: "create_task", subject: "Follow up", dueInMinutes: 60 },
 		});
 	if (target.length === 0) target.push(defaultAction());
-	return { version: 1, trigger: { eventTypes: [trigger] }, steps };
+	return { version: 1, trigger: { eventTypes: [trigger] }, steps, layout: {} };
 }
 
 function nodeId() {
 	return `node-${crypto.randomUUID()}`;
-}
-
-function move<T>(items: T[], index: number, delta: number) {
-	const next = [...items];
-	const target = index + delta;
-	const [item] = next.splice(index, 1);
-	if (item !== undefined) next.splice(target, 0, item);
-	return next;
 }
 
 function replace<T>(items: T[], index: number, value: T) {
@@ -1226,6 +1216,7 @@ function applyDraft(
 		setBusinessUnitId: (value: string) => void;
 		setEventType: (value: string) => void;
 		setSteps: (value: WorkflowStep[]) => void;
+		setLayout: (value: Record<string, WorkflowNodePosition>) => void;
 	},
 ) {
 	setters.setName(draft.name);
@@ -1236,6 +1227,7 @@ function applyDraft(
 		draft.workflow.trigger.eventTypes[0] ?? "lead.submitted",
 	);
 	setters.setSteps(draft.workflow.steps);
+	setters.setLayout(draft.workflow.layout ?? {});
 }
 
 function countNodes(steps: WorkflowStep[]): number {
