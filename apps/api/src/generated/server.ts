@@ -29,7 +29,7 @@ import { dealListInput, dealIdInput, dealBoardInput, dealCreateInput, dealUpdate
 import { fieldSchemaInput, objectDefinitionCreateInput, fieldCreateInput, fieldUpdateInput, fieldIdInput, fieldPermissionInput, relationDefinitionCreateInput, recordRelationCreateInput, customRecordCreateInput, recordCustomValuesInput } from "../fields/fields.contracts";
 import { ontologySchemaListInput, ontologyVersionIdInput, ontologyCreateDraftInput, ontologyReplaceDraftInput, ontologyPublishInput } from "../fields/ontology.contracts";
 import { setAutoCreateInput, suppressDomainInput, threadInput, calendarEventInput } from "../google/google.contracts";
-import { workspaceConfigurationUpdateInput, businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
+import { workspaceConfigurationUpdateInput, businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput, userCreateInput, userPasswordUpdateInput, userStatusUpdateInput } from "../governance/governance.contracts";
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
 import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineBlueprintUpdateInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
@@ -428,7 +428,16 @@ const appRouter = t.router({
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["setRolePermission"]>>),
     setUserAccess: publicProcedure
       .input(userAccessUpdateInput)
-      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["setUserAccess"]>>)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["setUserAccess"]>>),
+    createUser: publicProcedure
+      .input(userCreateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["createUser"]>>),
+    setUserPassword: publicProcedure
+      .input(userPasswordUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["setUserPassword"]>>),
+    setUserStatus: publicProcedure
+      .input(userStatusUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["setUserStatus"]>>)
     }),
   marketing: t.router({
     forms: publicProcedure

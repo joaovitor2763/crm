@@ -3,17 +3,16 @@ import "@crm/env/load";
 /**
  * Who is allowed in, and who counts as "us".
  *
- * One list, used by two things that must never disagree: the sign-in guard, and
- * the sync's decision about which side of a conversation is external. If they
- * drifted, a colleague's address would either be refused at the door or filed
- * as a sales lead.
+ * One list, used by three things that must never disagree: the Google account
+ * creation guard, Global Admin password-user provisioning, and the sync's
+ * decision about which side of a conversation is external. If they drifted, a
+ * colleague's address would either be refused at the door or filed as a sales
+ * lead.
  *
- * This is the whole authorisation model. There are no roles, no organizations
- * and no invitations — "your address is on this list and Google says it is
- * really you" is the entire check, which is why it is a required value rather
- * than one with a friendly default. A CRM that let any Google account in would
- * hand your pipeline to the internet, and an empty list here fails closed:
- * nobody signs in until it is set.
+ * This is the identity-admission boundary, not the CRM authorization model.
+ * Roles and organizational memberships govern what an admitted identity may do
+ * after authentication. There are no organizations or invitations, and an
+ * empty list here fails closed: nobody can be created until it is set.
  *
  * `ALLOWED_SIGN_IN` takes a comma-separated mix of the two things people
  * actually have:
@@ -68,7 +67,7 @@ function allowList(): AllowList {
 	return cached;
 }
 
-/** Domains whose Google accounts may sign in. */
+/** Domains whose identities may be admitted to the workspace. */
 export function workspaceDomains(): readonly string[] {
 	return allowList().domains;
 }

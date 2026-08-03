@@ -7,6 +7,7 @@ import {
 	PermissionAction,
 	UserAccessStatus,
 } from "@crm/db";
+import { verifyPassword } from "better-auth/crypto";
 import { CRM_RESOURCE } from "../src/access-control/access-control.constants";
 import { AccessControlService } from "../src/access-control/access-control.service";
 import type { EffectivePrincipal } from "../src/access-control/access-control.types";
@@ -17,6 +18,9 @@ import {
 	assertRoleAssignable,
 	teamIdsForScope,
 } from "../src/governance/governance-scope";
+import { UsersService } from "../src/users/users.service";
+
+process.env.ALLOWED_SIGN_IN = "example.test";
 
 const suffix = process.env.TEST_RUN_ID ?? crypto.randomUUID().slice(0, 8);
 const adminUserId = `governance-admin-${suffix}`;
@@ -35,10 +39,12 @@ const teamKey = `governance-team-${suffix}`;
 const outsideTeamKey = `governance-outside-team-${suffix}`;
 const teamDestinationKey = `governance-team-destination-${suffix}`;
 const contactId = `governance-contact-${suffix}`;
+const managedUserEmail = `governance-managed-${suffix}@example.test`;
 
 let access: AccessControlService;
 let governance: GovernanceService;
 let lifecycle: ContactLifecycleService;
+let usersService: UsersService;
 let admin: EffectivePrincipal;
 let scopedAdmin: EffectivePrincipal;
 let parentUnitId: string;
@@ -76,19 +82,24 @@ async function cleanup() {
 	});
 	await db.user.deleteMany({
 		where: {
-			id: {
-				in: [
-					adminUserId,
-					repUserId,
-					newUserId,
-					unassignedUserId,
-					scopedUnassignedUserId,
-					outsideUnassignedUserId,
-					teamOnlyUserId,
-					scopedAdminUserId,
-					outsideUserId,
-				],
-			},
+			OR: [
+				{
+					id: {
+						in: [
+							adminUserId,
+							repUserId,
+							newUserId,
+							unassignedUserId,
+							scopedUnassignedUserId,
+							outsideUnassignedUserId,
+							teamOnlyUserId,
+							scopedAdminUserId,
+							outsideUserId,
+						],
+					},
+				},
+				{ email: managedUserEmail },
+			],
 		},
 	});
 }
@@ -98,6 +109,7 @@ beforeAll(async () => {
 	access = new AccessControlService(db);
 	governance = new GovernanceService(db);
 	lifecycle = new ContactLifecycleService(db);
+	usersService = new UsersService(db);
 	await db.user.createMany({
 		data: [
 			{
@@ -252,6 +264,112 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe("governance and lifecycle", () => {
+	it("provisions, rotates credentials, suspends, and reactivates users", async () => {
+		await expect(
+			governance.createUser(
+				{
+					name: "Outside Workspace Attempt",
+					email: `outside-${suffix}@outside.test`,
+					password: "Outside-password-123!",
+					roleId: "role-read-only",
+					primaryBusinessUnitId: childUnitId,
+					primaryTeamId: teamId,
+				},
+				admin,
+			),
+		).rejects.toThrow("not included in ALLOWED_SIGN_IN");
+		await expect(
+			governance.createUser(
+				{
+					name: "Scoped Provisioning Attempt",
+					email: `scoped-${managedUserEmail}`,
+					password: "Scoped-password-123!",
+					roleId: "role-read-only",
+					primaryBusinessUnitId: childUnitId,
+					primaryTeamId: teamId,
+				},
+				scopedAdmin,
+			),
+		).rejects.toThrow();
+
+		const created = await governance.createUser(
+			{
+				name: "Governance Managed User",
+				email: managedUserEmail,
+				password: "Initial-password-123!",
+				roleId: "role-read-only",
+				primaryBusinessUnitId: childUnitId,
+				primaryTeamId: teamId,
+			},
+			admin,
+		);
+		const initial = await db.account.findFirstOrThrow({
+			where: { userId: created.id, providerId: "credential" },
+			select: { password: true },
+		});
+		expect(
+			await verifyPassword({
+				hash: initial.password ?? "",
+				password: "Initial-password-123!",
+			}),
+		).toBe(true);
+		await db.session.create({
+			data: {
+				id: crypto.randomUUID(),
+				token: crypto.randomUUID(),
+				userId: created.id,
+				expiresAt: new Date(Date.now() + 60_000),
+			},
+		});
+
+		await governance.setUserPassword(
+			{ userId: created.id, password: "Rotated-password-456!" },
+			admin,
+		);
+		const rotated = await db.account.findFirstOrThrow({
+			where: { userId: created.id, providerId: "credential" },
+			select: { password: true },
+		});
+		expect(
+			await verifyPassword({
+				hash: rotated.password ?? "",
+				password: "Rotated-password-456!",
+			}),
+		).toBe(true);
+		expect(await db.session.count({ where: { userId: created.id } })).toBe(0);
+
+		await db.session.create({
+			data: {
+				id: crypto.randomUUID(),
+				token: crypto.randomUUID(),
+				userId: created.id,
+				expiresAt: new Date(Date.now() + 60_000),
+			},
+		});
+		await governance.setUserStatus(
+			{ userId: created.id, status: UserAccessStatus.SUSPENDED },
+			admin,
+		);
+		expect(await db.session.count({ where: { userId: created.id } })).toBe(0);
+		expect((await usersService.list()).map((user) => user.id)).not.toContain(
+			created.id,
+		);
+		await expect(
+			governance.setUserStatus(
+				{ userId: adminUserId, status: UserAccessStatus.SUSPENDED },
+				admin,
+			),
+		).rejects.toThrow("You cannot suspend your own account.");
+
+		await governance.setUserStatus(
+			{ userId: created.id, status: UserAccessStatus.ACTIVE },
+			admin,
+		);
+		expect((await usersService.list()).map((user) => user.id)).toContain(
+			created.id,
+		);
+	});
+
 	it("assigns a new identity read-only instead of granting broad access", async () => {
 		const principals = await Promise.all(
 			Array.from({ length: 8 }, () => access.forUser(newUserId)),

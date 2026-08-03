@@ -22,6 +22,9 @@ import {
 	teamCreateInput,
 	teamUpdateInput,
 	userAccessUpdateInput,
+	userCreateInput,
+	userPasswordUpdateInput,
+	userStatusUpdateInput,
 	workspaceConfigurationUpdateInput,
 } from "./governance.contracts";
 import { GovernanceService } from "./governance.service";
@@ -178,5 +181,29 @@ export class GovernanceRouter {
 			PermissionAction.MANAGE,
 		);
 		return this.governance.setUserAccess(input, ctx.principal);
+	}
+
+	@Mutation({ input: userCreateInput })
+	createUser(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof userCreateInput>,
+	) {
+		return this.governance.createUser(input, ctx.principal);
+	}
+
+	@Mutation({ input: userPasswordUpdateInput })
+	setUserPassword(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof userPasswordUpdateInput>,
+	) {
+		return this.governance.setUserPassword(input, ctx.principal);
+	}
+
+	@Mutation({ input: userStatusUpdateInput })
+	setUserStatus(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof userStatusUpdateInput>,
+	) {
+		return this.governance.setUserStatus(input, ctx.principal);
 	}
 }

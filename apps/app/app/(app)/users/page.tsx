@@ -18,14 +18,18 @@ export default async function UsersPage() {
 	await requireSession();
 	const trpc = getServerTrpc();
 	const queryClient = getServerQueryClient();
-	await queryClient.prefetchQuery(trpc.governance.overview.queryOptions());
+	await Promise.all([
+		queryClient.prefetchQuery(trpc.governance.overview.queryOptions()),
+		queryClient.prefetchQuery(trpc.governance.capabilities.queryOptions()),
+	]);
 	return (
 		<PageShell>
 			<PageShellHeader>
 				<PageShellHeading>
 					<PageShellTitle>Users</PageShellTitle>
 					<PageShellDescription>
-						Manage roles, access status and the teams each person can work in.
+						Add users, manage passwords, roles, status and the teams each person
+						can work in.
 					</PageShellDescription>
 				</PageShellHeading>
 			</PageShellHeader>

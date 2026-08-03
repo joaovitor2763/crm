@@ -61,6 +61,8 @@ export type CrmCache = {
 	/** An account write changes its detail, relations, lineage and list. */
 	revenueAccounts(id?: string, options?: Options): Promise<void>;
 	marketing(options?: Options): Promise<void>;
+	/** User identity, access or status shown in governance and owner pickers. */
+	users(options?: Options): Promise<void>;
 	/** An import writes across every table, so nothing is assumed to survive. */
 	everything(): Promise<void>;
 };
@@ -271,6 +273,13 @@ export function useCrmCache(): CrmCache {
 			run(
 				[trpc.marketing.forms.queryKey(), trpc.marketing.events.queryKey()],
 				activityKeys(),
+				options,
+			),
+
+		users: (options) =>
+			run(
+				[trpc.governance.overview.queryKey()],
+				[trpc.governance.directory.queryKey(), trpc.users.list.queryKey()],
 				options,
 			),
 

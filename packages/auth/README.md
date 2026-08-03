@@ -3,10 +3,11 @@
 [Better Auth](https://better-auth.com) configuration for the monorepo, backed by
 `@crm/db`.
 
-Enabled: Google sign-in, account linking, cookie-cached sessions, and
-database-backed rate limiting. This is an internal, single-tenant app — there
-are no organizations, and email + password is switched off so the only way in
-is a Google account.
+Enabled: Google and email/password sign-in, account linking, cookie-cached
+sessions, and database-backed rate limiting. This is an internal, single-tenant
+app with no organizations. Global Admins provision password users through the
+CRM user-management screen; the public email/password sign-up endpoint is
+disabled, and provisioned addresses must still pass `ALLOWED_SIGN_IN`.
 
 ## Topology
 
@@ -74,9 +75,10 @@ Create an OAuth client in the Google Cloud console and add
 `<API_URL>/api/auth/callback/google` — `http://localhost:3001/api/auth/callback/google`
 in development — as an authorised redirect URI.
 
-`ALLOWED_SIGN_IN` decides who may sign in, and an empty value admits nobody. It
-is the whole authorisation model: there are no roles and no organizations, so
-`src/workspace.ts` is worth reading before you change anything here.
+`ALLOWED_SIGN_IN` decides which identities may be created, and an empty value
+admits nobody. CRM roles and business-unit/team membership govern access after
+authentication; there are no organizations. Suspended users are rejected when
+Better Auth attempts to create a new session.
 
 ## Changing the schema
 

@@ -1,3 +1,4 @@
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@crm/auth/password";
 import { AccessScope, PermissionAction } from "@crm/db";
 import { z } from "zod";
 
@@ -65,6 +66,27 @@ export const userAccessUpdateInput = z.object({
 	managedTeamIds: z.array(z.string()).default([]),
 });
 
+const password = z.string().min(MIN_PASSWORD_LENGTH).max(MAX_PASSWORD_LENGTH);
+
+export const userCreateInput = z.object({
+	name: z.string().trim().min(1).max(120),
+	email: z.email().trim().toLowerCase(),
+	password,
+	roleId: z.string(),
+	primaryBusinessUnitId: z.string().nullable(),
+	primaryTeamId: z.string().nullable(),
+});
+
+export const userPasswordUpdateInput = z.object({
+	userId: z.string(),
+	password,
+});
+
+export const userStatusUpdateInput = z.object({
+	userId: z.string(),
+	status: z.enum(["ACTIVE", "SUSPENDED"]),
+});
+
 export const governanceIdInput = z.object({ id: z.string() });
 
 export const workspaceConfigurationUpdateInput = z.object({
@@ -87,3 +109,6 @@ export type RoleCreateInput = z.infer<typeof roleCreateInput>;
 export type RoleUpdateInput = z.infer<typeof roleUpdateInput>;
 export type RolePermissionInput = z.infer<typeof rolePermissionInput>;
 export type UserAccessUpdateInput = z.infer<typeof userAccessUpdateInput>;
+export type UserCreateInput = z.infer<typeof userCreateInput>;
+export type UserPasswordUpdateInput = z.infer<typeof userPasswordUpdateInput>;
+export type UserStatusUpdateInput = z.infer<typeof userStatusUpdateInput>;

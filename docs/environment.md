@@ -53,7 +53,7 @@ Five values, and the API refuses to start without them.
 | `DATABASE_URL` | `docker compose up -d` starts a Postgres that matches `.env.example` exactly |
 | `BETTER_AUTH_SECRET` | Signs session cookies. `openssl rand -base64 32` |
 | `ALLOWED_SIGN_IN` | The sign-in admission gate — roles govern access after sign-in |
-| `GOOGLE_CLIENT_ID` | Google is the only sign-in method |
+| `GOOGLE_CLIENT_ID` | Enables Google sign-in and mailbox/calendar connection |
 | `GOOGLE_CLIENT_SECRET` | |
 
 Everything else has a working localhost default or is genuinely optional. That
@@ -74,10 +74,10 @@ ALLOWED_SIGN_IN="you@gmail.com"                  # a one-person install
 Bare addresses exist for the third case: a solo self-hoster on a consumer
 mailbox has no domain to name, and `gmail.com` would be an open door.
 
-One list, read by two things that must never disagree — the sign-in guard and
-the sync's decision about which side of a conversation is external. If they
-drifted, a colleague's address would either be refused at the door or filed as
-a sales lead.
+One list, read by three things that must never disagree — the public sign-in
+guard, Global Admin user provisioning, and the sync's decision about which side
+of a conversation is external. If they drifted, a colleague's address would
+either be refused at the door or filed as a sales lead.
 
 **An empty list fails closed**: nobody signs in until it is set. The other
 choice would be a CRM full of real customer data that any Google account can
@@ -206,7 +206,8 @@ works without any app running.
 - **Redis** — optional. Without `REDIS_URL` the cache falls back to a
   per-instance in-memory store, which is fine for local work and wrong for any
   multi-instance deploy (see `docs/api.md`).
-- **Sign-in method** — Google-only, in code, not configurable.
+- **Sign-in method** — Google plus Global Admin-provisioned email/password,
+  in code and not configurable.
 
 ## `vercel env pull` writes to `.env.local`, which wins
 

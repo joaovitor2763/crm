@@ -1,9 +1,11 @@
+import { hashCredentialPassword } from "@crm/auth/password";
+import { hasSignInAllowList, isWorkspaceEmail } from "@crm/auth/workspace";
 import {
 	AccessScope,
 	BusinessUnitMembershipType,
 	type Db,
 	PermissionAction,
-	type Prisma,
+	Prisma,
 	UserAccessStatus,
 } from "@crm/db";
 import {
@@ -28,6 +30,9 @@ import type {
 	TeamCreateInput,
 	TeamUpdateInput,
 	UserAccessUpdateInput,
+	UserCreateInput,
+	UserPasswordUpdateInput,
+	UserStatusUpdateInput,
 	WorkspaceConfigurationUpdateInput,
 } from "./governance.contracts";
 import {
@@ -456,6 +461,12 @@ export class GovernanceService {
 	}
 
 	async setUserAccess(input: UserAccessUpdateInput, actor: EffectivePrincipal) {
+		if (
+			input.status === UserAccessStatus.SUSPENDED &&
+			actor.userId === input.userId
+		) {
+			throw new BadRequestException("You cannot suspend your own account.");
+		}
 		return this.db.$transaction(async (tx) => {
 			const [user, role, teams] = await Promise.all([
 				tx.user.findUnique({
@@ -606,6 +617,9 @@ export class GovernanceService {
 					primaryTeamId: input.primaryTeamId,
 				},
 			});
+			if (input.status === UserAccessStatus.SUSPENDED) {
+				await tx.session.deleteMany({ where: { userId: input.userId } });
+			}
 			await tx.businessUnitMembership.deleteMany({
 				where: { userId: input.userId },
 			});
@@ -642,6 +656,220 @@ export class GovernanceService {
 			);
 
 			return { userId: input.userId };
+		});
+	}
+
+	async createUser(input: UserCreateInput, actor: EffectivePrincipal) {
+		this.assertGlobalAdmin(actor);
+		if (!hasSignInAllowList() || !isWorkspaceEmail(input.email)) {
+			throw new BadRequestException(
+				"That email is not included in ALLOWED_SIGN_IN.",
+			);
+		}
+		if (await this.db.user.findUnique({ where: { email: input.email } })) {
+			throw new ConflictException("A user with that email already exists.");
+		}
+
+		const password = await hashCredentialPassword(input.password);
+		try {
+			return await this.db.$transaction(async (tx) => {
+				const [role, primaryUnit, primaryTeam] = await Promise.all([
+					tx.role.findUnique({
+						where: { id: input.roleId },
+						select: { id: true, archivedAt: true },
+					}),
+					input.primaryBusinessUnitId
+						? tx.businessUnit.findUnique({
+								where: { id: input.primaryBusinessUnitId },
+								select: { id: true, archivedAt: true },
+							})
+						: null,
+					input.primaryTeamId
+						? tx.team.findUnique({
+								where: { id: input.primaryTeamId },
+								select: { id: true, businessUnitId: true, archivedAt: true },
+							})
+						: null,
+				]);
+				if (!role || role.archivedAt) {
+					throw new NotFoundException(
+						`No active role with id ${input.roleId}.`,
+					);
+				}
+				if (
+					input.primaryBusinessUnitId &&
+					(!primaryUnit || primaryUnit.archivedAt)
+				) {
+					throw new NotFoundException(
+						"The selected business unit is not active.",
+					);
+				}
+				if (input.primaryTeamId && (!primaryTeam || primaryTeam.archivedAt)) {
+					throw new NotFoundException("The selected team is not active.");
+				}
+				if (
+					primaryTeam &&
+					primaryTeam.businessUnitId !== input.primaryBusinessUnitId
+				) {
+					throw new BadRequestException(
+						"The primary team must belong to the primary business unit.",
+					);
+				}
+
+				const userId = crypto.randomUUID();
+				const user = await tx.user.create({
+					data: {
+						id: userId,
+						name: input.name,
+						email: input.email,
+					},
+					select: { id: true, name: true, email: true },
+				});
+				await tx.account.create({
+					data: {
+						id: crypto.randomUUID(),
+						accountId: userId,
+						providerId: "credential",
+						userId,
+						password,
+					},
+				});
+				await tx.userAccess.create({
+					data: {
+						userId,
+						roleId: role.id,
+						primaryBusinessUnitId: input.primaryBusinessUnitId,
+						primaryTeamId: input.primaryTeamId,
+					},
+				});
+				if (input.primaryBusinessUnitId) {
+					await tx.businessUnitMembership.create({
+						data: {
+							userId,
+							businessUnitId: input.primaryBusinessUnitId,
+							type: BusinessUnitMembershipType.MEMBER,
+						},
+					});
+				}
+				if (input.primaryTeamId) {
+					await tx.teamMembership.create({
+						data: { userId, teamId: input.primaryTeamId },
+					});
+				}
+				await this.audit(tx, actor, "user.created", "users", userId, {
+					roleId: role.id,
+				});
+				return user;
+			});
+		} catch (error) {
+			if (
+				error instanceof Prisma.PrismaClientKnownRequestError &&
+				error.code === "P2002"
+			) {
+				throw new ConflictException("A user with that email already exists.");
+			}
+			throw error;
+		}
+	}
+
+	async setUserPassword(
+		input: UserPasswordUpdateInput,
+		actor: EffectivePrincipal,
+	) {
+		this.assertGlobalAdmin(actor);
+		const password = await hashCredentialPassword(input.password);
+		return this.db.$transaction(async (tx) => {
+			const user = await tx.user.findUnique({
+				where: { id: input.userId },
+				select: { id: true },
+			});
+			if (!user)
+				throw new NotFoundException(`No user with id ${input.userId}.`);
+			const credential = await tx.account.findFirst({
+				where: { userId: input.userId, providerId: "credential" },
+				select: { id: true },
+			});
+			if (credential) {
+				await tx.account.update({
+					where: { id: credential.id },
+					data: { password },
+				});
+			} else {
+				await tx.account.create({
+					data: {
+						id: crypto.randomUUID(),
+						accountId: input.userId,
+						providerId: "credential",
+						userId: input.userId,
+						password,
+					},
+				});
+			}
+			await tx.session.deleteMany({ where: { userId: input.userId } });
+			await this.audit(
+				tx,
+				actor,
+				"user.password-updated",
+				"users",
+				input.userId,
+			);
+			return { userId: input.userId };
+		});
+	}
+
+	async setUserStatus(input: UserStatusUpdateInput, actor: EffectivePrincipal) {
+		this.assertGlobalAdmin(actor);
+		if (
+			input.status === UserAccessStatus.SUSPENDED &&
+			actor.userId === input.userId
+		) {
+			throw new BadRequestException("You cannot suspend your own account.");
+		}
+		return this.db.$transaction(async (tx) => {
+			const access = await tx.userAccess.findUnique({
+				where: { userId: input.userId },
+				select: { status: true, role: { select: { isAdmin: true } } },
+			});
+			if (!access) {
+				throw new NotFoundException(
+					`No access configuration for user ${input.userId}.`,
+				);
+			}
+			if (
+				access.role.isAdmin &&
+				access.status === UserAccessStatus.ACTIVE &&
+				input.status === UserAccessStatus.SUSPENDED
+			) {
+				const otherAdmins = await tx.userAccess.count({
+					where: {
+						userId: { not: input.userId },
+						status: UserAccessStatus.ACTIVE,
+						role: { isAdmin: true },
+					},
+				});
+				if (otherAdmins === 0) {
+					throw new ConflictException(
+						"The CRM must keep one active Global Admin.",
+					);
+				}
+			}
+			await tx.userAccess.update({
+				where: { userId: input.userId },
+				data: { status: input.status },
+			});
+			if (input.status === UserAccessStatus.SUSPENDED) {
+				await tx.session.deleteMany({ where: { userId: input.userId } });
+			}
+			await this.audit(
+				tx,
+				actor,
+				input.status === UserAccessStatus.SUSPENDED
+					? "user.suspended"
+					: "user.reactivated",
+				"users",
+				input.userId,
+			);
+			return { userId: input.userId, status: input.status };
 		});
 	}
 

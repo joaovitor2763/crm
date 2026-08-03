@@ -1,6 +1,10 @@
 "use client";
 
+import Add from "@carbon/icons-react/es/Add";
 import Edit from "@carbon/icons-react/es/Edit";
+import Password from "@carbon/icons-react/es/Password";
+import UserAccessLocked from "@carbon/icons-react/es/UserAccessLocked";
+import UserAccessUnlocked from "@carbon/icons-react/es/UserAccessUnlocked";
 import { Button } from "@crm/ui/components/button";
 import {
 	Card,
@@ -9,6 +13,15 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
+import {
+	Dialog,
+	DialogClose,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@crm/ui/components/dialog";
 import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
@@ -20,11 +33,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@crm/ui/components/select";
+import { Spinner } from "@crm/ui/components/spinner";
 import { StatusIndicator } from "@crm/ui/components/status-indicator";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { parseAsInteger, parseAsString, useQueryState } from "nuqs";
+import { parseAsIndex, parseAsString, useQueryState } from "nuqs";
 import { useDeferredValue, useState } from "react";
 import { toast } from "sonner";
+import { useCrmCache } from "@/lib/trpc/cache";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
 
@@ -94,22 +109,61 @@ export function GovernanceSettings() {
 
 export function UserManagement() {
 	const trpc = useTRPC();
-	const queryClient = useQueryClient();
+	const cache = useCrmCache();
 	const overview = useQuery(trpc.governance.overview.queryOptions());
+	const capabilities = useQuery(trpc.governance.capabilities.queryOptions());
 	const [q, setQ] = useQueryState("q", parseAsString.withDefault(""));
-	const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1));
+	const [pageIndex, setPageIndex] = useQueryState(
+		"page",
+		parseAsIndex.withDefault(0),
+	);
 	const [editingUserId, setEditingUserId] = useState<string | null>(null);
+	const [addOpen, setAddOpen] = useState(false);
+	const [passwordUser, setPasswordUser] = useState<User | null>(null);
+	const [statusUser, setStatusUser] = useState<User | null>(null);
 	const deferredQ = useDeferredValue(q.trim().toLowerCase());
 	const setUser = useMutation(
 		trpc.governance.setUserAccess.mutationOptions({
 			onSuccess: async (_result, variables) => {
-				await queryClient.invalidateQueries(
-					trpc.governance.overview.queryFilter(),
-				);
+				await cache.users();
 				setEditingUserId((current) =>
 					current === variables.userId ? null : current,
 				);
 				toast.success("User access updated.");
+			},
+			onError: (error) => toast.error(error.message),
+		}),
+	);
+	const createUser = useMutation(
+		trpc.governance.createUser.mutationOptions({
+			onSuccess: async () => {
+				await cache.users();
+				setAddOpen(false);
+				toast.success("User created.");
+			},
+			onError: (error) => toast.error(error.message),
+		}),
+	);
+	const setPassword = useMutation(
+		trpc.governance.setUserPassword.mutationOptions({
+			onSuccess: async () => {
+				await cache.users();
+				setPasswordUser(null);
+				toast.success("Password updated and existing sessions revoked.");
+			},
+			onError: (error) => toast.error(error.message),
+		}),
+	);
+	const setStatus = useMutation(
+		trpc.governance.setUserStatus.mutationOptions({
+			onSuccess: async (result) => {
+				await cache.users();
+				setStatusUser(null);
+				toast.success(
+					result.status === "SUSPENDED"
+						? "User suspended and sessions revoked."
+						: "User reactivated.",
+				);
 			},
 			onError: (error) => toast.error(error.message),
 		}),
@@ -124,14 +178,15 @@ export function UserManagement() {
 	);
 	const pageSize = 10;
 	const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
-	const currentPage = Math.min(Math.max(page, 1), totalPages);
+	const currentPageIndex = Math.min(Math.max(pageIndex, 0), totalPages - 1);
 	const visibleUsers = users.slice(
-		(currentPage - 1) * pageSize,
-		currentPage * pageSize,
+		currentPageIndex * pageSize,
+		(currentPageIndex + 1) * pageSize,
 	);
+	const isGlobalAdmin = capabilities.data?.isAdmin ?? false;
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="grid gap-3 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+			<div className="grid gap-3 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
 				<Field>
 					<FieldLabel htmlFor="user-search">Find a user</FieldLabel>
 					<Input
@@ -139,7 +194,7 @@ export function UserManagement() {
 						value={q}
 						onChange={(event) => {
 							void setQ(event.target.value);
-							void setPage(1);
+							void setPageIndex(0);
 						}}
 						placeholder="Search name, email or role…"
 					/>
@@ -150,6 +205,11 @@ export function UserManagement() {
 				>
 					{users.length} of {data?.users.length ?? 0} users
 				</p>
+				{isGlobalAdmin ? (
+					<Button onClick={() => setAddOpen(true)}>
+						<Icon icon={Add} /> Add user
+					</Button>
+				) : null}
 			</div>
 			{data && users.length ? (
 				<>
@@ -168,6 +228,10 @@ export function UserManagement() {
 									<UserAccessSummary
 										user={user}
 										onEdit={() => setEditingUserId(user.id)}
+										canManageCredentials={isGlobalAdmin}
+										isCurrentUser={capabilities.data?.userId === user.id}
+										onPassword={() => setPasswordUser(user)}
+										onStatus={() => setStatusUser(user)}
 									/>
 								)}
 							</li>
@@ -176,22 +240,22 @@ export function UserManagement() {
 					{totalPages > 1 ? (
 						<div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-muted-foreground text-xs">
 							<span>
-								Page {currentPage} of {totalPages}
+								Page {currentPageIndex + 1} of {totalPages}
 							</span>
 							<div className="flex gap-2">
 								<Button
 									variant="outline"
 									size="sm"
-									disabled={currentPage <= 1}
-									onClick={() => void setPage(currentPage - 1)}
+									disabled={currentPageIndex <= 0}
+									onClick={() => void setPageIndex(currentPageIndex - 1)}
 								>
 									Previous
 								</Button>
 								<Button
 									variant="outline"
 									size="sm"
-									disabled={currentPage >= totalPages}
-									onClick={() => void setPage(currentPage + 1)}
+									disabled={currentPageIndex >= totalPages - 1}
+									onClick={() => void setPageIndex(currentPageIndex + 1)}
 								>
 									Next
 								</Button>
@@ -204,6 +268,28 @@ export function UserManagement() {
 					No users match this search.
 				</div>
 			)}
+			{data && isGlobalAdmin ? (
+				<AddUserDialog
+					key={addOpen ? "add-open" : "add-closed"}
+					open={addOpen}
+					onOpenChange={setAddOpen}
+					data={data}
+					pending={createUser.isPending}
+					mutate={createUser.mutate}
+				/>
+			) : null}
+			<PasswordDialog
+				user={passwordUser}
+				pending={setPassword.isPending}
+				onOpenChange={(open) => !open && setPasswordUser(null)}
+				mutate={setPassword.mutate}
+			/>
+			<StatusDialog
+				user={statusUser}
+				pending={setStatus.isPending}
+				onOpenChange={(open) => !open && setStatusUser(null)}
+				mutate={setStatus.mutate}
+			/>
 		</div>
 	);
 }
@@ -211,9 +297,17 @@ export function UserManagement() {
 function UserAccessSummary({
 	user,
 	onEdit,
+	canManageCredentials,
+	isCurrentUser,
+	onPassword,
+	onStatus,
 }: {
 	user: User;
 	onEdit: () => void;
+	canManageCredentials: boolean;
+	isCurrentUser: boolean;
+	onPassword: () => void;
+	onStatus: () => void;
 }) {
 	const status = user.access
 		? user.access.status === "SUSPENDED"
@@ -226,7 +320,7 @@ function UserAccessSummary({
 			"Global")
 		: "No access";
 	return (
-		<div className="grid gap-3 border p-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+		<div className="grid gap-3 border p-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto] lg:items-center">
 			<div className="min-w-0">
 				<p className="truncate text-sm font-medium">{user.name}</p>
 				<p className="truncate text-xs text-muted-foreground">{user.email}</p>
@@ -241,8 +335,40 @@ function UserAccessSummary({
 				<p className="text-muted-foreground text-xs">Workspace access</p>
 				<p className="truncate text-sm">{workspaceAccess}</p>
 			</div>
-			<div className="flex items-center justify-between gap-2 sm:justify-end">
+			<div className="flex flex-wrap items-center justify-between gap-2 lg:justify-end">
 				<StatusIndicator tone={status.tone} label={status.label} />
+				{canManageCredentials ? (
+					<Button variant="outline" size="sm" onClick={onPassword}>
+						<Icon icon={Password} /> Password
+					</Button>
+				) : null}
+				{canManageCredentials ? (
+					<Button
+						variant="outline"
+						size="sm"
+						disabled={
+							!user.access ||
+							(isCurrentUser && user.access.status !== "SUSPENDED")
+						}
+						title={
+							!user.access
+								? "Assign access before changing this user's status."
+								: isCurrentUser
+									? "You cannot suspend your own account."
+									: undefined
+						}
+						onClick={onStatus}
+					>
+						<Icon
+							icon={
+								user.access?.status === "SUSPENDED"
+									? UserAccessUnlocked
+									: UserAccessLocked
+							}
+						/>
+						{user.access?.status === "SUSPENDED" ? "Reactivate" : "Suspend"}
+					</Button>
+				) : null}
 				<Button
 					variant="outline"
 					size="sm"
@@ -253,6 +379,313 @@ function UserAccessSummary({
 				</Button>
 			</div>
 		</div>
+	);
+}
+
+function AddUserDialog({
+	open,
+	onOpenChange,
+	data,
+	pending,
+	mutate,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	data: Overview;
+	pending: boolean;
+	mutate: (input: {
+		name: string;
+		email: string;
+		password: string;
+		roleId: string;
+		primaryBusinessUnitId: string | null;
+		primaryTeamId: string | null;
+	}) => void;
+}) {
+	const defaultUnitId =
+		data.businessUnits.find((unit) => unit.id === "business-unit-default")
+			?.id ?? NONE;
+	const defaultTeamId =
+		data.businessUnits
+			.flatMap((unit) => unit.teams)
+			.find((team) => team.id === "team-default")?.id ?? NONE;
+	const [unitId, setUnitId] = useState(defaultUnitId);
+	const [teamId, setTeamId] = useState(defaultTeamId);
+	const teams =
+		data.businessUnits.find((unit) => unit.id === unitId)?.teams ?? [];
+	const defaultRoleId =
+		data.roles.find((role) => role.key === "read-only")?.id ??
+		data.roles[0]?.id;
+
+	return (
+		<Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Add workspace user</DialogTitle>
+					<DialogDescription>
+						Create a password login and assign the user&apos;s initial CRM
+						access. The email must be included in ALLOWED_SIGN_IN.
+					</DialogDescription>
+				</DialogHeader>
+				<form
+					className="grid gap-4"
+					onSubmit={(event) => {
+						event.preventDefault();
+						const form = new FormData(event.currentTarget);
+						mutate({
+							name: String(form.get("name") ?? ""),
+							email: String(form.get("email") ?? ""),
+							password: String(form.get("password") ?? ""),
+							roleId: String(form.get("roleId") ?? ""),
+							primaryBusinessUnitId: unitId === NONE ? null : unitId,
+							primaryTeamId: teamId === NONE ? null : teamId,
+						});
+					}}
+				>
+					<FieldGroup className="gap-3">
+						<Field>
+							<FieldLabel htmlFor="new-user-name">Name</FieldLabel>
+							<Input
+								id="new-user-name"
+								name="name"
+								autoComplete="off"
+								disabled={pending}
+								required
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="new-user-email">Email</FieldLabel>
+							<Input
+								id="new-user-email"
+								name="email"
+								autoComplete="off"
+								disabled={pending}
+								type="email"
+								required
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="new-user-password">
+								Initial password
+							</FieldLabel>
+							<Input
+								id="new-user-password"
+								name="password"
+								autoComplete="new-password"
+								disabled={pending}
+								minLength={12}
+								maxLength={128}
+								type="password"
+								required
+							/>
+						</Field>
+						<Field>
+							<FieldLabel>Role</FieldLabel>
+							<Select name="roleId" defaultValue={defaultRoleId} required>
+								<SelectTrigger>
+									<SelectValue placeholder="Choose role" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										{data.roles.map((role) => (
+											<SelectItem key={role.id} value={role.id}>
+												{role.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</Field>
+						<Field>
+							<FieldLabel>Business unit</FieldLabel>
+							<Select
+								value={unitId}
+								onValueChange={(value) => {
+									setUnitId(value);
+									setTeamId(NONE);
+								}}
+							>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										<SelectItem value={NONE}>No unit</SelectItem>
+										{data.businessUnits.map((unit) => (
+											<SelectItem key={unit.id} value={unit.id}>
+												{unit.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</Field>
+						<Field>
+							<FieldLabel>Team</FieldLabel>
+							<Select value={teamId} onValueChange={setTeamId}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										<SelectItem value={NONE}>No team</SelectItem>
+										{teams.map((team) => (
+											<SelectItem key={team.id} value={team.id}>
+												{team.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</Field>
+					</FieldGroup>
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button type="button" variant="outline" disabled={pending}>
+								Cancel
+							</Button>
+						</DialogClose>
+						<Button type="submit" disabled={pending || !defaultRoleId}>
+							{pending ? <Spinner data-icon="inline-start" /> : null}
+							Create user
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function PasswordDialog({
+	user,
+	pending,
+	onOpenChange,
+	mutate,
+}: {
+	user: User | null;
+	pending: boolean;
+	onOpenChange: (open: boolean) => void;
+	mutate: (input: { userId: string; password: string }) => void;
+}) {
+	return (
+		<Dialog open={user !== null} onOpenChange={onOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>Set password</DialogTitle>
+					<DialogDescription>
+						Set a new password for {user?.name}. All of their existing sessions
+						will be revoked.
+					</DialogDescription>
+				</DialogHeader>
+				<form
+					className="grid gap-4"
+					onSubmit={(event) => {
+						event.preventDefault();
+						if (!user) return;
+						const form = new FormData(event.currentTarget);
+						const password = String(form.get("password") ?? "");
+						if (password !== String(form.get("confirmation") ?? "")) {
+							toast.error("The passwords do not match.");
+							return;
+						}
+						mutate({ userId: user.id, password });
+					}}
+				>
+					<FieldGroup className="gap-3">
+						<Field>
+							<FieldLabel htmlFor="user-new-password">New password</FieldLabel>
+							<Input
+								id="user-new-password"
+								name="password"
+								autoComplete="new-password"
+								disabled={pending}
+								minLength={12}
+								maxLength={128}
+								type="password"
+								required
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="user-confirm-password">
+								Confirm password
+							</FieldLabel>
+							<Input
+								id="user-confirm-password"
+								name="confirmation"
+								autoComplete="new-password"
+								disabled={pending}
+								minLength={12}
+								maxLength={128}
+								type="password"
+								required
+							/>
+						</Field>
+					</FieldGroup>
+					<DialogFooter>
+						<DialogClose asChild>
+							<Button type="button" variant="outline" disabled={pending}>
+								Cancel
+							</Button>
+						</DialogClose>
+						<Button type="submit" disabled={pending}>
+							{pending ? <Spinner data-icon="inline-start" /> : null}
+							Set password
+						</Button>
+					</DialogFooter>
+				</form>
+			</DialogContent>
+		</Dialog>
+	);
+}
+
+function StatusDialog({
+	user,
+	pending,
+	onOpenChange,
+	mutate,
+}: {
+	user: User | null;
+	pending: boolean;
+	onOpenChange: (open: boolean) => void;
+	mutate: (input: { userId: string; status: "ACTIVE" | "SUSPENDED" }) => void;
+}) {
+	const reactivating = user?.access?.status === "SUSPENDED";
+	return (
+		<Dialog open={user !== null} onOpenChange={onOpenChange}>
+			<DialogContent>
+				<DialogHeader>
+					<DialogTitle>
+						{reactivating ? "Reactivate user" : "Suspend user"}
+					</DialogTitle>
+					<DialogDescription>
+						{reactivating
+							? `${user?.name} will be able to sign in and access the CRM again.`
+							: `${user?.name} will be signed out and blocked from creating another session. Their ownership and audit history will be preserved.`}
+					</DialogDescription>
+				</DialogHeader>
+				<DialogFooter>
+					<DialogClose asChild>
+						<Button type="button" variant="outline" disabled={pending}>
+							Cancel
+						</Button>
+					</DialogClose>
+					<Button
+						disabled={pending || !user}
+						variant={reactivating ? "default" : "destructive"}
+						onClick={() => {
+							if (!user) return;
+							mutate({
+								userId: user.id,
+								status: reactivating ? "ACTIVE" : "SUSPENDED",
+							});
+						}}
+					>
+						{pending ? <Spinner data-icon="inline-start" /> : null}
+						{reactivating ? "Reactivate" : "Suspend access"}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 

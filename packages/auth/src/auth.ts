@@ -1,8 +1,9 @@
-import { db } from "@crm/db";
+import { db, UserAccessStatus } from "@crm/db";
 import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError } from "better-auth/api";
 import { env } from "./env";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./password";
 import { SYNC_SCOPES } from "./scopes";
 import {
 	hasSignInAllowList,
@@ -60,7 +61,9 @@ export const auth = betterAuth({
 
 	emailAndPassword: {
 		enabled: true,
-		minPasswordLength: 12,
+		disableSignUp: true,
+		minPasswordLength: MIN_PASSWORD_LENGTH,
+		maxPasswordLength: MAX_PASSWORD_LENGTH,
 	},
 
 	socialProviders,
@@ -133,6 +136,22 @@ export const auth = betterAuth({
 					}
 
 					return { data: user };
+				},
+			},
+		},
+		session: {
+			create: {
+				before: async (session) => {
+					const access = await db.userAccess.findUnique({
+						where: { userId: session.userId },
+						select: { status: true },
+					});
+					if (access?.status === UserAccessStatus.SUSPENDED) {
+						throw new APIError("FORBIDDEN", {
+							message: "Your CRM access is suspended. Contact a Global Admin.",
+						});
+					}
+					return { data: session };
 				},
 			},
 		},
