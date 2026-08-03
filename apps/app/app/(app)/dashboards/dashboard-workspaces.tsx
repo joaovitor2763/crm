@@ -1559,8 +1559,11 @@ function WidgetComposerDialog({
 						the chart updates as you go.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
-					<div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+				{/* col-span utilities rather than an arbitrary template: these classes
+				    have been in the stylesheet since the canvas shipped, so a stale
+				    cached CSS chunk cannot collapse the editor into one column. */}
+				<div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-12">
+					<div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1 lg:col-span-3">
 						{templates?.length ? (
 							<Field>
 								<FieldLabel>Start from</FieldLabel>
@@ -1810,7 +1813,7 @@ function WidgetComposerDialog({
 							/>
 						</Field>
 					</div>
-					<div className="flex min-h-0 flex-col border p-5">
+					<div className="flex min-h-0 flex-col border p-5 lg:col-span-9">
 						{needsAttributeKey ? (
 							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
 								Enter the deal attribute key to preview this cut.
