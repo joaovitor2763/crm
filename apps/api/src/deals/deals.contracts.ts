@@ -90,6 +90,7 @@ export const dealBoardInput = dealListInput.pick({
 	q: true,
 	owner: true,
 	pipeline: true,
+	closing: true,
 });
 
 export const dealLineItemCreateInput = z.object({

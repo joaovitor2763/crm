@@ -50,6 +50,7 @@ model User {
   createdAutomations       Automation[]               @relation("AutomationCreator")
   createdWebhookEndpoints  WebhookEndpoint[]          @relation("WebhookEndpointCreator")
   ownedRevenueAccounts     RevenueAccount[]           @relation("RevenueAccountOwner")
+  ownedDashboards          Dashboard[]                 @relation("DashboardOwner")
 
   @@unique([email])
   @@map("user")
@@ -225,6 +226,11 @@ enum DashboardDefinitionStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+enum DashboardVisibility {
+  PRIVATE
+  PUBLIC
 }
 
 enum BusinessUnitMembershipType {
@@ -580,6 +586,42 @@ model DashboardDefinition {
   @@map("dashboardDefinition")
 }
 
+/// A user-facing canvas. Definitions remain reusable governed metric recipes;
+/// dashboards arrange copies of those recipes for a concrete audience.
+model Dashboard {
+  id          String              @id @default(cuid())
+  name        String
+  description String?
+  visibility  DashboardVisibility @default(PRIVATE)
+  ownerId     String
+  owner       User                @relation("DashboardOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  widgets     DashboardWidget[]
+  archivedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([ownerId, archivedAt, updatedAt])
+  @@index([visibility, archivedAt, updatedAt])
+  @@map("dashboard")
+}
+
+model DashboardWidget {
+  id          String    @id @default(cuid())
+  dashboardId String
+  dashboard   Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  spec        Json
+  position    Int       @default(0)
+  width       Int       @default(6)
+  height      Int       @default(4)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([dashboardId, position])
+  @@map("dashboardWidget")
+}
+
 model CustomFieldDefinition {
   id                 String               @id @default(cuid())
   objectDefinitionId String
@@ -880,6 +922,7 @@ model Company {
   deals               Deal[]
   revenueAccounts     RevenueAccountCompany[]
   activities          Activity[]
+  agentTasks          AgentTask[]
   conversionEvents    ConversionAttributionEvent[] @relation("ConversionCompany")
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
@@ -983,6 +1026,7 @@ model Contact {
   deals               DealContact[]
   revenueAccounts     RevenueAccountContact[]
   activities          Activity[]
+  agentTasks          AgentTask[]
   conversionEvents    ConversionAttributionEvent[] @relation("ConversionContact")
   emailThreads        EmailThread[]
   calendarEvents      CalendarEvent[]
@@ -1162,7 +1206,9 @@ model ContactBrief {
 model AgentTask {
   id        String  @id @default(cuid())
   contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
   companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   kind   String
   reason String
@@ -1195,6 +1241,24 @@ model AgentTask {
   @@index([dueAt, leasedUntil])
   @@index([contactId])
   @@map("agentTask")
+}
+
+/// Installation-wide AI provider configuration. Secrets are encrypted before
+/// they reach this table; the API only returns the last four characters.
+model AiProviderConfiguration {
+  id              String   @id @default(cuid())
+  provider        String   @unique
+  apiKeyEncrypted String?
+  apiKeyLastFour  String?
+  models          String[] @default([])
+  /// Context window by approved model id. Dynamic Eve selections do not
+  /// inherit this metadata from the fallback model.
+  modelContextWindows Json @default("{}")
+  defaults        Json
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("aiProviderConfiguration")
 }
 
 /// Every runtime event the agent emits, written by a hook.

@@ -245,6 +245,7 @@ export function Timeline({ anchor }: { anchor: TimelineAnchor }) {
 					}}
 					size="sm"
 					spacing={0}
+					className="no-scrollbar max-w-full justify-start overflow-x-auto"
 				>
 					{TIMELINE_TABS.map((option) => (
 						<ToggleGroupItem key={option} value={option}>

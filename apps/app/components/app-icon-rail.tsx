@@ -24,7 +24,7 @@ import {
 } from "@crm/ui/components/tooltip";
 import { cn } from "@crm/ui/lib/utils";
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useMobileNav } from "@/components/mobile-nav";
 
 type RailItem = {
@@ -32,7 +32,6 @@ type RailItem = {
 	href: string;
 	icon: CarbonIconType;
 	match: "exact" | "prefix";
-	studioView?: "automations" | "dashboards";
 };
 
 const ITEMS: RailItem[] = [
@@ -47,33 +46,21 @@ const ITEMS: RailItem[] = [
 	{ title: "Deals", href: "/deals", icon: Partnership, match: "prefix" },
 	{
 		title: "Dashboards",
-		href: "/studio?view=dashboards",
+		href: "/dashboards",
 		icon: Dashboard,
-		match: "exact",
-		studioView: "dashboards",
+		match: "prefix",
 	},
 	{
 		title: "Automations",
-		href: "/studio?view=automations",
+		href: "/automations",
 		icon: MagicWand,
-		match: "exact",
-		studioView: "automations",
+		match: "prefix",
 	},
 	{ title: "Studio", href: "/studio", icon: Column, match: "prefix" },
 	{ title: "Settings", href: "/settings", icon: Settings, match: "prefix" },
 ];
 
-function isActive(
-	item: RailItem,
-	pathname: string,
-	studioView: string | null,
-): boolean {
-	if (item.studioView) {
-		return pathname === "/studio" && studioView === item.studioView;
-	}
-	if (item.href === "/studio" && pathname.startsWith("/studio")) {
-		return studioView !== "dashboards" && studioView !== "automations";
-	}
+function isActive(item: RailItem, pathname: string): boolean {
 	return (
 		pathname === item.href ||
 		(item.match === "prefix" && pathname.startsWith(item.href))
@@ -158,13 +145,9 @@ function MobileRailLink({
 
 export function AppIconRail() {
 	const pathname = usePathname();
-	const searchParams = useSearchParams();
 	const { open, setOpen } = useMobileNav();
-	const studioView = searchParams.get("view");
 	const primaryItems = ITEMS.slice(0, 4);
-	const moreActive = ITEMS.slice(4).some((item) =>
-		isActive(item, pathname, studioView),
-	);
+	const moreActive = ITEMS.slice(4).some((item) => isActive(item, pathname));
 
 	return (
 		<>
@@ -176,7 +159,7 @@ export function AppIconRail() {
 					<RailLink
 						key={item.href}
 						item={item}
-						active={isActive(item, pathname, studioView)}
+						active={isActive(item, pathname)}
 					/>
 				))}
 			</nav>
@@ -195,7 +178,7 @@ export function AppIconRail() {
 							<MobileRailLink
 								key={item.href}
 								item={item}
-								active={isActive(item, pathname, studioView)}
+								active={isActive(item, pathname)}
 								onNavigate={() => setOpen(false)}
 							/>
 						))}
@@ -212,7 +195,7 @@ export function AppIconRail() {
 						<MobileTabLink
 							key={item.href}
 							item={item}
-							active={isActive(item, pathname, studioView)}
+							active={isActive(item, pathname)}
 						/>
 					))}
 					<button

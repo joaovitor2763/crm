@@ -77,6 +77,9 @@ export function DashboardSummary() {
 		// load, the same way the tables hold their rows while paging.
 		placeholderData: (previous) => previous,
 	});
+	const tasksQuery = useQuery(
+		trpc.activities.myTasks.queryOptions({ window: "all", limit: 10 }),
+	);
 
 	const complete = useMutation(
 		trpc.activities.complete.mutationOptions({
@@ -95,7 +98,10 @@ export function DashboardSummary() {
 		);
 	}
 
-	const { biggestOpen, overdueTasks, recentActivity } = summary;
+	const { biggestOpen, recentActivity } = summary;
+	const openTasks = tasksQuery.data?.rows ?? [];
+	const openTaskCount = tasksQuery.data?.total ?? 0;
+	const overdueCount = tasksQuery.data?.overdue ?? 0;
 
 	const mine = scope === "me";
 	const largestOpenCents = biggestOpen[0]?.amountCents ?? 0;
@@ -114,7 +120,7 @@ export function DashboardSummary() {
 	const taskColumns: SimpleTableColumn[] = [
 		{ srLabel: "Done", width: "w-8" },
 		{ header: "Task" },
-		{ header: "Overdue", width: "w-24", align: "right" },
+		{ header: "Due", width: "w-24", align: "right" },
 	];
 
 	const activityColumns: SimpleTableColumn[] = [
@@ -198,54 +204,77 @@ export function DashboardSummary() {
 
 				<Card className="min-w-0">
 					<CardHeader>
-						<CardTitle>Overdue tasks</CardTitle>
+						<CardTitle>Open tasks</CardTitle>
 						<CardDescription>
-							{overdueTasks.length === 0
-								? "Every task you have logged is either done or still to come"
-								: `${formatCount(overdueTasks.length, "task")} past due`}
+							{openTasks.length === 0
+								? "No unfinished tasks"
+								: overdueCount > 0
+									? `${formatCount(overdueCount, "task")} overdue · ${formatCount(openTaskCount, "open task")}`
+									: `${formatCount(openTaskCount, "open task")} · nothing overdue`}
 						</CardDescription>
 					</CardHeader>
-					<CardPanel>
-						{overdueTasks.length === 0 ? (
-							<CardPanelEmpty>Nothing overdue. Good.</CardPanelEmpty>
+					<CardPanel
+						className={
+							openTasks.length === 0 ? "h-40 @3xl/page-content:h-80" : undefined
+						}
+					>
+						{openTasks.length === 0 ? (
+							<CardPanelEmpty className="min-h-32">
+								No open tasks. Add one from the Activity tab on a deal or
+								contact.
+							</CardPanelEmpty>
 						) : (
 							<SimpleTable variant="panel" surface="page" columns={taskColumns}>
-								{overdueTasks.map((task) => (
-									<SimpleTableRow key={task.id}>
-										<TableCell className={CELL}>
-											<Checkbox
-												checked={false}
-												disabled={complete.isPending}
-												aria-label="Mark as done"
-												onCheckedChange={() =>
-													complete.mutate({ id: task.id, completed: true })
-												}
-											/>
-										</TableCell>
-										<TableCell className={CELL}>
-											<span className="flex min-w-0 flex-col">
-												<span className="truncate">{task.subject}</span>
-												<span className="flex min-w-0 text-muted-foreground">
-													{task.deal ? (
-														<RecordLink kind="deal" id={task.deal.id}>
-															{task.deal.name}
-														</RecordLink>
-													) : task.company ? (
-														<RecordLink kind="company" id={task.company.id}>
-															{task.company.name}
-														</RecordLink>
-													) : null}
+								{openTasks.map((task) => {
+									const overdue =
+										task.dueAt && new Date(task.dueAt) < new Date();
+									return (
+										<SimpleTableRow key={task.id}>
+											<TableCell className={CELL}>
+												<Checkbox
+													checked={false}
+													disabled={complete.isPending}
+													aria-label="Mark as done"
+													onCheckedChange={() =>
+														complete.mutate({ id: task.id, completed: true })
+													}
+												/>
+											</TableCell>
+											<TableCell className={CELL}>
+												<span className="flex min-w-0 flex-col">
+													<span className="truncate">{task.subject}</span>
+													<span className="flex min-w-0 text-muted-foreground">
+														{task.deal ? (
+															<RecordLink kind="deal" id={task.deal.id}>
+																{task.deal.name}
+															</RecordLink>
+														) : task.contact ? (
+															<RecordLink kind="contact" id={task.contact.id}>
+																{[task.contact.firstName, task.contact.lastName]
+																	.filter(Boolean)
+																	.join(" ")}
+															</RecordLink>
+														) : task.company ? (
+															<RecordLink kind="company" id={task.company.id}>
+																{task.company.name}
+															</RecordLink>
+														) : null}
+													</span>
 												</span>
-											</span>
-										</TableCell>
-										<TableCell className={`${CELL} text-right`}>
-											<StatusIndicator
-												tone="error"
-												label={relativeTimeFromIso(task.dueAt)}
-											/>
-										</TableCell>
-									</SimpleTableRow>
-								))}
+											</TableCell>
+											<TableCell className={`${CELL} text-right`}>
+												{task.dueAt ? (
+													<StatusIndicator
+														tone={overdue ? "error" : "info"}
+														label={relativeTimeFromIso(task.dueAt)}
+													/>
+												) : (
+													<span className="text-muted-foreground">Someday</span>
+												)}
+											</TableCell>
+										</SimpleTableRow>
+									);
+								})}
 							</SimpleTable>
 						)}
 					</CardPanel>

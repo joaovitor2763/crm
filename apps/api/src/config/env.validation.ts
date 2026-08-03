@@ -140,6 +140,14 @@ export class EnvironmentVariables {
 		message: "WEBHOOK_SIGNING_SECRET must be at least 32 characters.",
 	})
 	WEBHOOK_SIGNING_SECRET?: string;
+
+	/** Encrypts provider keys saved by a local administrator. */
+	@IsOptional()
+	@IsString()
+	@MinLength(32, {
+		message: "AI_CONFIG_ENCRYPTION_KEY must be at least 32 characters.",
+	})
+	AI_CONFIG_ENCRYPTION_KEY?: string;
 }
 
 export function validateEnv(

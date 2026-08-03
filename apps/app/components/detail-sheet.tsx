@@ -13,7 +13,6 @@ import {
 } from "@crm/ui/components/empty";
 import type { CarbonIcon } from "@crm/ui/components/icon";
 import { Icon } from "@crm/ui/components/icon";
-import { Separator } from "@crm/ui/components/separator";
 import type { SheetSize } from "@crm/ui/components/sheet";
 import {
 	Tabs,
@@ -37,7 +36,7 @@ import {
 } from "@/components/responsive-sheet";
 
 /** One gutter for the whole panel, so every band lines up down the left edge. */
-const GUTTER = "px-5";
+const GUTTER = "px-4 sm:px-5";
 
 /**
  * Section headings are eyebrows, not titles.
@@ -151,7 +150,7 @@ export function DetailSheetHeader({
 }) {
 	return (
 		<SheetHeader className={cn("gap-0 border-b py-3", GUTTER)}>
-			<div className="flex items-start gap-3">
+			<div className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
 				{onBack ? (
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -182,20 +181,15 @@ export function DetailSheetHeader({
 					) : null}
 				</div>
 
-				{/*
-				 * Actions and close travel together, so the record's own buttons can
-				 * never end up underneath the close control.
-				 */}
-				<div className="flex shrink-0 items-center gap-1">
-					{actions}
-					{actions ? (
-						<Separator orientation="vertical" className="mx-1 h-5" />
-					) : null}
-					<Button variant="ghost" size="icon-sm" onClick={onClose}>
-						<Icon icon={Close} />
-						<span className="sr-only">Close</span>
-					</Button>
-				</div>
+				{actions ? (
+					<div className="order-4 flex basis-full items-center justify-end gap-1 border-t pt-2 sm:order-none sm:basis-auto sm:border-0 sm:pt-0">
+						{actions}
+					</div>
+				) : null}
+				<Button variant="ghost" size="icon-sm" onClick={onClose}>
+					<Icon icon={Close} />
+					<span className="sr-only">Close</span>
+				</Button>
 			</div>
 		</SheetHeader>
 	);
@@ -209,7 +203,11 @@ export function DetailSheetHeader({
  * of furniture, not information.
  */
 export function DetailSheetStats({ children }: { children: ReactNode }) {
-	return <dl className="flex shrink-0 divide-x border-b">{children}</dl>;
+	return (
+		<dl className="flex shrink-0 snap-x divide-x overflow-x-auto border-b">
+			{children}
+		</dl>
+	);
 }
 
 export function DetailSheetStat({
@@ -220,7 +218,12 @@ export function DetailSheetStat({
 	children: ReactNode;
 }) {
 	return (
-		<div className={cn("flex min-w-0 flex-1 flex-col gap-0.5 py-2", GUTTER)}>
+		<div
+			className={cn(
+				"flex min-w-28 flex-1 snap-start flex-col gap-0.5 py-2",
+				GUTTER,
+			)}
+		>
 			<dt className="truncate text-muted-foreground text-xs/5">{label}</dt>
 			<dd className="min-w-0 truncate text-xs/5">{children}</dd>
 		</div>
@@ -289,7 +292,10 @@ export function DetailSheetTabs({
 			 */}
 			<TabsList
 				variant="line"
-				className={cn("w-full shrink-0 justify-start gap-6 border-b", GUTTER)}
+				className={cn(
+					"no-scrollbar w-full shrink-0 justify-start gap-5 overflow-x-auto border-b sm:gap-6",
+					GUTTER,
+				)}
 			>
 				{tabs.map((tab) => (
 					<TabsTrigger key={tab.value} value={tab.value}>

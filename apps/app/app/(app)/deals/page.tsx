@@ -48,6 +48,7 @@ export default async function DealsPage({
 				q: input.q,
 				owner: input.owner,
 				pipeline: input.pipeline,
+				closing: input.closing,
 			}),
 		);
 	}

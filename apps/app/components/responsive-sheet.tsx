@@ -1,13 +1,6 @@
 "use client";
 
 import {
-	Drawer,
-	DrawerContent,
-	DrawerDescription,
-	DrawerHeader,
-	DrawerTitle,
-} from "@crm/ui/components/drawer";
-import {
 	type SheetSize,
 	Sheet as UISheet,
 	SheetContent as UISheetContent,
@@ -21,7 +14,7 @@ import type * as React from "react";
 import { createContext, useContext } from "react";
 
 /**
- * A sheet on a desktop, a drawer on a phone, one set of imports either way.
+ * A side sheet on desktop and a full-screen detail surface on a phone.
  *
  * Everything in this app that would have been a sub-page is a sheet, and a
  * 5xl panel sliding in from the right of a 390px screen is not a sheet, it is
@@ -43,11 +36,7 @@ function Sheet({ children, ...props }: RootProps) {
 	const isMobile = useIsMobile();
 	return (
 		<ResponsiveContext.Provider value={isMobile}>
-			{isMobile ? (
-				<Drawer {...props}>{children}</Drawer>
-			) : (
-				<UISheet {...props}>{children}</UISheet>
-			)}
+			<UISheet {...props}>{children}</UISheet>
 		</ResponsiveContext.Provider>
 	);
 }
@@ -67,20 +56,19 @@ function SheetContent({
 	onOpenAutoFocus?: (event: Event) => void;
 }) {
 	if (useResponsive()) {
-		// A bottom drawer is otherwise content-height, so a short body (or a tab
-		// switch to a near-empty panel) collapses it and shifts the page. Pin a
-		// stable default height for every drawer app-wide; callers can still
-		// override via `className` since it merges last.
+		// Record detail is a sub-page on a phone. A bottom drawer leaves too little
+		// room for a header, facts, tabs, a composer and a timeline, and makes the
+		// browser chrome overlap the last actions.
 		return (
-			<DrawerContent
-				className={cn(
-					"data-[vaul-drawer-direction=bottom]:h-[88dvh]",
-					className,
-				)}
+			<UISheetContent
+				side="right"
+				size={size}
+				showCloseButton={showCloseButton}
+				className={cn("h-dvh! w-screen! max-w-none! border-0", className)}
 				{...props}
 			>
 				{children}
-			</DrawerContent>
+			</UISheetContent>
 		);
 	}
 	return (
@@ -97,11 +85,7 @@ function SheetContent({
 }
 
 function SheetHeader(props: React.ComponentProps<"div">) {
-	return useResponsive() ? (
-		<DrawerHeader {...props} />
-	) : (
-		<UISheetHeader {...props} />
-	);
+	return <UISheetHeader {...props} />;
 }
 
 function SheetTitle(props: {
@@ -109,22 +93,14 @@ function SheetTitle(props: {
 	size?: "default" | "lg";
 	children?: React.ReactNode;
 }) {
-	return useResponsive() ? (
-		<DrawerTitle {...props} />
-	) : (
-		<UISheetTitle {...props} />
-	);
+	return <UISheetTitle {...props} />;
 }
 
 function SheetDescription(props: {
 	className?: string;
 	children?: React.ReactNode;
 }) {
-	return useResponsive() ? (
-		<DrawerDescription {...props} />
-	) : (
-		<UISheetDescription {...props} />
-	);
+	return <UISheetDescription {...props} />;
 }
 
 export { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle };

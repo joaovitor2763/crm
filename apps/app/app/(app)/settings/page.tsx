@@ -10,17 +10,13 @@ import {
 import { requireSession } from "@/lib/session";
 import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
+import { AiSettings } from "./ai-settings";
 import { ArchivedRecordsSettings } from "./archived-records-settings";
-import {
-	AutomationsSettings,
-	ExternalAccessSettings,
-} from "./automations-settings";
-import { FieldsSettings } from "./fields-settings";
+import { ExternalAccessSettings } from "./automations-settings";
 import { GoogleConnection } from "./google-connection";
 import { GovernanceSettings } from "./governance-settings";
 import { MarketingSettings } from "./marketing-settings";
-import { PipelinesSettings } from "./pipelines-settings";
-import { ProductsSettings } from "./products-settings";
+import { SettingsSections } from "./settings-sections";
 
 export const metadata: Metadata = {
 	title: "Settings",
@@ -58,16 +54,6 @@ export default async function SettingsPage() {
 			queryClient.prefetchQuery(trpc.governance.overview.queryOptions()),
 		);
 	}
-	if (canManage("fields")) {
-		prefetches.push(
-			queryClient.prefetchQuery(trpc.fields.schema.queryOptions({})),
-		);
-	}
-	if (canManage("automations")) {
-		prefetches.push(
-			queryClient.prefetchQuery(trpc.automations.list.queryOptions()),
-		);
-	}
 	if (canManage("webhooks")) {
 		prefetches.push(
 			queryClient.prefetchQuery(trpc.automations.webhooks.queryOptions()),
@@ -87,17 +73,16 @@ export default async function SettingsPage() {
 			queryClient.prefetchQuery(trpc.governance.directory.queryOptions()),
 		);
 	}
-	if (canManage("pipelines")) {
+	if (capabilities.isAdmin) {
 		prefetches.push(
+			queryClient.prefetchQuery(trpc.agentAdmin.configuration.queryOptions()),
 			queryClient.prefetchQuery(
-				trpc.pipelines.list.queryOptions({ includeArchived: true }),
-			),
-		);
-	}
-	if (canManage("products")) {
-		prefetches.push(
-			queryClient.prefetchQuery(
-				trpc.products.list.queryOptions({ includeArchived: true }),
+				trpc.agentAdmin.tasks.queryOptions({
+					status: "all",
+					q: "",
+					page: 1,
+					pageSize: 25,
+				}),
 			),
 		);
 	}
@@ -135,26 +120,77 @@ export default async function SettingsPage() {
 				<PageShellHeading>
 					<PageShellTitle>Settings</PageShellTitle>
 					<PageShellDescription>
-						Your meetings and email, on the companies they belong to.
+						Manage connections, governance, AI and workspace access.
 					</PageShellDescription>
 				</PageShellHeading>
 			</PageShellHeader>
 
 			<PageShellContent>
 				<HydrateClient>
-					<GoogleConnection />
-					{canManage("business-units") ? <GovernanceSettings /> : null}
-					{canManage("fields") ? <FieldsSettings /> : null}
-					{canManage("automations") ? <AutomationsSettings /> : null}
-					{canManage("api-credentials") && capabilities.isAdmin ? (
-						<ExternalAccessSettings />
-					) : null}
-					{canManage("pipelines") ? <PipelinesSettings /> : null}
-					{canManage("products") ? <ProductsSettings /> : null}
-					{canManage("marketing-forms") && canManage("marketing-events") ? (
-						<MarketingSettings />
-					) : null}
-					{canManageArchive ? <ArchivedRecordsSettings /> : null}
+					<SettingsSections
+						sections={[
+							{
+								id: "connections",
+								label: "Connections",
+								description: "Your calendar and mailbox connection.",
+								content: <GoogleConnection />,
+							},
+							...(canManage("business-units")
+								? [
+										{
+											id: "governance",
+											label: "Governance",
+											description:
+												"People, roles, teams and business-unit boundaries.",
+											content: <GovernanceSettings />,
+										},
+									]
+								: []),
+							...(capabilities.isAdmin
+								? [
+										{
+											id: "ai",
+											label: "AI & tasks",
+											description:
+												"Provider credentials, model routing and the internal agent queue.",
+											content: <AiSettings />,
+										},
+									]
+								: []),
+							...(canManage("api-credentials") && capabilities.isAdmin
+								? [
+										{
+											id: "access",
+											label: "External access",
+											description:
+												"API credentials and governed integration access.",
+											content: <ExternalAccessSettings />,
+										},
+									]
+								: []),
+							...(canManage("marketing-forms") && canManage("marketing-events")
+								? [
+										{
+											id: "marketing",
+											label: "Marketing",
+											description:
+												"Forms and events used in conversion journeys.",
+											content: <MarketingSettings />,
+										},
+									]
+								: []),
+							...(canManageArchive
+								? [
+										{
+											id: "archive",
+											label: "Archive",
+											description: "Review and restore archived CRM records.",
+											content: <ArchivedRecordsSettings />,
+										},
+									]
+								: []),
+						]}
+					/>
 				</HydrateClient>
 			</PageShellContent>
 		</PageShell>

@@ -14,8 +14,18 @@ import {
 	renderDefinition,
 } from "../src/dashboard/dashboard-definition.service";
 import { standardDashboardTemplates } from "../src/dashboard/dashboard-templates";
+import { dashboardWorkspaceUpdateInput } from "../src/dashboard/dashboard-workspace.contracts";
 
 describe("dashboard definition contract", () => {
+	it("does not change visibility during an unrelated workspace update", () => {
+		expect(
+			dashboardWorkspaceUpdateInput.parse({
+				id: "dashboard-1",
+				name: "Updated name",
+			}),
+		).toEqual({ id: "dashboard-1", name: "Updated name" });
+	});
+
 	it("ships standard revenue views as provider-neutral templates", () => {
 		const templates = standardDashboardTemplates();
 		expect(templates.map((template) => template.key)).toEqual([

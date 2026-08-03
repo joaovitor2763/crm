@@ -25,6 +25,17 @@ import {
 	dashboardDefinitionVersionInput,
 } from "./dashboard-definition.contracts";
 import { DashboardDefinitionService } from "./dashboard-definition.service";
+import {
+	dashboardWidgetCreateInput,
+	dashboardWidgetIdInput,
+	dashboardWidgetLayoutInput,
+	dashboardWidgetUpdateInput,
+	dashboardWorkspaceCreateInput,
+	dashboardWorkspaceIdInput,
+	dashboardWorkspaceListInput,
+	dashboardWorkspaceUpdateInput,
+} from "./dashboard-workspace.contracts";
+import { DashboardWorkspaceService } from "./dashboard-workspace.service";
 
 @Router({ alias: "dashboard" })
 @UseMiddlewares(AuthMiddleware)
@@ -33,9 +44,79 @@ export class DashboardRouter {
 		@Inject(DashboardService) private readonly dashboard: DashboardService,
 		@Inject(DashboardDefinitionService)
 		private readonly definitions: DashboardDefinitionService,
+		@Inject(DashboardWorkspaceService)
+		private readonly workspaces: DashboardWorkspaceService,
 		@Inject(AccessControlService)
 		private readonly accessControl: AccessControlService,
 	) {}
+
+	@Query({ input: dashboardWorkspaceListInput })
+	workspacesList(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWorkspaceListInput>,
+	) {
+		return this.workspaces.list(input, ctx.principal, ctx.user.id);
+	}
+
+	@Query({ input: dashboardWorkspaceIdInput })
+	workspace(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
+		return this.workspaces.byId(id, ctx.principal, ctx.user.id);
+	}
+
+	@Query({ input: dashboardWidgetIdInput })
+	renderWidget(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
+		return this.workspaces.renderWidget(id, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWorkspaceCreateInput })
+	createWorkspace(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWorkspaceCreateInput>,
+	) {
+		return this.workspaces.create(input, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWorkspaceUpdateInput })
+	updateWorkspace(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWorkspaceUpdateInput>,
+	) {
+		return this.workspaces.update(input, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWorkspaceIdInput })
+	archiveWorkspace(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
+		return this.workspaces.archive(id, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWidgetCreateInput })
+	addWidget(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWidgetCreateInput>,
+	) {
+		return this.workspaces.addWidget(input, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWidgetUpdateInput })
+	updateWidget(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWidgetUpdateInput>,
+	) {
+		return this.workspaces.updateWidget(input, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWidgetLayoutInput })
+	updateWidgetLayout(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWidgetLayoutInput>,
+	) {
+		return this.workspaces.updateLayout(input, ctx.principal, ctx.user.id);
+	}
+
+	@Mutation({ input: dashboardWidgetIdInput })
+	removeWidget(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
+		return this.workspaces.removeWidget(id, ctx.principal, ctx.user.id);
+	}
 
 	@Query({ input: dashboardDefinitionListInput })
 	definitionsList(

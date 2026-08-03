@@ -25,6 +25,7 @@ import {
 	InputGroupInput,
 } from "@crm/ui/components/input-group";
 import { Spinner } from "@crm/ui/components/spinner";
+import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import { TablePagination } from "@crm/ui/components/table-pagination";
 import {
 	Table,
@@ -310,6 +311,24 @@ export function DataTable<TRow, TSub = unknown>({
 						{facets?.map((facet) => {
 							const selected = query.filters[facet.id] ?? "all";
 							const active = facet.options.find((o) => o.value === selected);
+							if (facet.options.length > 7) {
+								return (
+									<SearchCombobox
+										key={facet.id}
+										value={selected}
+										onValueChange={(value) =>
+											query.setFilter(facet.id, value)
+										}
+										options={[
+											{ value: "all", label: facet.label },
+											...facet.options,
+										]}
+										placeholder={facet.label}
+										searchPlaceholder={`Search ${facet.label.toLowerCase()}…`}
+										className="w-full sm:w-auto sm:min-w-40"
+									/>
+								);
+							}
 							return (
 								<DropdownMenu key={facet.id}>
 									<DropdownMenuTrigger asChild>

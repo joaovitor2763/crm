@@ -292,7 +292,26 @@ export class DashboardDefinitionService {
 			principal,
 			PermissionAction.READ,
 		);
-		const spec = dashboardDefinitionSpec.parse(definition.spec);
+		return this.renderSpec(
+			definition.id,
+			definition.spec,
+			principal,
+			definition,
+		);
+	}
+
+	async renderSpec(
+		id: string,
+		storedSpec: unknown,
+		principal: EffectivePrincipal,
+		definition: Pick<StoredDefinition, "id" | "key" | "version" | "status"> = {
+			id,
+			key: id,
+			version: 1,
+			status: DashboardDefinitionStatus.DRAFT,
+		},
+	) {
+		const spec = dashboardDefinitionSpec.parse(storedSpec);
 		const contactPermission = this.accessControl.permission(
 			principal,
 			CRM_RESOURCE.contacts,

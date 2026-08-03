@@ -227,6 +227,7 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 						onValueChange={(next) => next && setType(next as ComposableType)}
 						size="sm"
 						spacing={0}
+						className="no-scrollbar hidden max-w-full overflow-x-auto sm:flex"
 					>
 						{TYPES.map((option) => (
 							<ToggleGroupItem
@@ -239,6 +240,25 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 							</ToggleGroupItem>
 						))}
 					</ToggleGroup>
+					<Select
+						value={type}
+						onValueChange={(next) => setType(next as ComposableType)}
+					>
+						<SelectTrigger
+							size="sm"
+							className="sm:hidden"
+							aria-label="Activity type"
+						>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							{TYPES.map((option) => (
+								<SelectItem key={option} value={option}>
+									{activityLabel(option)}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
 
 					{/*
 					 * A task is the one thing here with a future, so it is the one

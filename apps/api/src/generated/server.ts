@@ -14,12 +14,14 @@ import { z } from "zod";
 const t = initTRPC.create();
 const publicProcedure = t.procedure;
 import { timelineInput, timelineCountsInput, myTasksInput, activityCreateInput, completeInput } from "../activities/activities.contracts";
+import { aiConfigurationUpdateInput, agentTaskListInput, agentTaskIdInput } from "../agent/agent-admin.contracts";
 import { apiCredentialCreateInput, apiCredentialIdInput } from "../api-credentials/api-credentials.contracts";
 import { attributionEventInput, attributionProjectionInput, attributionHistoryInput } from "../attribution/attribution.contracts";
 import { automationCreateInput, automationUpdateInput, automationIdInput, webhookCreateInput, webhookUpdateInput } from "../automations/automations.contracts";
 import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInput, companyUpdateArgs, setPrimaryContactInput } from "../companies/companies.contracts";
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
 import { conversationListInput, conversationEventsInput, conversationSaveInput, conversationIdInput } from "../conversations/conversations.contracts";
+import { dashboardWorkspaceListInput, dashboardWorkspaceIdInput, dashboardWidgetIdInput, dashboardWorkspaceCreateInput, dashboardWorkspaceUpdateInput, dashboardWidgetCreateInput, dashboardWidgetUpdateInput, dashboardWidgetLayoutInput } from "../dashboard/dashboard-workspace.contracts";
 import { dashboardDefinitionListInput, dashboardDefinitionIdInput, dashboardDefinitionCreateInput, dashboardDefinitionUpdateInput, dashboardDefinitionDuplicateInput, dashboardDefinitionVersionInput } from "../dashboard/dashboard-definition.contracts";
 import { dashboardSummaryInput } from "../dashboard/dashboard.contracts";
 import { dashboardAnalyticsInput } from "../dashboard/analytics.contracts";
@@ -33,6 +35,7 @@ import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, p
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
 import { revenueAccountConfigurationInput, revenueAccountListInput, revenueAccountIdInput, revenueAccountCreateInput, revenueAccountUpdateArgs, revenueAccountAssociationInput, revenueAccountMergePreviewInput, revenueAccountMergeInput } from "../revenue-accounts/revenue-accounts.contracts";
 import type { ActivitiesRouter } from "../activities/activities.router";
+import type { AgentAdminRouter } from "../agent/agent-admin.router";
 import type { ApiCredentialsRouter } from "../api-credentials/api-credentials.router";
 import type { AttributionRouter } from "../attribution/attribution.router";
 import type { AutomationsRouter } from "../automations/automations.router";
@@ -69,6 +72,22 @@ const appRouter = t.router({
     complete: publicProcedure
       .input(completeInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<ActivitiesRouter["complete"]>>)
+    }),
+  agentAdmin: t.router({
+    configuration: publicProcedure
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AgentAdminRouter["configuration"]>>),
+    updateConfiguration: publicProcedure
+      .input(aiConfigurationUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AgentAdminRouter["updateConfiguration"]>>),
+    tasks: publicProcedure
+      .input(agentTaskListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AgentAdminRouter["tasks"]>>),
+    retryTask: publicProcedure
+      .input(agentTaskIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AgentAdminRouter["retryTask"]>>),
+    cancelTask: publicProcedure
+      .input(agentTaskIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AgentAdminRouter["cancelTask"]>>)
     }),
   apiCredentials: t.router({
     list: publicProcedure
@@ -192,6 +211,36 @@ const appRouter = t.router({
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<ConversationsRouter["remove"]>>)
     }),
   dashboard: t.router({
+    workspacesList: publicProcedure
+      .input(dashboardWorkspaceListInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["workspacesList"]>>),
+    workspace: publicProcedure
+      .input(dashboardWorkspaceIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["workspace"]>>),
+    renderWidget: publicProcedure
+      .input(dashboardWidgetIdInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["renderWidget"]>>),
+    createWorkspace: publicProcedure
+      .input(dashboardWorkspaceCreateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["createWorkspace"]>>),
+    updateWorkspace: publicProcedure
+      .input(dashboardWorkspaceUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["updateWorkspace"]>>),
+    archiveWorkspace: publicProcedure
+      .input(dashboardWorkspaceIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["archiveWorkspace"]>>),
+    addWidget: publicProcedure
+      .input(dashboardWidgetCreateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["addWidget"]>>),
+    updateWidget: publicProcedure
+      .input(dashboardWidgetUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["updateWidget"]>>),
+    updateWidgetLayout: publicProcedure
+      .input(dashboardWidgetLayoutInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["updateWidgetLayout"]>>),
+    removeWidget: publicProcedure
+      .input(dashboardWidgetIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["removeWidget"]>>),
     definitionsList: publicProcedure
       .input(dashboardDefinitionListInput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["definitionsList"]>>),

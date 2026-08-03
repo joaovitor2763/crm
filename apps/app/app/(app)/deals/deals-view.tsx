@@ -14,10 +14,10 @@ import {
 } from "@crm/ui/components/empty";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
+import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import {
 	Select,
 	SelectContent,
-	SelectGroup,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
@@ -112,6 +112,7 @@ function DealsKanban() {
 			q: input.q,
 			owner: input.owner,
 			pipeline: input.pipeline,
+			closing: input.closing,
 		}),
 	);
 	const boardData = board.data as unknown as BoardData | undefined;
@@ -140,50 +141,61 @@ function DealsKanban() {
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col gap-3">
-			<div className="grid gap-2 sm:grid-cols-[minmax(16rem,1fr)_auto_auto]">
+			<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[minmax(16rem,1fr)_auto_auto_auto]">
 				<Input
 					value={query.q}
 					onChange={(event) => query.setSearch(event.target.value)}
 					placeholder="Search deals by name or company…"
 					aria-label="Search deals"
 				/>
-				<Select
+				<SearchCombobox
 					value={input.pipeline}
 					onValueChange={(value) => {
 						void query.setFilter("pipeline", value);
 						void setViewState({ boardStage: null });
 					}}
-				>
-					<SelectTrigger aria-label="Pipeline" className="w-full sm:w-auto">
-						<SelectValue placeholder="Pipeline" />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectGroup>
-							<SelectItem value="all">Default pipeline</SelectItem>
-							{(pipelines.data ?? []).map((pipeline) => (
-								<SelectItem key={pipeline.id} value={pipeline.id}>
-									{pipeline.name}
-								</SelectItem>
-							))}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
-				<Select
+					options={[
+						{ value: "all", label: "Default pipeline" },
+						...(pipelines.data ?? []).map((pipeline) => ({
+							value: pipeline.id,
+							label: pipeline.name,
+						})),
+					]}
+					placeholder="Pipeline"
+					searchPlaceholder="Search pipelines…"
+					className="w-full lg:min-w-44"
+				/>
+				<SearchCombobox
 					value={input.owner}
 					onValueChange={(value) => query.setFilter("owner", value)}
+					options={[
+						{ value: "all", label: "All owners" },
+						...(users.data ?? []).map((user) => ({
+							value: user.id,
+							label: user.name,
+						})),
+					]}
+					placeholder="Owner"
+					searchPlaceholder="Search owners…"
+					className="w-full lg:min-w-44"
+				/>
+				<Select
+					value={input.closing}
+					onValueChange={(value) => query.setFilter("closing", value)}
 				>
-					<SelectTrigger aria-label="Owner" className="w-full sm:w-auto">
-						<SelectValue placeholder="Owner" />
+					<SelectTrigger
+						aria-label="Closing window"
+						className="w-full lg:min-w-40"
+					>
+						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
-						<SelectGroup>
-							<SelectItem value="all">All owners</SelectItem>
-							{(users.data ?? []).map((user) => (
-								<SelectItem key={user.id} value={user.id}>
-									{user.name}
-								</SelectItem>
-							))}
-						</SelectGroup>
+						<SelectItem value="all">Any close date</SelectItem>
+						<SelectItem value="overdue">Overdue</SelectItem>
+						<SelectItem value="this-month">This month</SelectItem>
+						<SelectItem value="next-month">Next month</SelectItem>
+						<SelectItem value="later">Later</SelectItem>
+						<SelectItem value="none">No close date</SelectItem>
 					</SelectContent>
 				</Select>
 			</div>

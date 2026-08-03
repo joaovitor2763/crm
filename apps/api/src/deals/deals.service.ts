@@ -160,7 +160,12 @@ export class DealsService {
 	}
 
 	async board(
-		input: { q: string; owner: string; pipeline: string },
+		input: {
+			q: string;
+			owner: string;
+			pipeline: string;
+			closing: string;
+		},
 		scope: Prisma.DealWhereInput = {},
 		pipelineScope: Prisma.PipelineWhereInput = {},
 	) {
@@ -194,6 +199,19 @@ export class DealsService {
 		if (input.owner !== FACET_ALL) {
 			where.ownerId =
 				input.owner === FACET_UNASSIGNED ? { in: [] } : input.owner;
+		}
+		if (
+			input.closing !== FACET_ALL &&
+			CLOSING_WINDOWS.includes(input.closing as ClosingWindow)
+		) {
+			where.AND = [
+				...(Array.isArray(where.AND)
+					? where.AND
+					: where.AND
+						? [where.AND]
+						: []),
+				closingFilter(input.closing as ClosingWindow),
+			];
 		}
 
 		const deals = await this.db.deal.findMany({

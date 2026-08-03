@@ -4,12 +4,10 @@ import Archive from "@carbon/icons-react/es/Archive";
 import Building from "@carbon/icons-react/es/Building";
 import Column from "@carbon/icons-react/es/Column";
 import Dashboard from "@carbon/icons-react/es/Dashboard";
-import MagicWand from "@carbon/icons-react/es/MagicWand";
 import Partnership from "@carbon/icons-react/es/Partnership";
 import Settings from "@carbon/icons-react/es/Settings";
 import { Button } from "@crm/ui/components/button";
 import { Icon } from "@crm/ui/components/icon";
-import { StudioNavigation } from "@crm/ui/components/studio-navigation";
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { useQueryState } from "nuqs";
@@ -76,12 +74,6 @@ const NAV_ITEMS = [
 		icon: <Icon icon={Partnership} />,
 	},
 	{
-		id: "automations",
-		label: "Automations",
-		description: "Rules and webhooks",
-		icon: <Icon icon={MagicWand} />,
-	},
-	{
 		id: "accounts",
 		label: "Accounts",
 		description: "Aggregation model",
@@ -92,12 +84,6 @@ const NAV_ITEMS = [
 		label: "Lineage and merge",
 		description: "History and safety",
 		icon: <Icon icon={Archive} />,
-	},
-	{
-		id: "dashboards",
-		label: "Dashboards",
-		description: "Standard and builder",
-		icon: <Icon icon={Dashboard} />,
 	},
 	{
 		id: "ontology",
@@ -137,29 +123,32 @@ export function RevenueStudio({ access }: { access: StudioAccess }) {
 			void setView(next as StudioView);
 		}
 	};
+	const selectedTool = NAV_ITEMS.find((item) => item.id === view);
 
 	return (
-		<div className="grid min-h-0 gap-6 lg:grid-cols-[15rem_minmax(0,1fr)]">
-			<aside className="flex flex-col gap-4 border p-3 lg:sticky lg:top-0 lg:self-start">
-				<div className="flex items-start justify-between gap-3 border-b pb-3">
-					<div>
-						<p className="font-medium text-sm">Studio</p>
-						<p className="text-muted-foreground text-xs">
-							Revenue architecture
-						</p>
+		<div className="flex min-h-0 flex-col gap-5">
+			{view !== "overview" ? (
+				<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
+					<div className="flex min-w-0 items-center gap-3">
+						<Button asChild variant="outline" size="sm">
+							<Link href="/studio">← Studio</Link>
+						</Button>
+						<div className="min-w-0">
+							<p className="truncate font-medium text-sm">
+								{selectedTool?.label ?? "Studio tool"}
+							</p>
+							<p className="truncate text-muted-foreground text-xs">
+								{selectedTool?.description}
+							</p>
+						</div>
 					</div>
-					<Button asChild variant="ghost" size="icon-xs">
-						<Link href="/settings" aria-label="Open settings">
-							<Icon icon={Settings} />
+					<Button asChild variant="ghost" size="sm">
+						<Link href="/settings">
+							<Icon icon={Settings} /> Settings
 						</Link>
 					</Button>
 				</div>
-				<StudioNavigation
-					items={[...NAV_ITEMS]}
-					value={view}
-					onValueChange={selectView}
-				/>
-			</aside>
+			) : null}
 
 			<section className="min-w-0">
 				{view === "overview" ? (
@@ -192,7 +181,9 @@ export function RevenueStudio({ access }: { access: StudioAccess }) {
 						<AccessRequired label="fields" />
 					)
 				) : null}
-				{view === "relations" ? <StudioRelations schema={schema.data} /> : null}
+				{view === "relations" ? (
+					<StudioRelations schema={schema.data} canManage={access.fields} />
+				) : null}
 				{view === "automations" ? (
 					access.automations ? (
 						<AutomationsSettings />

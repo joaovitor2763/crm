@@ -252,7 +252,7 @@ export class ActivitiesService {
 		scope: Prisma.ActivityWhereInput = {},
 	) {
 		const now = new Date();
-		const where: Prisma.ActivityWhereInput = {
+		const baseWhere: Prisma.ActivityWhereInput = {
 			AND: [
 				{
 					type: ActivityType.TASK,
@@ -262,23 +262,30 @@ export class ActivitiesService {
 				scope,
 			],
 		};
+		const where: Prisma.ActivityWhereInput = { ...baseWhere };
 
 		if (input.window === "overdue") where.dueAt = { lt: now };
 		if (input.window === "upcoming") where.dueAt = { gte: now };
 
-		const tasks = await this.db.activity.findMany({
-			where,
-			take: input.limit,
-			// Undated tasks last: a task with no due date is a someday, and it
-			// should not sit above something due this afternoon.
-			orderBy: [
-				{ dueAt: { sort: "asc", nulls: "last" } },
-				{ createdAt: "desc" },
-			],
-			select: ENTRY_SELECT,
-		});
+		const [tasks, total, overdue] = await Promise.all([
+			this.db.activity.findMany({
+				where,
+				take: input.limit,
+				// Undated tasks last: a task with no due date is a someday, and it
+				// should not sit above something due this afternoon.
+				orderBy: [
+					{ dueAt: { sort: "asc", nulls: "last" } },
+					{ createdAt: "desc" },
+				],
+				select: ENTRY_SELECT,
+			}),
+			this.db.activity.count({ where: baseWhere }),
+			this.db.activity.count({
+				where: { AND: [baseWhere, { dueAt: { lt: now } }] },
+			}),
+		]);
 
-		return tasks.map(serializeEntry);
+		return { rows: tasks.map(serializeEntry), total, overdue };
 	}
 
 	async resolvePlacement(

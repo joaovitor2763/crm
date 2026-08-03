@@ -38,6 +38,15 @@ export function ProductsSettings() {
 	const [price, setPrice] = useState("");
 	const [currency, setCurrency] = useState("USD");
 	const [businessUnitId, setBusinessUnitId] = useState("");
+	const [q, setQ] = useState("");
+	const [status, setStatus] = useState<"active" | "archived" | "all">("active");
+	const visibleProducts = (products.data ?? []).filter((product) => {
+		if (status === "active" && product.archivedAt) return false;
+		if (status === "archived" && !product.archivedAt) return false;
+		return `${product.name} ${product.sku}`
+			.toLowerCase()
+			.includes(q.trim().toLowerCase());
+	});
 	const done = async (message: string) => {
 		await cache.products();
 		toast.success(message);
@@ -81,6 +90,30 @@ export function ProductsSettings() {
 				<CardTitle>Product catalogue</CardTitle>
 			</CardHeader>
 			<CardContent>
+				<div className="mb-4 grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_10rem_auto] sm:items-center">
+					<Input
+						value={q}
+						onChange={(event) => setQ(event.target.value)}
+						placeholder="Search products or SKU…"
+						aria-label="Search products"
+					/>
+					<Select
+						value={status}
+						onValueChange={(value) => setStatus(value as typeof status)}
+					>
+						<SelectTrigger aria-label="Product status">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="active">Active</SelectItem>
+							<SelectItem value="archived">Archived</SelectItem>
+							<SelectItem value="all">All</SelectItem>
+						</SelectContent>
+					</Select>
+					<span className="text-muted-foreground text-xs tabular-nums">
+						{visibleProducts.length} products
+					</span>
+				</div>
 				<form
 					className="grid gap-2 md:grid-cols-[1fr_2fr_1fr_6rem_1fr_auto] md:items-end"
 					onSubmit={(event) => {
@@ -163,7 +196,7 @@ export function ProductsSettings() {
 				</form>
 
 				<div className="flex flex-col gap-2">
-					{(products.data ?? []).map((product) => (
+					{visibleProducts.map((product) => (
 						<ProductRow
 							key={product.id}
 							product={product}

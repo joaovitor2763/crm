@@ -28,13 +28,30 @@ import type { RouterOutputs } from "@/lib/trpc/types";
 
 type Overview = RouterOutputs["governance"]["directory"];
 
-export function AutomationsSettings() {
+export function AutomationsSettings({
+	canManageAutomations = true,
+	canManageWebhooks = true,
+}: {
+	canManageAutomations?: boolean;
+	canManageWebhooks?: boolean;
+}) {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const governance = useQuery(trpc.governance.directory.queryOptions());
-	const automations = useQuery(trpc.automations.list.queryOptions());
-	const webhooks = useQuery(trpc.automations.webhooks.queryOptions());
+	const automations = useQuery({
+		...trpc.automations.list.queryOptions(),
+		enabled: canManageAutomations,
+	});
+	const webhooks = useQuery({
+		...trpc.automations.webhooks.queryOptions(),
+		enabled: canManageWebhooks,
+	});
 	const [webhookSecret, setWebhookSecret] = useState<string | null>(null);
+	const [createMode, setCreateMode] = useState<"automation" | "webhook" | null>(
+		null,
+	);
+	const [q, setQ] = useState("");
+	const [kind, setKind] = useState<"all" | "automation" | "webhook">("all");
 	const refresh = async (message: string) => {
 		await Promise.all([
 			queryClient.invalidateQueries(trpc.automations.list.queryFilter()),
@@ -45,7 +62,10 @@ export function AutomationsSettings() {
 	const fail = (error: { message: string }) => toast.error(error.message);
 	const create = useMutation(
 		trpc.automations.create.mutationOptions({
-			onSuccess: () => refresh("Automation created as draft."),
+			onSuccess: async () => {
+				setCreateMode(null);
+				await refresh("Automation created as draft.");
+			},
 			onError: fail,
 		}),
 	);
@@ -59,6 +79,7 @@ export function AutomationsSettings() {
 		trpc.automations.createWebhook.mutationOptions({
 			onSuccess: async (result) => {
 				setWebhookSecret(result.secret);
+				setCreateMode(null);
 				await refresh("Webhook created.");
 			},
 			onError: fail,
@@ -74,11 +95,31 @@ export function AutomationsSettings() {
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle>Automations and webhooks</CardTitle>
-				<CardDescription>
-					Durable, role-scoped rules driven by domain events. No arbitrary code
-					execution.
-				</CardDescription>
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div>
+						<CardTitle>Automations and webhooks</CardTitle>
+						<CardDescription>
+							Durable, role-scoped rules driven by domain events. No arbitrary
+							code execution.
+						</CardDescription>
+					</div>
+					<div className="flex gap-2">
+						{canManageAutomations ? (
+							<Button size="sm" onClick={() => setCreateMode("automation")}>
+								New automation
+							</Button>
+						) : null}
+						{canManageWebhooks ? (
+							<Button
+								size="sm"
+								variant="outline"
+								onClick={() => setCreateMode("webhook")}
+							>
+								New webhook
+							</Button>
+						) : null}
+					</div>
+				</div>
 			</CardHeader>
 			<CardContent>
 				{webhookSecret ? (
@@ -93,61 +134,125 @@ export function AutomationsSettings() {
 						</AlertDescription>
 					</Alert>
 				) : null}
-				<div className="grid gap-4 lg:grid-cols-2">
-					<AutomationForm data={governance.data} mutate={create.mutate} />
-					<WebhookForm data={governance.data} mutate={createWebhook.mutate} />
+				{createMode ? (
+					<div className="mb-4 border p-4">
+						<div className="mb-3 flex items-center justify-between">
+							<p className="font-medium text-sm">
+								{createMode === "automation" ? "New automation" : "New webhook"}
+							</p>
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => setCreateMode(null)}
+							>
+								Cancel
+							</Button>
+						</div>
+						{createMode === "automation" ? (
+							<AutomationForm
+								data={governance.data}
+								mutate={(input) => create.mutate(input)}
+							/>
+						) : (
+							<WebhookForm
+								data={governance.data}
+								mutate={(input) => createWebhook.mutate(input)}
+							/>
+						)}
+					</div>
+				) : null}
+				<div className="mb-3 grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_10rem]">
+					<Input
+						value={q}
+						onChange={(event) => setQ(event.target.value)}
+						placeholder="Search automations…"
+						aria-label="Search automations"
+					/>
+					<Select
+						value={kind}
+						onValueChange={(value) => setKind(value as typeof kind)}
+					>
+						<SelectTrigger aria-label="Automation type">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="all">All types</SelectItem>
+							{canManageAutomations ? (
+								<SelectItem value="automation">Rules</SelectItem>
+							) : null}
+							{canManageWebhooks ? (
+								<SelectItem value="webhook">Webhooks</SelectItem>
+							) : null}
+						</SelectContent>
+					</Select>
 				</div>
 				<div className="flex flex-col gap-2">
-					{automations.data?.map((automation) => (
-						<div
-							key={automation.id}
-							className="flex items-center justify-between gap-3 border p-3"
-						>
-							<div>
-								<p className="text-sm font-medium">{automation.name}</p>
-								<p className="text-xs text-muted-foreground">
-									{automation.status} · v{automation.version} ·{" "}
-									{automation.role.name}
-								</p>
-							</div>
-							<Field orientation="horizontal">
-								<FieldLabel htmlFor={`automation-${automation.id}`}>
-									Active
-								</FieldLabel>
-								<Switch
-									id={`automation-${automation.id}`}
-									checked={automation.status === "ACTIVE"}
-									onCheckedChange={(checked) =>
-										update.mutate({
-											id: automation.id,
-											status: checked ? "ACTIVE" : "PAUSED",
-										})
-									}
-								/>
-							</Field>
-						</div>
-					))}
-					{webhooks.data?.map((webhook) => (
-						<div
-							key={webhook.id}
-							className="flex items-center justify-between gap-3 border p-3"
-						>
-							<div>
-								<p className="text-sm font-medium">{webhook.name}</p>
-								<p className="text-xs text-muted-foreground">
-									{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
-									{webhook._count.deliveries} deliveries
-								</p>
-							</div>
-							<Switch
-								aria-label={`Enable ${webhook.name}`}
-								checked={webhook.isActive}
-								onCheckedChange={(isActive) =>
-									updateWebhook.mutate({ id: webhook.id, isActive })
-								}
-							/>
-						</div>
-					))}
+					{canManageAutomations && kind !== "webhook"
+						? automations.data
+								?.filter((automation) =>
+									automation.name
+										.toLowerCase()
+										.includes(q.trim().toLowerCase()),
+								)
+								.map((automation) => (
+									<div
+										key={automation.id}
+										className="flex items-center justify-between gap-3 border p-3"
+									>
+										<div>
+											<p className="text-sm font-medium">{automation.name}</p>
+											<p className="text-xs text-muted-foreground">
+												{automation.status} · v{automation.version} ·{" "}
+												{automation.role.name}
+											</p>
+										</div>
+										<Field orientation="horizontal">
+											<FieldLabel htmlFor={`automation-${automation.id}`}>
+												Active
+											</FieldLabel>
+											<Switch
+												id={`automation-${automation.id}`}
+												checked={automation.status === "ACTIVE"}
+												onCheckedChange={(checked) =>
+													update.mutate({
+														id: automation.id,
+														status: checked ? "ACTIVE" : "PAUSED",
+													})
+												}
+											/>
+										</Field>
+									</div>
+								))
+						: null}
+					{canManageWebhooks && kind !== "automation"
+						? webhooks.data
+								?.filter((webhook) =>
+									`${webhook.name} ${webhook.url}`
+										.toLowerCase()
+										.includes(q.trim().toLowerCase()),
+								)
+								.map((webhook) => (
+									<div
+										key={webhook.id}
+										className="flex items-center justify-between gap-3 border p-3"
+									>
+										<div>
+											<p className="text-sm font-medium">{webhook.name}</p>
+											<p className="text-xs text-muted-foreground">
+												{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
+												{webhook._count.deliveries} deliveries
+											</p>
+										</div>
+										<Switch
+											aria-label={`Enable ${webhook.name}`}
+											checked={webhook.isActive}
+											onCheckedChange={(isActive) =>
+												updateWebhook.mutate({ id: webhook.id, isActive })
+											}
+										/>
+									</div>
+								))
+						: null}
 				</div>
 			</CardContent>
 		</Card>

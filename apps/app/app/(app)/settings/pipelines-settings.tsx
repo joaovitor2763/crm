@@ -38,6 +38,13 @@ export function PipelinesSettings() {
 	const [name, setName] = useState("");
 	const [businessUnitId, setBusinessUnitId] = useState("");
 	const [newStages, setNewStages] = useState<Record<string, string>>({});
+	const [q, setQ] = useState("");
+	const [status, setStatus] = useState<"active" | "archived" | "all">("active");
+	const visiblePipelines = (pipelines.data ?? []).filter((pipeline) => {
+		if (status === "active" && pipeline.archivedAt) return false;
+		if (status === "archived" && !pipeline.archivedAt) return false;
+		return pipeline.name.toLowerCase().includes(q.trim().toLowerCase());
+	});
 
 	const done = async (message: string) => {
 		await cache.pipelines();
@@ -110,6 +117,30 @@ export function PipelinesSettings() {
 				<CardTitle>Pipelines and stages</CardTitle>
 			</CardHeader>
 			<CardContent>
+				<div className="mb-4 grid gap-2 sm:grid-cols-[minmax(14rem,1fr)_10rem_auto] sm:items-center">
+					<Input
+						value={q}
+						onChange={(event) => setQ(event.target.value)}
+						placeholder="Search pipelines…"
+						aria-label="Search pipelines"
+					/>
+					<Select
+						value={status}
+						onValueChange={(value) => setStatus(value as typeof status)}
+					>
+						<SelectTrigger aria-label="Pipeline status">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="active">Active</SelectItem>
+							<SelectItem value="archived">Archived</SelectItem>
+							<SelectItem value="all">All</SelectItem>
+						</SelectContent>
+					</Select>
+					<span className="text-muted-foreground text-xs tabular-nums">
+						{visiblePipelines.length} pipelines
+					</span>
+				</div>
 				<form
 					className="grid gap-2 md:grid-cols-[2fr_1fr_auto] md:items-end"
 					onSubmit={(event) => {
@@ -150,7 +181,7 @@ export function PipelinesSettings() {
 					</Button>
 				</form>
 
-				{(pipelines.data ?? []).map((pipeline) => (
+				{visiblePipelines.map((pipeline) => (
 					<Card key={pipeline.id}>
 						<CardHeader>
 							<div className="flex flex-wrap items-center justify-between gap-2">

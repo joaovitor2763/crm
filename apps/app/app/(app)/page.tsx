@@ -34,6 +34,9 @@ export default async function OverviewPage({
 	await Promise.all([
 		queryClient.prefetchQuery(trpc.users.me.queryOptions()),
 		queryClient.prefetchQuery(trpc.dashboard.summary.queryOptions({ scope })),
+		queryClient.prefetchQuery(
+			trpc.activities.myTasks.queryOptions({ window: "all", limit: 10 }),
+		),
 	]);
 
 	return (

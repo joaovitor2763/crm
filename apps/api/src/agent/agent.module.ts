@@ -1,4 +1,7 @@
 import { Module } from "@nestjs/common";
+import { TrpcModule } from "../trpc/trpc.module";
+import { AgentAdminRouter } from "./agent-admin.router";
+import { AgentAdminService } from "./agent-admin.service";
 import { AgentQueueService } from "./agent-queue.service";
 import { AgentTriggerService } from "./agent-trigger.service";
 
@@ -12,7 +15,13 @@ import { AgentTriggerService } from "./agent-trigger.service";
  * created and counting the rows not yet done are both filing.
  */
 @Module({
-	providers: [AgentTriggerService, AgentQueueService],
+	imports: [TrpcModule],
+	providers: [
+		AgentTriggerService,
+		AgentQueueService,
+		AgentAdminService,
+		AgentAdminRouter,
+	],
 	exports: [AgentTriggerService, AgentQueueService],
 })
 export class AgentModule {}

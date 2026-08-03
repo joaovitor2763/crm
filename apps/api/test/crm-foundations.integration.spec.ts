@@ -476,6 +476,7 @@ describe("configurable CRM foundations", () => {
 			q: "",
 			owner: "all",
 			pipeline: pipelineId,
+			closing: "all",
 		});
 		expect(board.truncated).toBe(true);
 		expect(board.deals).toHaveLength(1000);
