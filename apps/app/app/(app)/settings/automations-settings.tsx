@@ -513,6 +513,17 @@ function WebhookForm({
 	const [selectedEvents, setSelectedEvents] = useState<string[]>([
 		"lead.submitted",
 	]);
+	const [customEvent, setCustomEvent] = useState("");
+	const catalogIds = new Set<string>(events.map((event) => event.id));
+	const customSelected = selectedEvents.filter((id) => !catalogIds.has(id));
+	const addCustomEvent = () => {
+		const value = customEvent.trim().toLowerCase();
+		if (!value) return;
+		setSelectedEvents((current) =>
+			current.includes(value) ? current : [...current, value],
+		);
+		setCustomEvent("");
+	};
 	return (
 		<form
 			onSubmit={(event) => {
@@ -579,6 +590,56 @@ function WebhookForm({
 							);
 						})}
 					</div>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor="webhook-custom-event">
+						Custom event type
+					</FieldLabel>
+					<div className="flex gap-2">
+						<Input
+							id="webhook-custom-event"
+							value={customEvent}
+							placeholder="e.g. deal.stage_changed"
+							onChange={(event) => setCustomEvent(event.target.value)}
+							onKeyDown={(event) => {
+								if (event.key === "Enter") {
+									event.preventDefault();
+									addCustomEvent();
+								}
+							}}
+						/>
+						<Button
+							type="button"
+							variant="outline"
+							disabled={!customEvent.trim()}
+							onClick={addCustomEvent}
+						>
+							Add
+						</Button>
+					</div>
+					<p className="text-muted-foreground text-xs">
+						Any event type the platform emits (or will emit) can be subscribed
+						to, even before it is in the catalog above.
+					</p>
+					{customSelected.length ? (
+						<div className="flex flex-wrap gap-1.5">
+							{customSelected.map((id) => (
+								<Button
+									key={id}
+									type="button"
+									variant="secondary"
+									size="sm"
+									onClick={() =>
+										setSelectedEvents((current) =>
+											current.filter((candidate) => candidate !== id),
+										)
+									}
+								>
+									{id} ×
+								</Button>
+							))}
+						</div>
+					) : null}
 				</Field>
 				<Field>
 					<FieldLabel>Business unit</FieldLabel>
