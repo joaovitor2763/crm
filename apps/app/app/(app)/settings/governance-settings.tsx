@@ -1,5 +1,6 @@
 "use client";
 
+import Edit from "@carbon/icons-react/es/Edit";
 import { Button } from "@crm/ui/components/button";
 import {
 	Card,
@@ -9,6 +10,7 @@ import {
 	CardTitle,
 } from "@crm/ui/components/card";
 import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
+import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
 import {
 	Select,
@@ -18,7 +20,9 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@crm/ui/components/select";
+import { StatusIndicator } from "@crm/ui/components/status-indicator";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { parseAsInteger, parseAsString, useQueryState } from "nuqs";
 import { useDeferredValue, useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
@@ -92,13 +96,18 @@ export function UserManagement() {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const overview = useQuery(trpc.governance.overview.queryOptions());
-	const [q, setQ] = useState("");
+	const [q, setQ] = useQueryState("q", parseAsString.withDefault(""));
+	const [page, setPage] = useQueryState("page", parseAsInteger.withDefault(1));
+	const [editingUserId, setEditingUserId] = useState<string | null>(null);
 	const deferredQ = useDeferredValue(q.trim().toLowerCase());
 	const setUser = useMutation(
 		trpc.governance.setUserAccess.mutationOptions({
-			onSuccess: async () => {
+			onSuccess: async (_result, variables) => {
 				await queryClient.invalidateQueries(
 					trpc.governance.overview.queryFilter(),
+				);
+				setEditingUserId((current) =>
+					current === variables.userId ? null : current,
 				);
 				toast.success("User access updated.");
 			},
@@ -113,6 +122,13 @@ export function UserManagement() {
 				.toLowerCase()
 				.includes(deferredQ),
 	);
+	const pageSize = 10;
+	const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+	const currentPage = Math.min(Math.max(page, 1), totalPages);
+	const visibleUsers = users.slice(
+		(currentPage - 1) * pageSize,
+		currentPage * pageSize,
+	);
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="grid gap-3 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -121,28 +137,121 @@ export function UserManagement() {
 					<Input
 						id="user-search"
 						value={q}
-						onChange={(event) => setQ(event.target.value)}
+						onChange={(event) => {
+							void setQ(event.target.value);
+							void setPage(1);
+						}}
 						placeholder="Search name, email or role…"
 					/>
 				</Field>
-				<p className="text-muted-foreground text-xs tabular-nums">
+				<p
+					className="text-muted-foreground text-xs tabular-nums"
+					aria-live="polite"
+				>
 					{users.length} of {data?.users.length ?? 0} users
 				</p>
 			</div>
 			{data && users.length ? (
-				users.map((user) => (
-					<UserAccessForm
-						key={user.id}
-						user={user}
-						data={data}
-						mutate={setUser.mutate}
-					/>
-				))
+				<>
+					<ul className="grid gap-2" aria-label="Workspace users">
+						{visibleUsers.map((user) => (
+							<li key={user.id}>
+								{editingUserId === user.id ? (
+									<UserAccessForm
+										user={user}
+										data={data}
+										mutate={setUser.mutate}
+										onCancel={() => setEditingUserId(null)}
+										pending={setUser.isPending}
+									/>
+								) : (
+									<UserAccessSummary
+										user={user}
+										onEdit={() => setEditingUserId(user.id)}
+									/>
+								)}
+							</li>
+						))}
+					</ul>
+					{totalPages > 1 ? (
+						<div className="flex flex-wrap items-center justify-between gap-3 border-t pt-3 text-muted-foreground text-xs">
+							<span>
+								Page {currentPage} of {totalPages}
+							</span>
+							<div className="flex gap-2">
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={currentPage <= 1}
+									onClick={() => void setPage(currentPage - 1)}
+								>
+									Previous
+								</Button>
+								<Button
+									variant="outline"
+									size="sm"
+									disabled={currentPage >= totalPages}
+									onClick={() => void setPage(currentPage + 1)}
+								>
+									Next
+								</Button>
+							</div>
+						</div>
+					) : null}
+				</>
 			) : (
 				<div className="border py-12 text-center text-muted-foreground text-sm">
 					No users match this search.
 				</div>
 			)}
+		</div>
+	);
+}
+
+function UserAccessSummary({
+	user,
+	onEdit,
+}: {
+	user: User;
+	onEdit: () => void;
+}) {
+	const status = user.access
+		? user.access.status === "SUSPENDED"
+			? { tone: "warning" as const, label: "Suspended" }
+			: { tone: "success" as const, label: "Active" }
+		: { tone: "neutral" as const, label: "No access" };
+	const workspaceAccess = user.access
+		? (user.access.primaryTeam?.name ??
+			user.access.primaryBusinessUnit?.name ??
+			"Global")
+		: "No access";
+	return (
+		<div className="grid gap-3 border p-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-center">
+			<div className="min-w-0">
+				<p className="truncate text-sm font-medium">{user.name}</p>
+				<p className="truncate text-xs text-muted-foreground">{user.email}</p>
+			</div>
+			<div className="min-w-0">
+				<p className="text-muted-foreground text-xs">Role</p>
+				<p className="truncate text-sm">
+					{user.access?.role.name ?? "No role"}
+				</p>
+			</div>
+			<div className="min-w-0">
+				<p className="text-muted-foreground text-xs">Workspace access</p>
+				<p className="truncate text-sm">{workspaceAccess}</p>
+			</div>
+			<div className="flex items-center justify-between gap-2 sm:justify-end">
+				<StatusIndicator tone={status.tone} label={status.label} />
+				<Button
+					variant="outline"
+					size="sm"
+					aria-label={`Edit access for ${user.name}`}
+					onClick={onEdit}
+				>
+					<Icon icon={Edit} /> Edit
+				</Button>
+			</div>
 		</div>
 	);
 }
@@ -451,6 +560,8 @@ function UserAccessForm({
 	user,
 	data,
 	mutate,
+	onCancel,
+	pending,
 }: {
 	user: User;
 	data: Overview;
@@ -464,11 +575,14 @@ function UserAccessForm({
 		teamIds?: string[];
 		managedTeamIds?: string[];
 	}) => void;
+	onCancel: () => void;
+	pending: boolean;
 }) {
 	const teams = data.businessUnits.flatMap((unit) => unit.teams);
+	const fieldId = (field: string) => `user-${user.id}-${field}`;
 	return (
 		<form
-			className="grid gap-2 border p-3 md:grid-cols-[2fr_1fr_1fr_1fr_auto] md:items-end"
+			className="grid gap-3 border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-[1.5fr_1fr_1fr_1fr_1fr_auto] xl:items-end"
 			onSubmit={(event) => {
 				event.preventDefault();
 				const form = new FormData(event.currentTarget);
@@ -486,60 +600,73 @@ function UserAccessForm({
 				});
 			}}
 		>
-			<div>
+			<div className="self-center">
 				<p className="text-sm font-medium">{user.name}</p>
 				<p className="text-xs text-muted-foreground">{user.email}</p>
 			</div>
-			<Select name="roleId" defaultValue={user.access?.role.id}>
-				<SelectTrigger aria-label="Role">
-					<SelectValue placeholder="Role" />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectGroup>
-						{data.roles.map((role) => (
-							<SelectItem key={role.id} value={role.id}>
-								{role.name}
-							</SelectItem>
-						))}
-					</SelectGroup>
-				</SelectContent>
-			</Select>
-			<Select
-				name="unitId"
-				defaultValue={user.access?.primaryBusinessUnit?.id ?? NONE}
-			>
-				<SelectTrigger aria-label="Business unit">
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectGroup>
-						<SelectItem value={NONE}>No unit</SelectItem>
-						{data.businessUnits.map((unit) => (
-							<SelectItem key={unit.id} value={unit.id}>
-								{unit.name}
-							</SelectItem>
-						))}
-					</SelectGroup>
-				</SelectContent>
-			</Select>
-			<Select name="teamId" defaultValue={user.access?.primaryTeam?.id ?? NONE}>
-				<SelectTrigger aria-label="Team">
-					<SelectValue />
-				</SelectTrigger>
-				<SelectContent>
-					<SelectGroup>
-						<SelectItem value={NONE}>No team</SelectItem>
-						{teams.map((team) => (
-							<SelectItem key={team.id} value={team.id}>
-								{team.name}
-							</SelectItem>
-						))}
-					</SelectGroup>
-				</SelectContent>
-			</Select>
-			<div className="flex gap-2">
+			<Field>
+				<FieldLabel htmlFor={fieldId("role")}>Role</FieldLabel>
+				<Select name="roleId" defaultValue={user.access?.role.id} required>
+					<SelectTrigger id={fieldId("role")}>
+						<SelectValue placeholder="Choose role" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectGroup>
+							{data.roles.map((role) => (
+								<SelectItem key={role.id} value={role.id}>
+									{role.name}
+								</SelectItem>
+							))}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
+			</Field>
+			<Field>
+				<FieldLabel htmlFor={fieldId("unit")}>Business unit</FieldLabel>
+				<Select
+					name="unitId"
+					defaultValue={user.access?.primaryBusinessUnit?.id ?? NONE}
+				>
+					<SelectTrigger id={fieldId("unit")}>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectGroup>
+							<SelectItem value={NONE}>No unit</SelectItem>
+							{data.businessUnits.map((unit) => (
+								<SelectItem key={unit.id} value={unit.id}>
+									{unit.name}
+								</SelectItem>
+							))}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
+			</Field>
+			<Field>
+				<FieldLabel htmlFor={fieldId("team")}>Team</FieldLabel>
+				<Select
+					name="teamId"
+					defaultValue={user.access?.primaryTeam?.id ?? NONE}
+				>
+					<SelectTrigger id={fieldId("team")}>
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectGroup>
+							<SelectItem value={NONE}>No team</SelectItem>
+							{teams.map((team) => (
+								<SelectItem key={team.id} value={team.id}>
+									{team.name}
+								</SelectItem>
+							))}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
+			</Field>
+			<Field>
+				<FieldLabel htmlFor={fieldId("status")}>Status</FieldLabel>
 				<Select name="status" defaultValue={user.access?.status ?? "ACTIVE"}>
-					<SelectTrigger aria-label="Status">
+					<SelectTrigger id={fieldId("status")}>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -549,8 +676,13 @@ function UserAccessForm({
 						</SelectGroup>
 					</SelectContent>
 				</Select>
-				<Button type="submit" variant="outline">
-					Save
+			</Field>
+			<div className="flex gap-2 md:col-span-2 xl:col-span-1">
+				<Button type="button" variant="ghost" onClick={onCancel}>
+					Cancel
+				</Button>
+				<Button type="submit" disabled={pending}>
+					Save access
 				</Button>
 			</div>
 		</form>

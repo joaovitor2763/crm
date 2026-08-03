@@ -10,6 +10,7 @@ import UserMultiple from "@carbon/icons-react/es/UserMultiple";
 import { Button } from "@crm/ui/components/button";
 import {
 	Card,
+	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -186,6 +187,19 @@ export function DashboardWorkspaces() {
 			},
 		),
 	);
+	const archive = useMutation(
+		studioMutationOptions<unknown, { id: string }>(
+			trpc.dashboard.archiveWorkspace,
+			{
+				onSuccess: async () => {
+					await refresh();
+					await setDashboardId("");
+					toast.success("Dashboard archived.");
+				},
+				onError: (error) => toast.error(error.message),
+			},
+		),
+	);
 
 	if (dashboardId) {
 		return workspace.isLoading ? (
@@ -257,7 +271,13 @@ export function DashboardWorkspaces() {
 					})
 				}
 				onRemove={(id) => remove.mutate({ id })}
-				busy={add.isPending || updateLayout.isPending || remove.isPending}
+				onArchive={() => archive.mutate({ id: dashboardId })}
+				busy={
+					add.isPending ||
+					updateLayout.isPending ||
+					remove.isPending ||
+					archive.isPending
+				}
 			/>
 		) : (
 			<Empty className="border">
@@ -295,7 +315,10 @@ export function DashboardWorkspaces() {
 						void setPage(1);
 					}}
 				>
-					<SelectTrigger className="w-full sm:w-44">
+					<SelectTrigger
+						className="w-full sm:w-44"
+						aria-label="Dashboard visibility"
+					>
 						<SelectValue />
 					</SelectTrigger>
 					<SelectContent>
@@ -455,6 +478,7 @@ function DashboardCanvas({
 	onReorder,
 	onResize,
 	onRemove,
+	onArchive,
 	busy,
 }: {
 	workspace: Workspace;
@@ -467,9 +491,11 @@ function DashboardCanvas({
 	onReorder: (id: string, targetId: string) => void;
 	onResize: (id: string, width: number) => void;
 	onRemove: (id: string) => void;
+	onArchive: () => void;
 	busy: boolean;
 }) {
 	const [draggingId, setDraggingId] = useState<string | null>(null);
+	const [archiveOpen, setArchiveOpen] = useState(false);
 	return (
 		<div className="flex flex-col gap-5">
 			<div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
@@ -496,9 +522,30 @@ function DashboardCanvas({
 					</div>
 				</div>
 				{workspace.canEdit ? (
-					<Button onClick={() => setAddOpen(true)}>
-						<Icon icon={Add} /> Add widget
-					</Button>
+					<div className="flex gap-2">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="outline"
+									size="icon"
+									aria-label="Dashboard actions"
+								>
+									<Icon icon={OverflowMenuHorizontal} />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem
+									variant="destructive"
+									onClick={() => setArchiveOpen(true)}
+								>
+									<Icon icon={TrashCan} /> Archive dashboard
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<Button onClick={() => setAddOpen(true)}>
+							<Icon icon={Add} /> Add widget
+						</Button>
+					</div>
 				) : null}
 			</div>
 			{workspace.widgets.length ? (
@@ -594,6 +641,25 @@ function DashboardCanvas({
 					</div>
 				</DialogContent>
 			</Dialog>
+			<Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
+				<DialogContent showCloseButton={false}>
+					<DialogHeader>
+						<DialogTitle>Archive {workspace.name}?</DialogTitle>
+						<DialogDescription>
+							The dashboard will disappear from dashboard lists. Its widgets and
+							configuration will no longer be available to viewers.
+						</DialogDescription>
+					</DialogHeader>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => setArchiveOpen(false)}>
+							Cancel
+						</Button>
+						<Button variant="destructive" disabled={busy} onClick={onArchive}>
+							Archive dashboard
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
@@ -648,46 +714,48 @@ function WorkspaceWidget({
 			onDragOver={onDragOver}
 			onDrop={onDrop}
 		>
-			<CardHeader className="flex-row items-start justify-between gap-3">
+			<CardHeader>
 				<div className="min-w-0">
 					<CardTitle>{widget.title}</CardTitle>
 					<CardDescription>{widget.description}</CardDescription>
 				</div>
 				{canEdit ? (
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								aria-label={`Widget actions for ${widget.title}`}
-							>
-								<Icon icon={OverflowMenuHorizontal} />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuItem disabled={moveUpDisabled} onClick={onMoveUp}>
-								<Icon icon={ArrowsVertical} /> Move earlier
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								disabled={moveDownDisabled}
-								onClick={onMoveDown}
-							>
-								<Icon icon={ArrowsVertical} /> Move later
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => onResize(3)}>
-								Quarter width
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => onResize(6)}>
-								Half width
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => onResize(12)}>
-								Full width
-							</DropdownMenuItem>
-							<DropdownMenuItem variant="destructive" onClick={onRemove}>
-								<Icon icon={TrashCan} /> Remove
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
+					<CardAction>
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									aria-label={`Widget actions for ${widget.title}`}
+								>
+									<Icon icon={OverflowMenuHorizontal} />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem disabled={moveUpDisabled} onClick={onMoveUp}>
+									<Icon icon={ArrowsVertical} /> Move earlier
+								</DropdownMenuItem>
+								<DropdownMenuItem
+									disabled={moveDownDisabled}
+									onClick={onMoveDown}
+								>
+									<Icon icon={ArrowsVertical} /> Move later
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={() => onResize(3)}>
+									Quarter width
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={() => onResize(6)}>
+									Half width
+								</DropdownMenuItem>
+								<DropdownMenuItem onClick={() => onResize(12)}>
+									Full width
+								</DropdownMenuItem>
+								<DropdownMenuItem variant="destructive" onClick={onRemove}>
+									<Icon icon={TrashCan} /> Remove
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</CardAction>
 				) : null}
 			</CardHeader>
 			<CardContent>

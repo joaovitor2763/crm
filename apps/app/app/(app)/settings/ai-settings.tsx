@@ -130,6 +130,7 @@ export function AiSettings() {
 								setPage(1);
 							}}
 							placeholder="Search reason, kind or record…"
+							aria-label="Search agent tasks"
 							className="sm:max-w-sm"
 						/>
 						<Select
@@ -139,7 +140,10 @@ export function AiSettings() {
 								setPage(1);
 							}}
 						>
-							<SelectTrigger className="w-full sm:w-44">
+							<SelectTrigger
+								className="w-full sm:w-44"
+								aria-label="Agent task status"
+							>
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>

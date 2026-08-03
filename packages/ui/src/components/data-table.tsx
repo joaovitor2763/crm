@@ -1,6 +1,7 @@
 "use client";
 
 import ArrowDown from "@carbon/icons-react/es/ArrowDown";
+import ArrowRight from "@carbon/icons-react/es/ArrowRight";
 import ArrowsVertical from "@carbon/icons-react/es/ArrowsVertical";
 import ArrowUp from "@carbon/icons-react/es/ArrowUp";
 import ChevronDown from "@carbon/icons-react/es/ChevronDown";
@@ -96,6 +97,7 @@ export type DataTableProps<TRow, TSub> = {
 	facets?: DataTableFacet[];
 	tabs?: DataTableTabs;
 	onRowClick?: (row: TRow) => void;
+	getRowActionLabel?: (row: TRow) => string;
 	expandable?: DataTableExpandable<TRow, TSub>;
 	actions?: ReactNode;
 	leadingActions?: ReactNode;
@@ -166,6 +168,7 @@ export function DataTable<TRow, TSub = unknown>({
 	facets,
 	tabs,
 	onRowClick,
+	getRowActionLabel,
 	expandable,
 	actions,
 	leadingActions,
@@ -459,6 +462,7 @@ export function DataTable<TRow, TSub = unknown>({
 					</InputGroupAddon>
 					<InputGroupInput
 						placeholder={searchPlaceholder}
+						aria-label={searchPlaceholder}
 						value={query.q}
 						onChange={(event) => query.setSearch(event.target.value)}
 						autoComplete="off"
@@ -561,25 +565,37 @@ export function DataTable<TRow, TSub = unknown>({
 								<Fragment key={id}>
 									<TableRow
 										onClick={clickable ? handleClick : undefined}
-										className={
+										className={cn(
+											"group/row",
 											clickable
 												? anyExpandable
 													? ROW_ACCENT_EXPANDABLE
 													: ROW_ACCENT
-												: undefined
-										}
+												: undefined,
+										)}
 									>
 										{anyExpandable && (
 											<TableCell className="w-10 px-3 py-3 text-center text-muted-foreground">
-												{canExpand && (
+											{canExpand && (
+												<Button
+													variant="ghost"
+													size="icon-xs"
+													aria-label={isOpen ? "Collapse row" : "Expand row"}
+													aria-expanded={isOpen}
+													onClick={(event) => {
+														event.stopPropagation();
+														handleClick();
+													}}
+												>
 													<ChevronRight
 														size={12}
 														className={cn(
-															"inline-block transition-transform",
+															"transition-transform",
 															isOpen && "rotate-90",
 														)}
 													/>
-												)}
+												</Button>
+											)}
 											</TableCell>
 										)}
 										{visibleColumns.map((column) => (
@@ -589,11 +605,28 @@ export function DataTable<TRow, TSub = unknown>({
 													"overflow-hidden px-3 py-3",
 													column.width,
 													ALIGN_CLASS[column.align ?? "left"],
-													column.hideBelow && HIDE_BELOW_CLASS[column.hideBelow],
-													column.cellClassName,
+												column.hideBelow && HIDE_BELOW_CLASS[column.hideBelow],
+												onRowClick &&
+													column.id === visibleColumns[0]?.id &&
+													"relative pr-9",
+												column.cellClassName,
 												)}
 											>
-												{column.cell(row)}
+											{column.cell(row)}
+											{onRowClick && column.id === visibleColumns[0]?.id ? (
+												<Button
+													variant="ghost"
+													size="icon-xs"
+													className="absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-opacity group-hover/row:opacity-100 focus-visible:opacity-100"
+													aria-label={getRowActionLabel?.(row) ?? "Open row"}
+													onClick={(event) => {
+														event.stopPropagation();
+														onRowClick(row);
+													}}
+												>
+													<ArrowRight />
+												</Button>
+											) : null}
 											</TableCell>
 										))}
 									</TableRow>

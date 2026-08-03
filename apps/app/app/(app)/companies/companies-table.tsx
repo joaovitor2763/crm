@@ -212,6 +212,7 @@ export function CompaniesTable() {
 			loading={companies.isFetching}
 			searchPlaceholder="Search companies by name or domain…"
 			onRowClick={(row) => openRecord({ kind: "company", id: row.id })}
+			getRowActionLabel={(row) => `Open ${row.name}`}
 			empty="No companies match this view."
 		/>
 	);

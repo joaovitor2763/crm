@@ -393,16 +393,22 @@ function DealProducts({ deal }: { deal: Deal }) {
 							type="number"
 							min={1}
 							defaultValue={item.quantity}
-							aria-label="Quantity"
+							aria-label={`Quantity for ${item.name}`}
 						/>
 						<div className="flex gap-2">
-							<Button type="submit" variant="outline" size="sm">
+							<Button
+								type="submit"
+								variant="outline"
+								size="sm"
+								aria-label={`Save ${item.name}`}
+							>
 								Save
 							</Button>
 							<Button
 								type="button"
 								variant="outline"
 								size="sm"
+								aria-label={`Remove ${item.name}`}
 								onClick={() => remove.mutate({ id: item.id })}
 							>
 								Remove
@@ -419,7 +425,7 @@ function DealProducts({ deal }: { deal: Deal }) {
 					}}
 				>
 					<Select value={productId} onValueChange={setProductId}>
-						<SelectTrigger className="flex-1">
+						<SelectTrigger className="flex-1" aria-label="Product to add">
 							<SelectValue placeholder="Add product" />
 						</SelectTrigger>
 						<SelectContent>

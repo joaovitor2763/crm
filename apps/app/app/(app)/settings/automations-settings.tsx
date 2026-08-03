@@ -9,6 +9,12 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyTitle,
+} from "@crm/ui/components/empty";
 import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
 import { SearchCombobox } from "@crm/ui/components/search-combobox";
@@ -57,6 +63,32 @@ export function AutomationsSettings({
 	);
 	const [q, setQ] = useState("");
 	const [kind, setKind] = useState<"all" | "automation" | "webhook">("all");
+	const normalizedQuery = q.trim().toLowerCase();
+	const filteredAutomations =
+		canManageAutomations && kind !== "webhook"
+			? (automations.data ?? []).filter((automation) =>
+					automation.name.toLowerCase().includes(normalizedQuery),
+				)
+			: [];
+	const filteredWebhooks =
+		canManageWebhooks && kind !== "automation"
+			? (webhooks.data ?? []).filter((webhook) =>
+					`${webhook.name} ${webhook.url}`
+						.toLowerCase()
+						.includes(normalizedQuery),
+				)
+			: [];
+	const automationFailed =
+		canManageAutomations && kind !== "webhook" && automations.isError;
+	const webhookFailed =
+		canManageWebhooks && kind !== "automation" && webhooks.isError;
+	const listFailed = automationFailed || webhookFailed;
+	const emptyType =
+		kind === "webhook"
+			? "webhooks"
+			: kind === "automation"
+				? "automations"
+				: "automations or webhooks";
 	const refresh = async (message: string) => {
 		await Promise.all([
 			queryClient.invalidateQueries(trpc.automations.list.queryFilter()),
@@ -194,72 +226,115 @@ export function AutomationsSettings({
 					</Select>
 				</div>
 				<div className="flex flex-col gap-2">
-					{canManageAutomations && kind !== "webhook"
-						? automations.data
-								?.filter((automation) =>
-									automation.name
-										.toLowerCase()
-										.includes(q.trim().toLowerCase()),
-								)
-								.map((automation) => (
-									<div
-										key={automation.id}
-										className="flex items-center justify-between gap-3 border p-3"
+					{listFailed ? (
+						<Alert variant="destructive">
+							<AlertTitle>Could not load this list</AlertTitle>
+							<AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+								<span>Check the connection and try again.</span>
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={() => {
+										if (automationFailed) void automations.refetch();
+										if (webhookFailed) void webhooks.refetch();
+									}}
+								>
+									Try again
+								</Button>
+							</AlertDescription>
+						</Alert>
+					) : null}
+					{filteredAutomations.map((automation) => (
+						<div
+							key={automation.id}
+							className="flex items-center justify-between gap-3 border p-3"
+						>
+							<div>
+								<p className="text-sm font-medium">{automation.name}</p>
+								<p className="text-xs text-muted-foreground">
+									{automation.status} · v{automation.version} ·{" "}
+									{automation.role.name}
+								</p>
+							</div>
+							<Field orientation="horizontal">
+								<FieldLabel htmlFor={`automation-${automation.id}`}>
+									Active
+								</FieldLabel>
+								<Switch
+									id={`automation-${automation.id}`}
+									checked={automation.status === "ACTIVE"}
+									onCheckedChange={(checked) =>
+										update.mutate({
+											id: automation.id,
+											status: checked ? "ACTIVE" : "PAUSED",
+										})
+									}
+								/>
+							</Field>
+						</div>
+					))}
+					{filteredWebhooks.map((webhook) => (
+						<div
+							key={webhook.id}
+							className="flex items-center justify-between gap-3 border p-3"
+						>
+							<div>
+								<p className="text-sm font-medium">{webhook.name}</p>
+								<p className="text-xs text-muted-foreground">
+									{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
+									{webhook._count.deliveries} deliveries
+								</p>
+							</div>
+							<Switch
+								aria-label={`Enable ${webhook.name}`}
+								checked={webhook.isActive}
+								onCheckedChange={(isActive) =>
+									updateWebhook.mutate({ id: webhook.id, isActive })
+								}
+							/>
+						</div>
+					))}
+					{!automations.isLoading &&
+					!webhooks.isLoading &&
+					!listFailed &&
+					filteredAutomations.length === 0 &&
+					filteredWebhooks.length === 0 ? (
+						<Empty className="border">
+							<EmptyHeader>
+								<EmptyTitle>
+									{normalizedQuery
+										? `No matching ${emptyType}`
+										: `No ${emptyType} yet`}
+								</EmptyTitle>
+								<EmptyDescription>
+									{normalizedQuery
+										? "Try another search or type filter."
+										: kind === "webhook"
+											? "Create an endpoint to send selected events to an external system."
+											: kind === "automation"
+												? "Create a rule that turns a domain event into an internal action."
+												: "Create a rule for an internal action or a webhook for an external system."}
+								</EmptyDescription>
+							</EmptyHeader>
+							<div className="flex flex-wrap justify-center gap-2">
+								{canManageAutomations && kind !== "webhook" ? (
+									<Button size="sm" onClick={() => setCreateMode("automation")}>
+										Create automation
+									</Button>
+								) : null}
+								{canManageWebhooks && kind !== "automation" ? (
+									<Button
+										size="sm"
+										variant="outline"
+										onClick={() => setCreateMode("webhook")}
 									>
-										<div>
-											<p className="text-sm font-medium">{automation.name}</p>
-											<p className="text-xs text-muted-foreground">
-												{automation.status} · v{automation.version} ·{" "}
-												{automation.role.name}
-											</p>
-										</div>
-										<Field orientation="horizontal">
-											<FieldLabel htmlFor={`automation-${automation.id}`}>
-												Active
-											</FieldLabel>
-											<Switch
-												id={`automation-${automation.id}`}
-												checked={automation.status === "ACTIVE"}
-												onCheckedChange={(checked) =>
-													update.mutate({
-														id: automation.id,
-														status: checked ? "ACTIVE" : "PAUSED",
-													})
-												}
-											/>
-										</Field>
-									</div>
-								))
-						: null}
-					{canManageWebhooks && kind !== "automation"
-						? webhooks.data
-								?.filter((webhook) =>
-									`${webhook.name} ${webhook.url}`
-										.toLowerCase()
-										.includes(q.trim().toLowerCase()),
-								)
-								.map((webhook) => (
-									<div
-										key={webhook.id}
-										className="flex items-center justify-between gap-3 border p-3"
-									>
-										<div>
-											<p className="text-sm font-medium">{webhook.name}</p>
-											<p className="text-xs text-muted-foreground">
-												{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
-												{webhook._count.deliveries} deliveries
-											</p>
-										</div>
-										<Switch
-											aria-label={`Enable ${webhook.name}`}
-											checked={webhook.isActive}
-											onCheckedChange={(isActive) =>
-												updateWebhook.mutate({ id: webhook.id, isActive })
-											}
-										/>
-									</div>
-								))
-						: null}
+										Create webhook
+									</Button>
+								) : null}
+							</div>
+						</Empty>
+					) : null}
 				</div>
 			</CardContent>
 		</Card>
@@ -322,7 +397,7 @@ function AutomationForm({
 		>
 			<FieldGroup>
 				<Field>
-					<FieldLabel htmlFor="automation-name">New automation</FieldLabel>
+					<FieldLabel htmlFor="automation-name">Name</FieldLabel>
 					<Input
 						id="automation-name"
 						name="name"
@@ -454,7 +529,7 @@ function WebhookForm({
 		>
 			<FieldGroup>
 				<Field>
-					<FieldLabel htmlFor="webhook-name">New webhook</FieldLabel>
+					<FieldLabel htmlFor="webhook-name">Name</FieldLabel>
 					<Input
 						id="webhook-name"
 						name="name"

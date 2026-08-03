@@ -161,6 +161,7 @@ export function ContactsTable() {
 			loading={contacts.isFetching}
 			searchPlaceholder="Search by name, email or company…"
 			onRowClick={(row) => openRecord({ kind: "contact", id: row.id })}
+			getRowActionLabel={(row) => `Open ${contactName(row)}`}
 			empty="No contacts match this view."
 		/>
 	);

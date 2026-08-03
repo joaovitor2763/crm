@@ -13,6 +13,7 @@ node_modules
 
 # Testing
 coverage
+output/playwright/
 
 # Turbo
 .turbo

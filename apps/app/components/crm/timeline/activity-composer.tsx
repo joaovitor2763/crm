@@ -202,7 +202,7 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 					value={draft}
 					onChange={(event) => setDraft(event.target.value)}
 					placeholder={PLACEHOLDER[type]}
-					aria-label="What happened"
+					aria-label={PLACEHOLDER[type]}
 					onKeyDown={(event) => {
 						// Plain Enter has to stay a newline — this is where a three
 						// paragraph call note goes.
@@ -335,25 +335,16 @@ export function ActivityComposer({ anchor }: { anchor: TimelineAnchor }) {
 						</Select>
 					) : null}
 
-					{/*
-					 * Only once there is something to submit. `--primary` in dark mode
-					 * is near-white, so a permanently-present disabled primary button
-					 * is a grey slab sitting in the corner of an empty box — it made
-					 * the whole composer read as switched off. It appears at the end of
-					 * a row that is already there, so nothing reflows around it.
-					 */}
-					{text === "" ? null : (
-						<InputGroupButton
-							type="submit"
-							variant="default"
-							size="xs"
-							className="ml-auto"
-							disabled={create.isPending || !canSubmit}
-						>
-							{create.isPending ? <Spinner /> : null}
-							{isTask ? "Add task" : `Log ${activityLabel(type).toLowerCase()}`}
-						</InputGroupButton>
-					)}
+					<InputGroupButton
+						type="submit"
+						variant={canSubmit ? "default" : "ghost"}
+						size="xs"
+						className="ml-auto"
+						disabled={create.isPending || !canSubmit}
+					>
+						{create.isPending ? <Spinner /> : null}
+						{isTask ? "Add task" : `Log ${activityLabel(type).toLowerCase()}`}
+					</InputGroupButton>
 				</InputGroupAddon>
 			</InputGroup>
 			{isMarketingActivity ? (

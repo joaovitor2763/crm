@@ -231,6 +231,7 @@ export function DealsTable() {
 			loading={deals.isFetching}
 			searchPlaceholder="Search deals by name or company…"
 			onRowClick={(row) => openRecord({ kind: "deal", id: row.id })}
+			getRowActionLabel={(row) => `Open ${row.name}`}
 			empty="No deals match this view."
 			meta={
 				// The open pipeline for everything the filters match, not just the

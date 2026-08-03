@@ -2,6 +2,7 @@
 
 import { signIn } from "@crm/auth/client";
 import { Button } from "@crm/ui/components/button";
+import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
 import { Spinner } from "@crm/ui/components/spinner";
 import { useState } from "react";
@@ -35,24 +36,33 @@ export function EmailSignIn() {
 
 	return (
 		<form className="grid gap-3" onSubmit={handleSubmit}>
-			<Input
-				autoComplete="email"
-				defaultValue="joao@g4educacao.com"
-				disabled={pending}
-				name="email"
-				placeholder="Email"
-				required
-				type="email"
-			/>
-			<Input
-				autoComplete="current-password"
-				disabled={pending}
-				minLength={12}
-				name="password"
-				placeholder="Password"
-				required
-				type="password"
-			/>
+			<FieldGroup className="gap-3">
+				<Field>
+					<FieldLabel htmlFor="sign-in-email">Email</FieldLabel>
+					<Input
+						id="sign-in-email"
+						autoComplete="email"
+						disabled={pending}
+						name="email"
+						placeholder="you@company.com"
+						required
+						type="email"
+					/>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor="sign-in-password">Password</FieldLabel>
+					<Input
+						id="sign-in-password"
+						autoComplete="current-password"
+						disabled={pending}
+						minLength={12}
+						name="password"
+						placeholder="Your password"
+						required
+						type="password"
+					/>
+				</Field>
+			</FieldGroup>
 			<Button className="w-full" disabled={pending} type="submit">
 				{pending && <Spinner data-icon="inline-start" />}
 				Sign in
