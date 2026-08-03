@@ -8,9 +8,9 @@ import { defaultBackend, defineSandbox } from "eve/sandbox";
  * something that can keep a dossier on a person, diff this month's profile
  * against last month's, and grep a thread for a signature block.
  *
- * `deny-all` costs nothing, because of where the other tools run: `web_fetch`
- * executes in the app runtime and `web_search` at the model provider, so
- * retrieval is unaffected by the sandbox having no egress. What it removes is
+ * `deny-all` costs nothing, because `web_fetch` and the authored vendor tools
+ * execute in the app runtime, so retrieval is unaffected by the sandbox having
+ * no egress. What it removes is
  * the only path by which customer email bodies — which this agent reads in full
  * — could leave the building through a shell command.
  *

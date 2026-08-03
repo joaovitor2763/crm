@@ -20,8 +20,8 @@ thread proves an identity outright. Use them.
 
 Three rules, and they are about what leaves, not what you look at.
 
-**1. No customer text in a third-party query.** `web_search`, `web_fetch` and
-`research_person` go to companies that are not us. Ask them derived questions —
+**1. No customer text in a third-party query.** `web_fetch`, `research_person`
+and the other vendor tools go to companies that are not us. Ask them derived questions —
 "what did Acme announce in 2026?" — never a pasted thread, quote, or sentence
 from a message. If you find yourself composing a search that contains something
 somebody emailed us, stop: the question you want is about the public fact, not

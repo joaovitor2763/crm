@@ -76,8 +76,8 @@ is a question, and pasting a cuid is a chore.
 2. **LinkedIn** (`resolve_linkedin_profile` → `get_linkedin_profile`) for
    identity: name, current title, employer, tenure. Self-reported, and
    authoritative for who someone is.
-3. **The open web** (`web_search`, `web_fetch`, `research_person`,
-   `research_company`) for context: news, funding, what they have said publicly.
+3. **The open web** (`web_fetch`, `research_person`, `research_company`) for
+   context: news, funding, what they have said publicly.
    Sometimes wrong about job titles — where it disagrees with LinkedIn about
    identity, LinkedIn wins.
 

@@ -147,8 +147,12 @@ boundary is egress, and it is three rules:
 
 `agent/sandbox/sandbox.ts` turns on `bash`, the file tools, and a `/workspace`,
 with **`deny-all` egress** set on the backend factory so it cannot be forgotten
-per session. That costs nothing: `web_fetch` runs in the app runtime and
-`web_search` at the model provider, so retrieval is unaffected.
+per session. That costs nothing: `web_fetch` and the authored vendor tools run
+in the app runtime, so retrieval is unaffected. The provider-managed
+`web_search` is deliberately disabled: OpenRouter backends do not share one
+portable native search-tool shape, and advertising it made DeepSeek reject the
+entire model request. Open-web work stays in the agent's narrower, budgeted
+`research_person`, `research_company`, and LinkedIn tools.
 
 **Never give the sandbox `DATABASE_URL`.** CRM access is authored tools in the
 app runtime. A shell with credentials and network is exfiltration-shaped even in

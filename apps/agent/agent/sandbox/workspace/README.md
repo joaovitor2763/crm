@@ -19,5 +19,5 @@ Two things this filesystem must never hold:
    different lifetime and a different set of eyes on it.
 2. **Credentials.** There are none here, and there is no reason to create any.
 
-There is no network from this sandbox. `web_fetch` and `web_search` still work
-— they run outside it.
+There is no network from this sandbox. `web_fetch` and the authored vendor tools
+still work — they run outside it through the app runtime.
