@@ -72,6 +72,8 @@ const VERBS: Record<string, string> = {
 	read_ontology_schemas: "Listed the ontology schemas",
 	read_ontology_schema: "Read an ontology schema version",
 	preview_ontology_impact: "Previewed an ontology change impact",
+	read_automation_catalog: "Read the live automation options",
+	draft_automation_workflow: "Drafted an editable automation workflow",
 
 	// eve's default harness. Named here for the same reason as the rest: a rep
 	// reading a run should not have to know which of these we wrote.

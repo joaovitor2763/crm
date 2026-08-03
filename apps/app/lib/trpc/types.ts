@@ -1,4 +1,4 @@
-import type { inferRouterOutputs } from "@trpc/server";
+import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import type { AppRouter } from "api/app-router";
 
 /**
@@ -8,3 +8,4 @@ import type { AppRouter } from "api/app-router";
  * changes the moment the service's `select` does, which is the point.
  */
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
+export type RouterInputs = inferRouterInputs<AppRouter>;

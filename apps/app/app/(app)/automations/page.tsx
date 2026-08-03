@@ -38,6 +38,9 @@ export default async function AutomationsPage() {
 		if (canManageAutomations) {
 			prefetches.push(
 				queryClient.prefetchQuery(trpc.automations.list.queryOptions()),
+				queryClient.prefetchQuery(
+					trpc.pipelines.list.queryOptions({ includeArchived: false }),
+				),
 			);
 		}
 		if (canManageWebhooks) {

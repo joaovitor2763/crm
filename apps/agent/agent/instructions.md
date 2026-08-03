@@ -107,3 +107,5 @@ Load these when the work calls for them, and before your first one of a session:
 - `evidence` — which observation is which `kind`, and why it matters.
 - `writing-a-brief` — the Background panel a rep reads before a call.
 - `data-boundaries` — what you may read (everything) and what may leave.
+- `building-automations` — turn a plain-language automation request into a
+  complete editable workflow draft after reading the live catalog.

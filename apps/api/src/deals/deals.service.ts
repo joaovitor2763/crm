@@ -1,5 +1,6 @@
 import {
 	ActivityType,
+	AuditActorType,
 	type Db,
 	type Prisma,
 	Prisma as PrismaNamespace,
@@ -362,7 +363,13 @@ export class DealsService {
 		return deal;
 	}
 
-	async create(input: DealCreateInput) {
+	async create(
+		input: DealCreateInput,
+		actor: { actorType: AuditActorType; actorId: string | null } = {
+			actorType: AuditActorType.SYSTEM,
+			actorId: null,
+		},
+	) {
 		const businessUnitId = input.businessUnitId ?? "business-unit-default";
 		const workspace = await this.db.workspaceConfiguration.findUnique({
 			where: { id: "default" },
@@ -402,6 +409,23 @@ export class DealsService {
 						expectedCloseDate: parseDate(input.expectedCloseDate),
 					},
 					select: { id: true, name: true, companyId: true },
+				});
+				await tx.domainEvent.create({
+					data: {
+						eventKey: `deal.created:${deal.id}`,
+						type: "deal.created",
+						resource: "deals",
+						recordId: deal.id,
+						businessUnitId,
+						teamId: input.teamId ?? null,
+						actorType: actor.actorType,
+						actorId: actor.actorId,
+						payload: {
+							pipelineId: stage.pipelineId,
+							stageId: stage.id,
+							companyId: deal.companyId,
+						},
+					},
 				});
 				return { deal, stageId: stage.id };
 			});
@@ -451,6 +475,12 @@ export class DealsService {
 		input: SetStageInput,
 		actingUserId: string,
 		actingRoleKey?: string,
+		context?: {
+			actorType: AuditActorType;
+			actorId: string | null;
+			causationId?: string;
+			depth?: number;
+		},
 	) {
 		const locatedTarget = await this.db.pipelineStage.findUnique({
 			where: { id: input.stageId },
@@ -627,6 +657,28 @@ export class DealsService {
 								}
 							: {}),
 					},
+				},
+			});
+			await tx.domainEvent.create({
+				data: {
+					eventKey: `deal.stage:${deal.id}:${now.toISOString()}`,
+					type: "deal.stage_changed",
+					resource: "deals",
+					recordId: deal.id,
+					businessUnitId: deal.businessUnitId,
+					teamId: deal.teamId,
+					actorType: context?.actorType ?? AuditActorType.USER,
+					actorId: context?.actorId ?? actingUserId,
+					payload: {
+						fromStageId: deal.stage.id,
+						fromStage: deal.stage.name,
+						toStageId: target.id,
+						toStage: target.name,
+						pipelineId: target.pipelineId,
+						closedReason: closedReason ?? null,
+					},
+					causationId: context?.causationId,
+					depth: context?.depth ?? 0,
 				},
 			});
 

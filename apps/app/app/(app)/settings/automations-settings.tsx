@@ -24,7 +24,6 @@ import {
 } from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
-import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import {
 	Select,
 	SelectContent,
@@ -46,11 +45,24 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
+import {
+	AutomationWorkflowBuilder,
+	type AutomationWorkflowDraft,
+} from "./automation-workflow-builder";
 
 type Overview = RouterOutputs["governance"]["directory"];
 type EventCatalog = ReadonlyArray<
 	RouterOutputs["automations"]["eventCatalog"][number]
 >;
+type AutomationRow = RouterOutputs["automations"]["list"][number];
+type AutomationRunRow = {
+	id: string;
+	status: string;
+	createdAt: string | Date;
+	errorCode: string | null;
+	trace: unknown;
+	event: { type: string };
+};
 
 const utcDateTime = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
@@ -69,6 +81,10 @@ export function AutomationsSettings({
 	const queryClient = useQueryClient();
 	const governance = useQuery(trpc.governance.directory.queryOptions());
 	const eventCatalog = useQuery(trpc.automations.eventCatalog.queryOptions());
+	const pipelines = useQuery({
+		...trpc.pipelines.list.queryOptions({ includeArchived: false }),
+		enabled: canManageAutomations,
+	});
 	const automations = useQuery({
 		...trpc.automations.list.queryOptions(),
 		enabled: canManageAutomations,
@@ -85,6 +101,18 @@ export function AutomationsSettings({
 	const [createMode, setCreateMode] = useState<"automation" | "webhook" | null>(
 		null,
 	);
+	const [editingAutomationId, setEditingAutomationId] = useState<string | null>(
+		null,
+	);
+	const [runAutomationId, setRunAutomationId] = useState<string | null>(null);
+	const runs = useQuery({
+		...trpc.automations.runs.queryOptions({
+			id: runAutomationId ?? "",
+			limit: 20,
+		}),
+		enabled: Boolean(runAutomationId),
+	});
+	const runRows = runs.data as unknown as AutomationRunRow[] | undefined;
 	const [q, setQ] = useState("");
 	const [kind, setKind] = useState<"all" | "automation" | "webhook">("all");
 	const normalizedQuery = q.trim().toLowerCase();
@@ -132,7 +160,10 @@ export function AutomationsSettings({
 	);
 	const update = useMutation(
 		trpc.automations.update.mutationOptions({
-			onSuccess: () => refresh("Automation updated."),
+			onSuccess: async () => {
+				setEditingAutomationId(null);
+				await refresh("Automation updated.");
+			},
 			onError: fail,
 		}),
 	);
@@ -253,10 +284,12 @@ export function AutomationsSettings({
 							</Button>
 						</div>
 						{createMode === "automation" ? (
-							<AutomationForm
+							<AutomationWorkflowBuilder
 								data={governance.data}
 								events={eventCatalog.data ?? []}
-								mutate={(input) => create.mutate(input)}
+								pipelines={pipelines.data ?? []}
+								busy={create.isPending}
+								onSubmit={(input) => create.mutate(input as never)}
 							/>
 						) : (
 							<WebhookForm
@@ -315,32 +348,127 @@ export function AutomationsSettings({
 						</Alert>
 					) : null}
 					{filteredAutomations.map((automation) => (
-						<div
-							key={automation.id}
-							className="flex items-center justify-between gap-3 border p-3"
-						>
-							<div>
-								<p className="text-sm font-medium">{automation.name}</p>
-								<p className="text-xs text-muted-foreground">
-									{automation.status} · v{automation.version} ·{" "}
-									{automation.role.name}
-								</p>
+						<div key={automation.id} className="border p-3">
+							<div className="flex flex-wrap items-center justify-between gap-3">
+								<div className="min-w-0">
+									<p className="text-sm font-medium">{automation.name}</p>
+									<p className="text-xs text-muted-foreground">
+										{automation.status} · v{automation.version} ·{" "}
+										{automation.role.name} · {automation._count.runs} runs
+									</p>
+									{automation.runs[0] ? (
+										<p className="text-muted-foreground text-xs">
+											Last run: {automation.runs[0].status}
+											{automation.runs[0].errorCode
+												? ` · ${automation.runs[0].errorCode}`
+												: ""}
+										</p>
+									) : null}
+								</div>
+								<div className="flex items-center gap-2">
+									<Button
+										type="button"
+										size="sm"
+										variant="outline"
+										onClick={() =>
+											setEditingAutomationId(
+												editingAutomationId === automation.id
+													? null
+													: automation.id,
+											)
+										}
+									>
+										{editingAutomationId === automation.id
+											? "Close editor"
+											: "Edit"}
+									</Button>
+									<Button
+										type="button"
+										size="sm"
+										variant="ghost"
+										onClick={() =>
+											setRunAutomationId(
+												runAutomationId === automation.id
+													? null
+													: automation.id,
+											)
+										}
+									>
+										Runs
+									</Button>
+									<Field orientation="horizontal">
+										<FieldLabel htmlFor={`automation-${automation.id}`}>
+											Active
+										</FieldLabel>
+										<Switch
+											id={`automation-${automation.id}`}
+											checked={automation.status === "ACTIVE"}
+											onCheckedChange={(checked) =>
+												update.mutate({
+													id: automation.id,
+													status: checked ? "ACTIVE" : "PAUSED",
+												})
+											}
+										/>
+									</Field>
+								</div>
 							</div>
-							<Field orientation="horizontal">
-								<FieldLabel htmlFor={`automation-${automation.id}`}>
-									Active
-								</FieldLabel>
-								<Switch
-									id={`automation-${automation.id}`}
-									checked={automation.status === "ACTIVE"}
-									onCheckedChange={(checked) =>
-										update.mutate({
+							{editingAutomationId === automation.id ? (
+								<div className="mt-4 border-t pt-4">
+									<AutomationWorkflowBuilder
+										key={`${automation.id}-${automation.version}`}
+										data={governance.data}
+										events={eventCatalog.data ?? []}
+										pipelines={pipelines.data ?? []}
+										busy={update.isPending}
+										initial={{
 											id: automation.id,
-											status: checked ? "ACTIVE" : "PAUSED",
-										})
-									}
-								/>
-							</Field>
+											name: automation.name,
+											description: automation.description,
+											roleId: automation.roleId,
+											businessUnitId: automation.businessUnitId,
+											workflow: workflowDraftFor(automation),
+										}}
+										onSubmit={(input) =>
+											update.mutate({ id: automation.id, ...input } as never)
+										}
+									/>
+								</div>
+							) : null}
+							{runAutomationId === automation.id ? (
+								<div className="mt-4 border-t pt-3">
+									<p className="mb-2 font-medium text-xs">Execution history</p>
+									{runs.isLoading ? (
+										<p className="text-muted-foreground text-xs">
+											Loading runs…
+										</p>
+									) : null}
+									{runRows?.map((run) => (
+										<details key={run.id} className="border-b py-2 text-xs">
+											<summary className="cursor-pointer">
+												{run.status} · {run.event.type} ·{" "}
+												{utcDateTime.format(new Date(run.createdAt))} UTC
+											</summary>
+											<div className="mt-2 flex flex-col gap-1 pl-3 text-muted-foreground">
+												{traceEntries(run.trace).map((entry, index) => (
+													<p key={entry.nodeId}>
+														{index + 1}. {entry.type} · {entry.status}
+														{entry.branch ? ` · branch ${entry.branch}` : ""}
+													</p>
+												))}
+												{run.errorCode ? (
+													<p className="text-destructive">{run.errorCode}</p>
+												) : null}
+											</div>
+										</details>
+									))}
+									{runRows?.length === 0 ? (
+										<p className="text-muted-foreground text-xs">
+											No runs yet.
+										</p>
+									) : null}
+								</div>
+							) : null}
 						</div>
 					))}
 					{filteredWebhooks.map((webhook) => {
@@ -456,168 +584,6 @@ export function AutomationsSettings({
 				</div>
 			</CardContent>
 		</Card>
-	);
-}
-
-function AutomationForm({
-	data,
-	events,
-	mutate,
-}: {
-	data?: Overview;
-	events: EventCatalog;
-	mutate: (input: {
-		name: string;
-		roleId: string;
-		businessUnitId?: string | null;
-		teamId?: string | null;
-		trigger: { eventTypes: string[] };
-		conditions: [];
-		actions: [
-			{
-				type: "set_lifecycle";
-				lifecycleStage:
-					| "LEAD"
-					| "MQL"
-					| "SQL"
-					| "OPPORTUNITY"
-					| "CUSTOMER"
-					| "DISQUALIFIED";
-				qualificationReason?: string;
-			},
-		];
-	}) => void;
-}) {
-	const [eventType, setEventType] = useState("lead.submitted");
-	const contactEvents = events.filter((event) => event.automationEligible);
-	return (
-		<form
-			onSubmit={(event) => {
-				event.preventDefault();
-				const form = new FormData(event.currentTarget);
-				const unit = String(form.get("businessUnitId") ?? "");
-				mutate({
-					name: String(form.get("name")),
-					roleId: String(form.get("roleId")),
-					businessUnitId: unit === "global" || !unit ? null : unit,
-					trigger: { eventTypes: [eventType] },
-					conditions: [],
-					actions: [
-						{
-							type: "set_lifecycle",
-							lifecycleStage: String(form.get("lifecycle")) as "MQL",
-							qualificationReason:
-								String(form.get("reason") ?? "") || undefined,
-						},
-					],
-				});
-			}}
-		>
-			<FieldGroup>
-				<Field>
-					<FieldLabel htmlFor="automation-name">Name</FieldLabel>
-					<Input
-						id="automation-name"
-						name="name"
-						placeholder="Qualify form leads"
-						required
-					/>
-				</Field>
-				<Field>
-					<FieldLabel>Execution role</FieldLabel>
-					<Select name="roleId" required>
-						<SelectTrigger>
-							<SelectValue placeholder="Role" />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								{data?.roles.map((role) => (
-									<SelectItem key={role.id} value={role.id}>
-										{role.name}
-									</SelectItem>
-								))}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-				</Field>
-				<Field>
-					<FieldLabel>Business unit</FieldLabel>
-					<Select name="businessUnitId" defaultValue="global">
-						<SelectTrigger>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								<SelectItem value="global">
-									Global · all business units and pipelines
-								</SelectItem>
-								{data?.businessUnits.map((unit) => (
-									<SelectItem key={unit.id} value={unit.id}>
-										{unit.name}
-									</SelectItem>
-								))}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-					<FieldDescription>
-						Global sends matching events from every pipeline, team and business
-						unit.
-					</FieldDescription>
-				</Field>
-				<Field>
-					<FieldLabel>When this happens</FieldLabel>
-					<SearchCombobox
-						value={eventType}
-						onValueChange={setEventType}
-						options={contactEvents.map((event) => ({
-							value: event.id,
-							label: event.label,
-						}))}
-						placeholder="Choose an event"
-						searchPlaceholder="Search events…"
-						className="w-full"
-					/>
-					<p className="text-muted-foreground text-xs">
-						{contactEvents.find((event) => event.id === eventType)?.description}
-					</p>
-				</Field>
-				<Field>
-					<FieldLabel>Lifecycle action</FieldLabel>
-					<Select name="lifecycle" defaultValue="MQL">
-						<SelectTrigger>
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								{[
-									"LEAD",
-									"MQL",
-									"SQL",
-									"OPPORTUNITY",
-									"CUSTOMER",
-									"DISQUALIFIED",
-								].map((stage) => (
-									<SelectItem key={stage} value={stage}>
-										{stage}
-									</SelectItem>
-								))}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-				</Field>
-				<Field>
-					<FieldLabel htmlFor="automation-reason">
-						Qualification reason
-					</FieldLabel>
-					<Input
-						id="automation-reason"
-						name="reason"
-						placeholder="Matched the unit ICP"
-					/>
-				</Field>
-				<Button type="submit">Create draft</Button>
-			</FieldGroup>
-		</form>
 	);
 }
 
@@ -1135,6 +1101,83 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 			<span className="hidden sm:inline">Copy</span>
 		</Button>
 	);
+}
+
+function traceEntries(value: unknown) {
+	return Array.isArray(value)
+		? (value as Array<{
+				nodeId: string;
+				type: string;
+				status: string;
+				branch?: string;
+			}>)
+		: [];
+}
+
+function workflowDraftFor(automation: AutomationRow): AutomationWorkflowDraft {
+	const workflow = automation.workflow;
+	if (
+		workflow &&
+		typeof workflow === "object" &&
+		"version" in workflow &&
+		workflow.version === 1 &&
+		"trigger" in workflow &&
+		"steps" in workflow &&
+		Array.isArray(workflow.steps)
+	) {
+		return workflow as AutomationWorkflowDraft;
+	}
+
+	const rawTrigger = automation.trigger;
+	const eventTypes =
+		rawTrigger &&
+		typeof rawTrigger === "object" &&
+		"eventTypes" in rawTrigger &&
+		Array.isArray(rawTrigger.eventTypes)
+			? rawTrigger.eventTypes.filter(
+					(eventType): eventType is string => typeof eventType === "string",
+				)
+			: [];
+	const rawActions = Array.isArray(automation.actions)
+		? automation.actions
+		: [];
+	const actionSteps = rawActions.map((action, index) => ({
+		id: `legacy-action-${index + 1}`,
+		type: "action" as const,
+		action,
+	})) as AutomationWorkflowDraft["steps"];
+	const fallbackSteps: AutomationWorkflowDraft["steps"] = [
+		{
+			id: "legacy-fallback-action",
+			type: "action",
+			action: { type: "set_lifecycle", lifecycleStage: "LEAD" },
+		},
+	];
+	const executableSteps = actionSteps.length > 0 ? actionSteps : fallbackSteps;
+	const rawConditions = Array.isArray(automation.conditions)
+		? automation.conditions
+		: [];
+	const steps =
+		rawConditions.length > 0
+			? ([
+					{
+						id: "legacy-condition",
+						type: "condition",
+						logic: "all",
+						rules: rawConditions,
+						ifTrue: executableSteps,
+						ifFalse: [],
+					},
+				] as AutomationWorkflowDraft["steps"])
+			: executableSteps;
+
+	return {
+		version: 1,
+		trigger: {
+			eventTypes: eventTypes.length > 0 ? eventTypes : ["lead.submitted"],
+		},
+		steps,
+	};
 }
 
 function CredentialForm({

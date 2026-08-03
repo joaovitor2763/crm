@@ -17,7 +17,7 @@ import { timelineInput, timelineCountsInput, myTasksInput, activityCreateInput, 
 import { aiConfigurationUpdateInput, agentTaskListInput, agentTaskIdInput } from "../agent/agent-admin.contracts";
 import { apiCredentialCreateInput, apiCredentialIdInput } from "../api-credentials/api-credentials.contracts";
 import { attributionEventInput, attributionProjectionInput, attributionHistoryInput } from "../attribution/attribution.contracts";
-import { automationCreateInput, automationUpdateInput, automationIdInput, webhookCreateInput, webhookUpdateInput } from "../automations/automations.contracts";
+import { automationRunsInput, automationSimulateInput, automationCreateInput, automationUpdateInput, automationIdInput, webhookCreateInput, webhookUpdateInput } from "../automations/automations.contracts";
 import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInput, companyUpdateArgs, setPrimaryContactInput } from "../companies/companies.contracts";
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
 import { conversationListInput, conversationEventsInput, conversationSaveInput, conversationIdInput } from "../conversations/conversations.contracts";
@@ -115,6 +115,12 @@ const appRouter = t.router({
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["list"]>>),
     eventCatalog: publicProcedure
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["eventCatalog"]>>),
+    runs: publicProcedure
+      .input(automationRunsInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["runs"]>>),
+    simulate: publicProcedure
+      .input(automationSimulateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["simulate"]>>),
     create: publicProcedure
       .input(automationCreateInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["create"]>>),

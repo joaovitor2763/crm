@@ -38,6 +38,8 @@ function serviceFor(
 		db,
 		accessControl,
 		{} as ContactLifecycleService,
+		{} as never,
+		{} as never,
 		config,
 	);
 }
@@ -71,5 +73,19 @@ describe("automation update assignment validation", () => {
 		expect(assignments).toEqual([
 			{ businessUnitId: "next-bu", teamId: "current-team" },
 		]);
+	});
+
+	it("falls back to the legacy definition when an older client edits actions", async () => {
+		const service = serviceFor(() => undefined);
+		const result = (await service.update(
+			{
+				id: "automation-1",
+				actions: [{ type: "archive_contact" }],
+			},
+			{},
+			principal,
+		)) as unknown as Record<string, unknown>;
+
+		expect(result.workflow).toBeDefined();
 	});
 });

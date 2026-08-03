@@ -45,7 +45,8 @@ export async function crmAccess(
 		| "companies"
 		| "deals"
 		| "revenue-accounts"
-		| "dashboards",
+		| "dashboards"
+		| "automations",
 ): Promise<AgentAccess> {
 	const auth = ctx.session.auth.current;
 	if (auth?.principalType !== "user") {

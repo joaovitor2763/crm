@@ -340,6 +340,7 @@ enum AutomationStatus {
 enum AutomationRunStatus {
   QUEUED
   RUNNING
+  WAITING
   SUCCEEDED
   FAILED
   DEAD
@@ -1991,6 +1992,8 @@ model Automation {
   trigger        Json
   conditions     Json
   actions        Json
+  /// Versioned workflow tree. Null means the legacy trigger/conditions/actions format.
+  workflow       Json?
   createdById    String
   createdBy      User             @relation("AutomationCreator", fields: [createdById], references: [id], onDelete: Restrict)
   archivedAt     DateTime?
@@ -2054,6 +2057,12 @@ model AutomationRun {
   finishedAt   DateTime?
   errorCode    String?
   output       Json?
+  /// Immutable workflow snapshot used by this run, so later edits cannot change in-flight work.
+  workflow     Json?
+  /// Remaining nodes and other durable interpreter state.
+  state        Json?
+  /// Append-only node outcomes shown in the run inspector.
+  trace        Json              @default("[]")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

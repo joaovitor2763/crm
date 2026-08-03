@@ -21,6 +21,8 @@ they disagree.
 - `contact.created`
 - `contact.became_mql`
 - `contact.lifecycle_changed`
+- `deal.created`
+- `deal.stage_changed`
 - `revenue-conversion.recorded` — a governed conversion is attributed.
 - `revenue-account.created` / `revenue-account.updated` /
   `revenue-account.archived` / `revenue-account.merged`
@@ -37,12 +39,10 @@ Users describe outcomes, not event names. Translate:
 - "qualquer coisa sobre revenue accounts" → the four `revenue-account.*`
   events, plus the two `revenue-account.relation.*` ones if links matter.
 
-If what they want is **not emitted yet** (deal stage changes and deal
-creation are the common asks), say so plainly: the subscription can be created
-now with a forward-looking name — the convention is `entity.action` in
-lowercase with underscores, e.g. `deal.stage_changed`, `deal.created` — and it
-will start firing the day the platform emits it. Do not invent an event and
-imply it fires today.
+If what they want is **not emitted yet**, say so plainly. The subscription can
+be created now with a forward-looking name — the convention is `entity.action`
+in lowercase with underscores — but do not imply an event fires today unless it
+is in the authoritative catalog.
 
 ## What to hand back
 

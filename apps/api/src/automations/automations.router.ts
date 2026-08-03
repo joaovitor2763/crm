@@ -1,4 +1,5 @@
 import {
+	type AutomationRunStatus,
 	AutomationStatus,
 	PermissionAction,
 	type Prisma,
@@ -22,6 +23,8 @@ import { AUTOMATION_EVENT_CATALOG } from "./automation-events";
 import {
 	automationCreateInput,
 	automationIdInput,
+	automationRunsInput,
+	automationSimulateInput,
 	automationUpdateInput,
 	webhookCreateInput,
 	webhookUpdateInput,
@@ -47,6 +50,28 @@ export class AutomationsRouter {
 	@Query()
 	eventCatalog() {
 		return AUTOMATION_EVENT_CATALOG;
+	}
+
+	@Query({ input: automationRunsInput })
+	runs(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof automationRunsInput>,
+	) {
+		this.manage(ctx, CRM_RESOURCE.automations);
+		return this.automations.runs(
+			input.id,
+			input.limit,
+			this.automationScope(ctx, true),
+		);
+	}
+
+	@Mutation({ input: automationSimulateInput })
+	simulate(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof automationSimulateInput>,
+	) {
+		this.manage(ctx, CRM_RESOURCE.automations);
+		return this.automations.simulate(input);
 	}
 
 	@Mutation({ input: automationCreateInput })
@@ -192,6 +217,7 @@ type AutomationListItem = {
 	trigger: unknown;
 	conditions: unknown;
 	actions: unknown;
+	workflow: unknown | null;
 	createdById: string;
 	archivedAt: Date | null;
 	createdAt: Date;
@@ -200,6 +226,14 @@ type AutomationListItem = {
 	businessUnit: { id: string; name: string } | null;
 	team: { id: string; name: string } | null;
 	_count: { runs: number };
+	runs: {
+		id: string;
+		status: AutomationRunStatus;
+		availableAt: Date;
+		finishedAt: Date | null;
+		errorCode: string | null;
+		updatedAt: Date;
+	}[];
 };
 
 type WebhookListItem = {

@@ -1,10 +1,11 @@
 import { createHmac, randomUUID } from "node:crypto";
 import {
+	ActivityType,
 	AutomationRunStatus,
 	AutomationStatus,
 	type Db,
 	PermissionAction,
-	type Prisma,
+	Prisma,
 	WebhookDeliveryStatus,
 } from "@crm/db";
 import {
@@ -18,16 +19,30 @@ import { ConfigService } from "@nestjs/config";
 import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import type { EffectivePrincipal } from "../access-control/access-control.types";
+import { ActivitiesService } from "../activities/activities.service";
 import type { EnvironmentVariables } from "../config/env.validation";
 import { ContactLifecycleService } from "../contacts/contact-lifecycle.service";
 import { InjectDatabase } from "../database/database.constants";
+import { DealsService } from "../deals/deals.service";
 import type {
 	AutomationCreateInput,
+	AutomationSimulateInput,
 	AutomationUpdateInput,
+	AutomationWorkflow,
 	WebhookCreateInput,
 	WebhookUpdateInput,
+	WorkflowStep,
 } from "./automations.contracts";
+import { automationWorkflow } from "./automations.contracts";
 import { assertPublicWebhookUrl, postPublicWebhook } from "./webhook-url";
+import {
+	delayUntil,
+	legacyWorkflow,
+	matchesRules,
+	simulateWorkflow,
+	type WorkflowState,
+	type WorkflowTraceEntry,
+} from "./workflow-engine";
 
 const LEASE_MS = 60_000;
 const MAX_DEPTH = 10;
@@ -44,6 +59,10 @@ export class AutomationsService {
 		private readonly accessControl: AccessControlService,
 		@Inject(ContactLifecycleService)
 		private readonly lifecycle: ContactLifecycleService,
+		@Inject(ActivitiesService)
+		private readonly activities: ActivitiesService,
+		@Inject(DealsService)
+		private readonly deals: DealsService,
 		@Inject(ConfigService)
 		config: ConfigService<EnvironmentVariables, true>,
 	) {
@@ -61,8 +80,54 @@ export class AutomationsService {
 				businessUnit: { select: { id: true, name: true } },
 				team: { select: { id: true, name: true } },
 				_count: { select: { runs: true } },
+				runs: {
+					orderBy: { createdAt: "desc" },
+					take: 1,
+					select: {
+						id: true,
+						status: true,
+						availableAt: true,
+						finishedAt: true,
+						errorCode: true,
+						updatedAt: true,
+					},
+				},
 			},
 		});
+	}
+
+	runs(id: string, limit: number, scope: Prisma.AutomationWhereInput = {}) {
+		return this.db.automationRun.findMany({
+			where: { automationId: id, automation: scope },
+			orderBy: { createdAt: "desc" },
+			take: limit,
+			select: {
+				id: true,
+				version: true,
+				status: true,
+				attempts: true,
+				availableAt: true,
+				startedAt: true,
+				finishedAt: true,
+				errorCode: true,
+				output: true,
+				trace: true,
+				createdAt: true,
+				event: {
+					select: {
+						id: true,
+						type: true,
+						resource: true,
+						recordId: true,
+						occurredAt: true,
+					},
+				},
+			},
+		});
+	}
+
+	simulate(input: AutomationSimulateInput) {
+		return simulateWorkflow(input.workflow, input.event);
 	}
 
 	async create(input: AutomationCreateInput, actor: EffectivePrincipal) {
@@ -78,6 +143,7 @@ export class AutomationsService {
 				trigger: toJson(input.trigger),
 				conditions: toJson(input.conditions),
 				actions: toJson(input.actions),
+				workflow: input.workflow ? toJson(input.workflow) : undefined,
 				createdById: actor.userId,
 			},
 		});
@@ -112,6 +178,9 @@ export class AutomationsService {
 			},
 		);
 		if (input.roleId) await this.assertDelegateRole(input.roleId);
+		const legacyDefinitionChanged = Boolean(
+			input.trigger || input.conditions || input.actions,
+		);
 		return this.db.automation.update({
 			where: { id },
 			data: {
@@ -128,6 +197,11 @@ export class AutomationsService {
 				...(input.trigger ? { trigger: toJson(input.trigger) } : {}),
 				...(input.conditions ? { conditions: toJson(input.conditions) } : {}),
 				...(input.actions ? { actions: toJson(input.actions) } : {}),
+				...(input.workflow !== undefined
+					? { workflow: toJson(input.workflow) }
+					: legacyDefinitionChanged
+						? { workflow: Prisma.DbNull }
+						: {}),
 				version: current.version + 1,
 			},
 		});
@@ -364,15 +438,17 @@ export class AutomationsService {
 		});
 		let queued = 0;
 		for (const automation of candidates) {
-			const trigger = automation.trigger as { eventTypes?: string[] };
+			const workflow = this.workflowFor(automation);
+			const trigger = workflow.trigger;
 			if (!trigger.eventTypes?.includes(event.type)) continue;
-			if (!matchesConditions(automation.conditions, event)) continue;
 			const result = await this.db.automationRun.createMany({
 				data: [
 					{
 						automationId: automation.id,
 						eventId: event.id,
 						version: automation.version,
+						workflow: toJson(workflow),
+						state: toJson({ pending: workflow.steps }),
 					},
 				],
 				skipDuplicates: true,
@@ -418,7 +494,11 @@ export class AutomationsService {
 		const runs = await this.db.automationRun.findMany({
 			where: {
 				status: {
-					in: [AutomationRunStatus.QUEUED, AutomationRunStatus.FAILED],
+					in: [
+						AutomationRunStatus.QUEUED,
+						AutomationRunStatus.WAITING,
+						AutomationRunStatus.FAILED,
+					],
 				},
 				availableAt: { lte: new Date() },
 				OR: [{ leasedUntil: null }, { leasedUntil: { lt: new Date() } }],
@@ -433,32 +513,24 @@ export class AutomationsService {
 				where: { id: run.id, status: run.status },
 				data: {
 					status: AutomationRunStatus.RUNNING,
-					attempts: { increment: 1 },
-					startedAt: new Date(),
+					attempts:
+						run.status === AutomationRunStatus.WAITING
+							? run.attempts
+							: { increment: 1 },
+					startedAt: run.startedAt ?? new Date(),
+					finishedAt: null,
 					leasedUntil: new Date(Date.now() + LEASE_MS),
 				},
 			});
 			if (claimed.count !== 1) continue;
 			try {
-				await this.executeActions(
-					run.automation.id,
-					run.automation.actions,
-					run.event,
-				);
-				await this.db.automationRun.update({
-					where: { id: run.id },
-					data: {
-						status: AutomationRunStatus.SUCCEEDED,
-						finishedAt: new Date(),
-						leasedUntil: null,
-						output: { actions: (run.automation.actions as unknown[]).length },
-					},
-				});
+				await this.executeWorkflow(run);
 			} catch (error) {
 				const attempts = run.attempts + 1;
 				await this.db.automationRun.update({
 					where: { id: run.id },
 					data: {
+						attempts,
 						status:
 							attempts >= MAX_ATTEMPTS
 								? AutomationRunStatus.DEAD
@@ -466,7 +538,7 @@ export class AutomationsService {
 						availableAt: retryAt(attempts),
 						leasedUntil: null,
 						errorCode: safeErrorCode(error),
-						finishedAt: new Date(),
+						finishedAt: attempts >= MAX_ATTEMPTS ? new Date() : null,
 					},
 				});
 			}
@@ -475,24 +547,127 @@ export class AutomationsService {
 		return processed;
 	}
 
-	private async executeActions(
-		automationId: string,
-		actionsJson: Prisma.JsonValue,
+	private async executeWorkflow(
+		run: Prisma.AutomationRunGetPayload<{
+			include: { automation: true; event: true };
+		}>,
+	) {
+		const workflow = run.workflow
+			? automationWorkflow.parse(run.workflow)
+			: this.workflowFor(run.automation);
+		const state = (run.state as WorkflowState | null) ?? {
+			pending: structuredClone(workflow.steps),
+		};
+		const trace = (run.trace as WorkflowTraceEntry[]) ?? [];
+		const principal = await this.accessControl.forAutomation(run.automation.id);
+		const record = await this.recordContext(run.event);
+		const source = { event: run.event, payload: run.event.payload, record };
+		let executedActions = trace.filter(
+			(entry) => entry.type === "action" && entry.status === "SUCCEEDED",
+		).length;
+
+		while (state.pending.length > 0) {
+			if (trace.length >= 100) {
+				throw new BadRequestException("Workflow exceeded the 100-node limit.");
+			}
+			const step = state.pending[0];
+			if (!step) break;
+			const startedAt = new Date();
+			if (step.type === "condition") {
+				const matched = matchesRules(step.rules, step.logic, source);
+				state.pending.shift();
+				state.pending.unshift(
+					...structuredClone(matched ? step.ifTrue : step.ifFalse),
+				);
+				trace.push({
+					nodeId: step.id,
+					type: step.type,
+					label: step.label ?? null,
+					status: "SUCCEEDED",
+					branch: matched ? "true" : "false",
+					startedAt: startedAt.toISOString(),
+					finishedAt: new Date().toISOString(),
+				});
+				await this.saveRunProgress(run.id, state, trace);
+				continue;
+			}
+			if (step.type === "delay") {
+				state.pending.shift();
+				const availableAt = delayUntil(step.duration, step.unit);
+				trace.push({
+					nodeId: step.id,
+					type: step.type,
+					label: step.label ?? null,
+					status: "WAITING",
+					availableAt: availableAt.toISOString(),
+					startedAt: startedAt.toISOString(),
+					finishedAt: new Date().toISOString(),
+				});
+				await this.db.automationRun.update({
+					where: { id: run.id },
+					data: {
+						status: AutomationRunStatus.WAITING,
+						availableAt,
+						leasedUntil: null,
+						state: toJson(state),
+						trace: toJson(trace),
+						output: { executedActions, pendingNodes: state.pending.length },
+					},
+				});
+				return;
+			}
+
+			await this.executeAction(
+				run.automation,
+				step,
+				run.event,
+				principal,
+				run.id,
+			);
+			state.pending.shift();
+			executedActions += 1;
+			trace.push({
+				nodeId: step.id,
+				type: step.type,
+				label: step.label ?? null,
+				status: "SUCCEEDED",
+				startedAt: startedAt.toISOString(),
+				finishedAt: new Date().toISOString(),
+				output: { action: step.action.type },
+			});
+			await this.saveRunProgress(run.id, state, trace);
+		}
+
+		await this.db.automationRun.update({
+			where: { id: run.id },
+			data: {
+				status: AutomationRunStatus.SUCCEEDED,
+				finishedAt: new Date(),
+				leasedUntil: null,
+				state: toJson(state),
+				trace: toJson(trace),
+				output: { executedActions, pendingNodes: 0 },
+				errorCode: null,
+			},
+		});
+	}
+
+	private async executeAction(
+		automation: Prisma.AutomationGetPayload<Record<string, never>>,
+		step: Extract<WorkflowStep, { type: "action" }>,
 		event: DomainEvent,
+		principal: EffectivePrincipal,
+		runId: string,
 	) {
 		if (!event.recordId) throw new BadRequestException("Event has no record.");
-		const principal = await this.accessControl.forAutomation(automationId);
-		const actions = actionsJson as Array<{
-			type: string;
-			lifecycleStage?: Parameters<
-				ContactLifecycleService["setLifecycle"]
-			>[0]["lifecycleStage"];
-			marketingScore?: number | null;
-			qualificationReason?: string | null;
-			ownerId?: string | null;
-			teamId?: string | null;
-		}>;
-		for (const action of actions) {
+		const action = step.action;
+		if (
+			action.type === "set_lifecycle" ||
+			action.type === "assign_contact" ||
+			action.type === "archive_contact" ||
+			action.type === "update_contact"
+		) {
+			this.assertResource(event, "contacts");
 			await this.accessControl.assertRecord(
 				principal,
 				"contacts",
@@ -501,7 +676,7 @@ export class AutomationsService {
 					: PermissionAction.UPDATE,
 				event.recordId,
 			);
-			if (action.type === "set_lifecycle" && action.lifecycleStage) {
+			if (action.type === "set_lifecycle") {
 				await this.accessControl.assertAssignment(
 					principal,
 					"contacts",
@@ -545,6 +720,23 @@ export class AutomationsService {
 					},
 					data: { ownerId: action.ownerId, teamId: action.teamId },
 				});
+			} else if (action.type === "update_contact") {
+				if (action.fields.ownerId !== undefined) {
+					await this.accessControl.assertAssignment(
+						principal,
+						"contacts",
+						PermissionAction.UPDATE,
+						{
+							businessUnitId: event.businessUnitId,
+							teamId: event.teamId,
+							ownerId: action.fields.ownerId,
+						},
+					);
+				}
+				await this.db.contact.update({
+					where: { id: event.recordId },
+					data: action.fields,
+				});
 			} else if (action.type === "archive_contact") {
 				this.accessControl.assert(
 					principal,
@@ -556,7 +748,213 @@ export class AutomationsService {
 					data: { archivedAt: new Date() },
 				});
 			}
+			return;
 		}
+
+		if (action.type === "move_deal" || action.type === "update_deal") {
+			this.assertResource(event, "deals");
+			await this.accessControl.assertRecord(
+				principal,
+				"deals",
+				PermissionAction.UPDATE,
+				event.recordId,
+			);
+			if (action.type === "move_deal") {
+				await this.deals.setStage(
+					{
+						id: event.recordId,
+						stageId: action.stageId,
+						closedReason: action.closedReason ?? undefined,
+					},
+					automation.createdById,
+					principal.roleKey,
+					{
+						actorType: principal.actorType,
+						actorId: principal.actorId,
+						causationId: event.id,
+						depth: event.depth + 1,
+					},
+				);
+			} else {
+				if (action.fields.ownerId) {
+					await this.accessControl.assertAssignment(
+						principal,
+						"deals",
+						PermissionAction.UPDATE,
+						{
+							businessUnitId: event.businessUnitId,
+							teamId: event.teamId,
+							ownerId: action.fields.ownerId,
+						},
+					);
+				}
+				await this.deals.update(
+					event.recordId,
+					action.fields,
+					this.accessControl.dealWhere(
+						principal,
+						"deals",
+						PermissionAction.UPDATE,
+					),
+				);
+			}
+			return;
+		}
+
+		if (action.type === "create_task" || action.type === "add_note") {
+			const existing = await this.db.activity.findFirst({
+				where: {
+					AND: [
+						{ meta: { path: ["automationRunId"], equals: runId } },
+						{ meta: { path: ["automationNodeId"], equals: step.id } },
+					],
+				},
+				select: { id: true },
+			});
+			if (existing) return;
+			const anchor = this.eventAnchor(event);
+			const resource = this.recordResource(event);
+			await this.accessControl.assertRecord(
+				principal,
+				resource,
+				PermissionAction.READ,
+				event.recordId,
+			);
+			await this.accessControl.assertAssignment(
+				principal,
+				CRM_RESOURCE.activities,
+				PermissionAction.CREATE,
+				{ businessUnitId: event.businessUnitId, teamId: event.teamId },
+			);
+			await this.activities.create(
+				{
+					type:
+						action.type === "create_task"
+							? ActivityType.TASK
+							: ActivityType.NOTE,
+					subject:
+						action.type === "create_task"
+							? action.subject
+							: (action.subject ?? undefined),
+					body: action.body ?? undefined,
+					...(action.type === "create_task" && action.dueInMinutes != null
+						? {
+								dueAt: new Date(
+									Date.now() + action.dueInMinutes * 60_000,
+								).toISOString(),
+							}
+						: {}),
+					...anchor,
+				},
+				automation.createdById,
+				{
+					businessUnitId:
+						event.businessUnitId ?? principal.primaryBusinessUnitId ?? "",
+					teamId: event.teamId,
+				},
+				{ automationRunId: runId, automationNodeId: step.id },
+			);
+			return;
+		}
+
+		if (action.type === "emit_event") {
+			await this.db.domainEvent.create({
+				data: {
+					eventKey: `automation:${runId}:${step.id}`,
+					type: action.eventType,
+					resource: event.resource,
+					recordId: event.recordId,
+					businessUnitId: event.businessUnitId,
+					teamId: event.teamId,
+					actorType: principal.actorType,
+					actorId: principal.actorId,
+					payload: toJson(action.payload),
+					causationId: event.id,
+					depth: event.depth + 1,
+				},
+			});
+		}
+	}
+
+	private workflowFor(automation: {
+		workflow: Prisma.JsonValue | null;
+		trigger: Prisma.JsonValue;
+		conditions: Prisma.JsonValue;
+		actions: Prisma.JsonValue;
+	}): AutomationWorkflow {
+		return automation.workflow
+			? automationWorkflow.parse(automation.workflow)
+			: legacyWorkflow(automation);
+	}
+
+	private saveRunProgress(
+		id: string,
+		state: WorkflowState,
+		trace: WorkflowTraceEntry[],
+	) {
+		return this.db.automationRun.update({
+			where: { id },
+			data: { state: toJson(state), trace: toJson(trace) },
+		});
+	}
+
+	private async recordContext(event: DomainEvent) {
+		if (!event.recordId) return null;
+		if (event.resource === "contacts") {
+			return this.db.contact.findUnique({
+				where: { id: event.recordId },
+				include: {
+					unitStates: event.businessUnitId
+						? { where: { businessUnitId: event.businessUnitId }, take: 1 }
+						: false,
+				},
+			});
+		}
+		if (event.resource === "deals") {
+			return this.db.deal.findUnique({
+				where: { id: event.recordId },
+				include: { stage: true, pipeline: true, company: true },
+			});
+		}
+		if (event.resource === "companies") {
+			return this.db.company.findUnique({ where: { id: event.recordId } });
+		}
+		return null;
+	}
+
+	private assertResource(event: DomainEvent, resource: string) {
+		if (event.resource !== resource) {
+			throw new BadRequestException(
+				`This action requires a ${resource} event, received ${event.resource}.`,
+			);
+		}
+	}
+
+	private eventAnchor(event: DomainEvent) {
+		if (event.resource === "contacts")
+			return { contactId: event.recordId ?? undefined };
+		if (event.resource === "companies")
+			return { companyId: event.recordId ?? undefined };
+		if (event.resource === "deals")
+			return { dealId: event.recordId ?? undefined };
+		throw new BadRequestException(
+			"Tasks and notes require a CRM record event.",
+		);
+	}
+
+	private recordResource(
+		event: DomainEvent,
+	): "contacts" | "companies" | "deals" {
+		if (
+			event.resource === "contacts" ||
+			event.resource === "companies" ||
+			event.resource === "deals"
+		) {
+			return event.resource;
+		}
+		throw new BadRequestException(
+			"This event is not attached to a CRM record.",
+		);
 	}
 
 	private async processWebhookDeliveries(limit: number) {
@@ -693,35 +1091,6 @@ export class AutomationsService {
 			.update(body)
 			.digest("hex");
 	}
-}
-
-function matchesConditions(
-	conditionsJson: Prisma.JsonValue,
-	event: DomainEvent,
-) {
-	const conditions = conditionsJson as Array<{
-		path: string;
-		operator: "eq" | "neq" | "exists" | "contains";
-		value?: unknown;
-	}>;
-	const source = { event, payload: event.payload };
-	return conditions.every((condition) => {
-		const value = readPath(source, condition.path);
-		if (condition.operator === "exists")
-			return value !== undefined && value !== null;
-		if (condition.operator === "eq") return value === condition.value;
-		if (condition.operator === "neq") return value !== condition.value;
-		return Array.isArray(value)
-			? value.includes(condition.value)
-			: String(value ?? "").includes(String(condition.value ?? ""));
-	});
-}
-
-function readPath(source: unknown, path: string): unknown {
-	return path.split(".").reduce<unknown>((current, segment) => {
-		if (typeof current !== "object" || current === null) return undefined;
-		return (current as Record<string, unknown>)[segment];
-	}, source);
 }
 
 function webhookPayload(event: DomainEvent): Prisma.InputJsonObject {

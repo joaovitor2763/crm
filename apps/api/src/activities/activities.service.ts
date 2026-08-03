@@ -160,6 +160,7 @@ export class ActivitiesService {
 			businessUnitId: "business-unit-default",
 			teamId: null,
 		},
+		context?: { automationRunId: string; automationNodeId: string },
 	) {
 		await this.validateMarketingTarget(input);
 		// A deal or contact activity is stamped with its company too, so a company
@@ -167,7 +168,10 @@ export class ActivitiesService {
 		const companyId = await this.resolveCompanyId(input);
 
 		const isTask = input.type === ActivityType.TASK;
-		const meta = activityMeta(input);
+		const activityMetadata = activityMeta(input);
+		const meta = context
+			? { ...(activityMetadata ?? {}), ...context }
+			: activityMetadata;
 
 		const activity = await this.db.activity.create({
 			data: {

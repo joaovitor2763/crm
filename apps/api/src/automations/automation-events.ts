@@ -30,6 +30,18 @@ export const AUTOMATION_EVENT_CATALOG = [
 		automationEligible: true,
 	},
 	{
+		id: "deal.created",
+		label: "Deal created",
+		description: "A deal enters a pipeline.",
+		automationEligible: true,
+	},
+	{
+		id: "deal.stage_changed",
+		label: "Deal stage changed",
+		description: "A deal moves to another stage or pipeline.",
+		automationEligible: true,
+	},
+	{
 		id: "revenue-conversion.recorded",
 		label: "Revenue conversion recorded",
 		description: "A governed conversion is attributed.",
