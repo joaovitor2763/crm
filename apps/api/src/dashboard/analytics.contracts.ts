@@ -13,6 +13,28 @@ export const ANALYTICS_DIMENSIONS = [
 
 export type AnalyticsDimension = (typeof ANALYTICS_DIMENSIONS)[number];
 
+/** What a custom view can put on each axis. */
+export const ANALYTICS_XY_X = [
+	...ANALYTICS_DIMENSIONS,
+	"time",
+	"stage",
+] as const;
+export const ANALYTICS_XY_Y = [
+	"deals",
+	"won",
+	"valueCents",
+	"winRate",
+	"avgCycleDays",
+] as const;
+
+export const analyticsXyInput = z.object({
+	x: z.enum(ANALYTICS_XY_X),
+	y: z.enum(ANALYTICS_XY_Y),
+	seriesBy: z.enum(ANALYTICS_DIMENSIONS).optional(),
+});
+
+export type AnalyticsXyInput = z.infer<typeof analyticsXyInput>;
+
 const dateInput = z
 	.string()
 	.trim()
@@ -32,6 +54,7 @@ export const dashboardAnalyticsInput = z
 		grain: z.enum(["hour", "day", "week", "month", "quarter"]).optional(),
 		comparison: z.enum(["none", "previousPeriod", "previousYear"]).optional(),
 		limit: z.number().int().min(1).max(100).default(25),
+		xy: analyticsXyInput.optional(),
 	})
 	.superRefine((input, context) => {
 		if (input.from && input.to && new Date(input.from) > new Date(input.to)) {
@@ -79,7 +102,8 @@ export type AnalyticsView = {
 		| "conversionTime"
 		| "stagePerformance"
 		| "breakdown"
-		| "timeSeries";
+		| "timeSeries"
+		| "xy";
 	title: string;
 	description: string;
 	chart: ChartCdnDefinition;

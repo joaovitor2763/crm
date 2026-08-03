@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ANALYTICS_DIMENSIONS } from "./analytics.contracts";
+import { ANALYTICS_DIMENSIONS, analyticsXyInput } from "./analytics.contracts";
 
 const analyticsDimensionSet = new Set<string>(ANALYTICS_DIMENSIONS);
 
@@ -16,6 +16,7 @@ export const DASHBOARD_METRICS = [
 	"stageTime",
 	"breakdown",
 	"macroBowtie",
+	"xy",
 ] as const;
 
 export const dashboardMetric = z.enum(DASHBOARD_METRICS);
@@ -76,6 +77,8 @@ const dashboardTimeRange = z
 export const dashboardDefinitionSpec = z
 	.object({
 		metric: dashboardMetric,
+		/** Axes for the `xy` metric; ignored by the canned metrics. */
+		xy: analyticsXyInput.optional(),
 		population: z.enum(["deals", "closedDeals", "pipelineEntries"]),
 		filters: z.array(dashboardFilter).max(12).default([]),
 		timeRange: dashboardTimeRange.default({
@@ -110,6 +113,13 @@ export const dashboardDefinitionSpec = z
 						"An attributeKey filter is required for deal attribute breakdowns.",
 				});
 			}
+		}
+		if (spec.metric === "xy" && !spec.xy) {
+			context.addIssue({
+				code: "custom",
+				path: ["xy"],
+				message: "A custom view needs its x and y axes.",
+			});
 		}
 		if (spec.metric === "breakdown" && dimensions.size === 0) {
 			context.addIssue({

@@ -34,6 +34,7 @@ export function analyticsInputForDefinition(
 		grain: spec.timeRange.grain,
 		comparison: spec.comparison,
 		limit: 100,
+		xy: spec.metric === "xy" ? spec.xy : undefined,
 	};
 }
 
@@ -51,7 +52,9 @@ export function renderDefinition(
 					? "stagePerformance"
 					: spec.metric === "breakdown"
 						? "breakdown"
-						: "conversionFunnel";
+						: spec.metric === "xy"
+							? "xy"
+							: "conversionFunnel";
 	const view = analytics.views.find((candidate) => candidate.key === viewKey);
 	if (!view)
 		throw new BadRequestException(`Analytics view ${viewKey} is unavailable.`);

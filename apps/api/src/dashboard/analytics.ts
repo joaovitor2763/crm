@@ -2,6 +2,7 @@ import { PipelineStageType } from "@crm/db";
 import type {
 	AnalyticsDimension,
 	AnalyticsView,
+	AnalyticsXyInput,
 	ChartCdnDefinition,
 } from "./analytics.contracts";
 
@@ -53,6 +54,7 @@ export type RevenueAnalyticsInput = {
 	now?: AnalyticsDate;
 	grain?: "hour" | "day" | "week" | "month" | "quarter";
 	comparison?: "none" | "previousPeriod" | "previousYear";
+	xy?: AnalyticsXyInput;
 };
 
 type StageVisit = {
@@ -236,6 +238,21 @@ export function buildRevenueAnalytics(
 		),
 	];
 
+	if (input.xy) {
+		views.push(
+			buildXyView(
+				pipelines,
+				deals,
+				activityByDeal,
+				input.xy,
+				toDate(input.from),
+				toDate(input.to),
+				input.grain ?? "month",
+				input.attributeKey,
+			),
+		);
+	}
+
 	for (const dimension of input.dimensions) {
 		if (dimension === "dealAttribute" && !input.attributeKey) continue;
 		const rows = breakdown(
@@ -335,6 +352,149 @@ function buildTimeSeriesView(
 		},
 	];
 	return result;
+}
+
+const XY_Y_LABELS: Record<AnalyticsXyInput["y"], string> = {
+	deals: "Deal count",
+	won: "Deals won",
+	valueCents: "Deal value",
+	winRate: "Win rate",
+	avgCycleDays: "Avg cycle (days)",
+};
+
+/**
+ * The generic view behind the custom builder: any X (a time bucket, a stage,
+ * or an attribution dimension), any Y aggregate, and an optional second
+ * dimension that fans the result into one dataset per series — the only view
+ * that emits more than one dataset per request besides the time series.
+ *
+ * Time cells cohort by `createdAt`: "won" on a time axis reads as "deals
+ * created in this bucket that went on to win", which keeps every Y consistent
+ * within a bucket instead of mixing created-based and closed-based counts.
+ */
+function buildXyView(
+	pipelines: AnalyticsPipeline[],
+	deals: AnalyticsDeal[],
+	activityByDeal: Map<string, AnalyticsActivity[]>,
+	xy: AnalyticsXyInput,
+	from: Date,
+	to: Date,
+	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
+	attributeKey?: string,
+): AnalyticsView {
+	const label = (deal: AnalyticsDeal, dimension: AnalyticsDimension) =>
+		dimensionValue(
+			deal,
+			activityByDeal.get(deal.id) ?? [],
+			dimension,
+			attributeKey,
+		);
+
+	type Cell = { label: string; match: (deal: AnalyticsDeal) => boolean };
+	let cells: Cell[];
+	if (xy.x === "time") {
+		cells = timeBuckets(from, to, grain).map((bucket) => ({
+			label: bucket.label,
+			match: (deal) => inBucket(toDate(deal.createdAt), bucket),
+		}));
+	} else if (xy.x === "stage") {
+		cells = pipelines.flatMap((pipeline) =>
+			pipeline.stages.map((stage) => ({
+				label:
+					pipelines.length > 1
+						? `${pipeline.name} · ${stage.name}`
+						: stage.name,
+				match: (deal: AnalyticsDeal) => deal.stage.id === stage.id,
+			})),
+		);
+	} else {
+		const dimension = xy.x;
+		const totals = new Map<string, number>();
+		for (const deal of deals) {
+			const value = label(deal, dimension);
+			totals.set(value, (totals.get(value) ?? 0) + 1);
+		}
+		cells = [...totals.entries()]
+			.sort((left, right) => right[1] - left[1])
+			.slice(0, 12)
+			.map(([value]) => ({
+				label: value,
+				match: (deal: AnalyticsDeal) => label(deal, dimension) === value,
+			}));
+	}
+
+	let seriesLabels: Array<string | null> = [null];
+	if (xy.seriesBy) {
+		const dimension = xy.seriesBy;
+		const totals = new Map<string, number>();
+		for (const deal of deals) {
+			const value = label(deal, dimension);
+			totals.set(value, (totals.get(value) ?? 0) + 1);
+		}
+		seriesLabels = [...totals.entries()]
+			.sort((left, right) => right[1] - left[1])
+			.slice(0, 8)
+			.map(([value]) => value);
+	}
+
+	const aggregate = (list: AnalyticsDeal[]) => {
+		if (xy.y === "deals") return list.length;
+		const wonDeals = list.filter(
+			(deal) => deal.stage.type === PipelineStageType.WON,
+		);
+		if (xy.y === "won") return wonDeals.length;
+		if (xy.y === "valueCents")
+			return list.reduce((sum, deal) => sum + (deal.amountCents ?? 0), 0);
+		if (xy.y === "winRate")
+			return list.length ? wonDeals.length / list.length : 0;
+		const cycles = wonDeals
+			.filter((deal) => deal.closedAt)
+			.map((deal) =>
+				elapsedDays(
+					toDate(deal.createdAt),
+					toDate(deal.closedAt as AnalyticsDate),
+				),
+			);
+		return average(cycles) ?? 0;
+	};
+
+	const datasets = seriesLabels.map((series) => ({
+		label: series ?? XY_Y_LABELS[xy.y],
+		data: cells.map((cell) =>
+			aggregate(
+				deals.filter(
+					(deal) =>
+						cell.match(deal) &&
+						(series === null ||
+							(xy.seriesBy && label(deal, xy.seriesBy) === series)),
+				),
+			),
+		),
+	}));
+
+	const rows = cells.map((cell, index) => {
+		const row: Record<string, string | number | null> = { label: cell.label };
+		for (const [seriesIndex, series] of seriesLabels.entries()) {
+			row[series ?? "value"] = datasets[seriesIndex]?.data[index] ?? 0;
+		}
+		return row;
+	});
+
+	return {
+		key: "xy",
+		title: "Custom view",
+		description: "The builder-defined axes over the selected window.",
+		chart: {
+			type: "bar",
+			data: { labels: cells.map((cell) => cell.label), datasets },
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				...(xy.seriesBy ? { stacked: true } : {}),
+			},
+		},
+		rows,
+	};
 }
 
 type TimeBucket = { start: Date; end: Date; label: string };

@@ -856,6 +856,7 @@ function WidgetChart({
 	options,
 	height,
 	wide = true,
+	yField,
 }: {
 	view: AnalyticsView;
 	visualization: string;
@@ -863,6 +864,8 @@ function WidgetChart({
 	height: number;
 	/** Whether the plot has room for centered axis ticks. */
 	wide?: boolean;
+	/** The custom view's Y aggregate, for money/percent formatting. */
+	yField?: NonNullable<DashboardSpec["xy"]>["y"];
 }) {
 	// A chosen row field (deal value, win rate…) replaces the dataset's default
 	// measure — the rows carry every cut the engine computed, so switching the
@@ -884,7 +887,12 @@ function WidgetChart({
 	);
 	const formatValue = fieldRows
 		? valueFieldFormatter(valueField)
-		: formatMetric;
+		: yField === "valueCents"
+			? (value: number | string) => formatMoneyCompact(Number(value))
+			: yField === "winRate"
+				? (value: number | string) => formatPercent(Number(value))
+				: formatMetric;
+	const multiSeries = view.chart.data.datasets.length > 1;
 	const cartesianData = fieldRows
 		? slices.map((slice) => ({ label: slice.label, value: slice.value }))
 		: chartRows(view);
@@ -901,11 +909,13 @@ function WidgetChart({
 	const hasData = slices.some((slice) => slice.value !== 0);
 	// Room for readable centered ticks, or hand the labels to the legend list.
 	const axisFits =
-		wide &&
-		slices.length <= 4 &&
-		slices.every((slice) => slice.label.length <= 16);
+		(wide &&
+			slices.length <= 4 &&
+			slices.every((slice) => slice.label.length <= 16)) ||
+		(multiSeries && wide && slices.length <= 8);
 	const showLegendList =
 		options.legend !== false &&
+		!multiSeries &&
 		["bar", "doughnut", "pie", "radial", "funnel"].includes(visualization) &&
 		!axisFits;
 
@@ -960,8 +970,10 @@ function WidgetChart({
 				xKey="label"
 				height={height}
 				showXAxis={axisFits || view.key === "timeSeries"}
-				showLegend={options.legend === true && view.key === "timeSeries"}
-				stacked={options.stacked === true}
+				showLegend={
+					multiSeries || (options.legend === true && view.key === "timeSeries")
+				}
+				stacked={options.stacked === true || multiSeries}
 				formatValue={formatValue}
 			/>
 		) : (
@@ -971,8 +983,8 @@ function WidgetChart({
 				xKey="label"
 				height={height}
 				showXAxis={axisFits}
-				showLegend={false}
-				stacked={options.stacked === true}
+				showLegend={multiSeries}
+				stacked={options.stacked === true || multiSeries}
 				formatValue={formatValue}
 			/>
 		);
@@ -1211,7 +1223,7 @@ function WorkspaceWidget({
 							event.preventDefault();
 							event.stopPropagation();
 						}}
-						className="-right-1.5 absolute inset-y-0 z-10 hidden w-3 cursor-col-resize items-center justify-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
+						className="-right-1.5 absolute inset-y-0 z-10 hidden w-3 cursor-col-resize items-center justify-center opacity-40 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
 					>
 						<span className="h-8 w-1 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
 					</button>
@@ -1227,7 +1239,7 @@ function WorkspaceWidget({
 							event.preventDefault();
 							event.stopPropagation();
 						}}
-						className="-bottom-1.5 absolute inset-x-0 z-10 hidden h-3 cursor-row-resize items-center justify-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
+						className="-bottom-1.5 absolute inset-x-0 z-10 hidden h-3 cursor-row-resize items-center justify-center opacity-40 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
 					>
 						<span className="h-1 w-8 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
 					</button>
@@ -1278,6 +1290,34 @@ const METRICS: Array<{ value: DashboardSpec["metric"]; label: string }> = [
 	{ value: "stageTime", label: "Time in each stage" },
 	{ value: "breakdown", label: "Deals by dimension" },
 	{ value: "macroBowtie", label: "Funnel across pipelines" },
+	{ value: "xy", label: "Custom X / Y" },
+];
+
+const XY_X_OPTIONS: Array<{
+	value: NonNullable<DashboardSpec["xy"]>["x"];
+	label: string;
+}> = [
+	{ value: "time", label: "Time" },
+	{ value: "stage", label: "Stage" },
+	{ value: "channel", label: "Channel" },
+	{ value: "owner", label: "Owner" },
+	{ value: "utmSource", label: "UTM source" },
+	{ value: "utmMedium", label: "UTM medium" },
+	{ value: "utmCampaign", label: "UTM campaign" },
+	{ value: "utmTerm", label: "UTM term" },
+	{ value: "utmContent", label: "UTM content" },
+	{ value: "dealAttribute", label: "Deal attribute" },
+];
+
+const XY_Y_OPTIONS: Array<{
+	value: NonNullable<DashboardSpec["xy"]>["y"];
+	label: string;
+}> = [
+	{ value: "deals", label: "Deal count" },
+	{ value: "won", label: "Deals won" },
+	{ value: "valueCents", label: "Deal value (sum)" },
+	{ value: "winRate", label: "Win rate" },
+	{ value: "avgCycleDays", label: "Avg cycle (days)" },
 ];
 
 const BREAKDOWN_DIMENSIONS: Array<{
@@ -1296,7 +1336,8 @@ const BREAKDOWN_DIMENSIONS: Array<{
 /** What is being dragged from the field palette, if anything. */
 type PaletteDrag =
 	| { kind: "metric"; value: DashboardSpec["metric"] }
-	| { kind: "dimension"; value: DashboardSpec["groupBy"][number] };
+	| { kind: "dimension"; value: DashboardSpec["groupBy"][number] }
+	| { kind: "x"; value: "time" | "stage" };
 
 function PaletteChip({
 	label,
@@ -1432,6 +1473,15 @@ function WidgetComposerDialog({
 	const [funnelRates, setFunnelRates] = useState<
 		NonNullable<WidgetOptions["funnelRates"]>
 	>(baseOptions.funnelRates ?? "cumulative");
+	const [xyX, setXyX] = useState<NonNullable<DashboardSpec["xy"]>["x"]>(
+		baseSpec.xy?.x ?? "time",
+	);
+	const [xyY, setXyY] = useState<NonNullable<DashboardSpec["xy"]>["y"]>(
+		baseSpec.xy?.y ?? "deals",
+	);
+	const [xySeries, setXySeries] = useState<string>(
+		baseSpec.xy?.seriesBy ?? "none",
+	);
 	const [pipelineId, setPipelineId] = useState(
 		baseSpec.filters.find((filter) => filter.key === "pipelineId")?.value ??
 			"all",
@@ -1445,9 +1495,9 @@ function WidgetComposerDialog({
 	// Palette drag state: dataTransfer is unreadable during dragover, so the
 	// chip announces itself here and the wells key their highlight off it.
 	const [dragging, setDragging] = useState<PaletteDrag | null>(null);
-	const [overZone, setOverZone] = useState<"measure" | "breakdown" | null>(
-		null,
-	);
+	const [overZone, setOverZone] = useState<
+		"measure" | "breakdown" | "xy-x" | "xy-series" | null
+	>(null);
 
 	const metricLabel =
 		METRICS.find((option) => option.value === metric)?.label ?? "New widget";
@@ -1488,6 +1538,17 @@ function WidgetComposerDialog({
 	const spec: DashboardSpec = {
 		...baseSpec,
 		metric,
+		xy:
+			metric === "xy"
+				? {
+						x: xyX,
+						y: xyY,
+						seriesBy:
+							xySeries !== "none"
+								? (xySeries as NonNullable<DashboardSpec["xy"]>["seriesBy"])
+								: undefined,
+					}
+				: baseSpec.xy,
 		groupBy:
 			metric === "breakdown"
 				? [dimension]
@@ -1504,9 +1565,10 @@ function WidgetComposerDialog({
 						},
 					]
 				: []),
-			...(metric === "breakdown" &&
-			dimension === "dealAttribute" &&
-			attributeKey
+			...(attributeKey &&
+			((metric === "breakdown" && dimension === "dealAttribute") ||
+				(metric === "xy" &&
+					(xyX === "dealAttribute" || xySeries === "dealAttribute")))
 				? [
 						{
 							key: "attributeKey" as const,
@@ -1614,7 +1676,10 @@ function WidgetComposerDialog({
 							onDrop={() => {
 								if (!dragging) return;
 								if (dragging.kind === "metric") setMetric(dragging.value);
-								else {
+								else if (dragging.kind === "x") {
+									setMetric("xy");
+									setXyX(dragging.value);
+								} else {
 									setMetric("breakdown");
 									setDimension(dragging.value);
 								}
@@ -1681,7 +1746,74 @@ function WidgetComposerDialog({
 								/>
 							</Field>
 						) : null}
-						{metric === "breakdown" && dimension === "dealAttribute" ? (
+						{metric === "xy" ? (
+							<>
+								<DropZone
+									active={dragging !== null && dragging.kind !== "metric"}
+									over={overZone === "xy-x"}
+									onDragEnter={() => setOverZone("xy-x")}
+									onDragLeave={() =>
+										setOverZone((zone) => (zone === "xy-x" ? null : zone))
+									}
+									onDrop={() => {
+										if (!dragging || dragging.kind === "metric") return;
+										if (dragging.value !== "pipeline") setXyX(dragging.value);
+										endDrag();
+									}}
+								>
+									<FieldLabel>X axis</FieldLabel>
+									<SearchCombobox
+										value={xyX}
+										onValueChange={(value) =>
+											setXyX(value as NonNullable<DashboardSpec["xy"]>["x"])
+										}
+										options={XY_X_OPTIONS.map((option) => ({ ...option }))}
+										searchPlaceholder="Search X axes…"
+										className="w-full"
+									/>
+								</DropZone>
+								<Field>
+									<FieldLabel>Y axis</FieldLabel>
+									<SearchCombobox
+										value={xyY}
+										onValueChange={(value) =>
+											setXyY(value as NonNullable<DashboardSpec["xy"]>["y"])
+										}
+										options={XY_Y_OPTIONS.map((option) => ({ ...option }))}
+										searchPlaceholder="Search Y axes…"
+										className="w-full"
+									/>
+								</Field>
+								<DropZone
+									active={dragging?.kind === "dimension"}
+									over={overZone === "xy-series"}
+									onDragEnter={() => setOverZone("xy-series")}
+									onDragLeave={() =>
+										setOverZone((zone) => (zone === "xy-series" ? null : zone))
+									}
+									onDrop={() => {
+										if (dragging?.kind !== "dimension") return;
+										setXySeries(dragging.value);
+										endDrag();
+									}}
+								>
+									<FieldLabel>Series by (stacks the chart)</FieldLabel>
+									<SearchCombobox
+										value={xySeries}
+										onValueChange={setXySeries}
+										options={[
+											{ value: "none", label: "No series" },
+											...BREAKDOWN_DIMENSIONS.map((option) => ({ ...option })),
+										]}
+										searchPlaceholder="Search dimensions…"
+										className="w-full"
+									/>
+								</DropZone>
+							</>
+						) : null}
+						{(metric === "breakdown" && dimension === "dealAttribute") ||
+						(metric === "xy" &&
+							(xyX === "dealAttribute" || xySeries === "dealAttribute")) ? (
 							<Field>
 								<FieldLabel htmlFor="composer-attribute">
 									Attribute key
@@ -1833,6 +1965,7 @@ function WidgetComposerDialog({
 										funnelRates,
 									}}
 									height={440}
+									yField={metric === "xy" ? xyY : undefined}
 								/>
 							</div>
 						) : (

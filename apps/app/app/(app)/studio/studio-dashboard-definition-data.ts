@@ -7,7 +7,37 @@ export const DASHBOARD_METRICS = [
 	"stageTime",
 	"breakdown",
 	"macroBowtie",
+	"xy",
 ] as const;
+
+/** Axes the custom `xy` metric can plot. Mirrors the API's analyticsXyInput. */
+export const DASHBOARD_XY_X = [
+	"time",
+	"stage",
+	"channel",
+	"owner",
+	"utmSource",
+	"utmMedium",
+	"utmCampaign",
+	"utmTerm",
+	"utmContent",
+	"dealAttribute",
+] as const;
+export const DASHBOARD_XY_Y = [
+	"deals",
+	"won",
+	"valueCents",
+	"winRate",
+	"avgCycleDays",
+] as const;
+
+export type DashboardXy = {
+	x: (typeof DASHBOARD_XY_X)[number];
+	y: (typeof DASHBOARD_XY_Y)[number];
+	seriesBy?: (typeof DASHBOARD_XY_X)[number] extends never
+		? never
+		: Exclude<(typeof DASHBOARD_XY_X)[number], "time" | "stage">;
+};
 
 export const DASHBOARD_DIMENSIONS = [
 	"channel",
@@ -44,6 +74,7 @@ export type DashboardGrain = (typeof DASHBOARD_GRAINS)[number];
 
 export type DashboardSpec = {
 	metric: DashboardMetric;
+	xy?: DashboardXy;
 	population: "deals" | "closedDeals" | "pipelineEntries";
 	filters: Array<{
 		key: "pipelineId" | "attributeKey";
