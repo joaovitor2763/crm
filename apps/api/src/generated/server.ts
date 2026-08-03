@@ -134,7 +134,10 @@ const appRouter = t.router({
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["updateWebhook"]>>),
     rotateWebhookSecret: publicProcedure
       .input(automationIdInput)
-      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["rotateWebhookSecret"]>>)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["rotateWebhookSecret"]>>),
+    testWebhook: publicProcedure
+      .input(automationIdInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["testWebhook"]>>)
     }),
   companies: t.router({
     list: publicProcedure

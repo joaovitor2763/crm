@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import {
 	AutomationRunStatus,
 	AutomationStatus,
@@ -145,7 +145,20 @@ export class AutomationsService {
 		return this.db.webhookEndpoint.findMany({
 			where: { AND: [{ archivedAt: null }, scope] },
 			orderBy: { createdAt: "desc" },
-			include: { _count: { select: { deliveries: true } } },
+			include: {
+				_count: { select: { deliveries: true } },
+				deliveries: {
+					orderBy: { createdAt: "desc" },
+					take: 1,
+					select: {
+						status: true,
+						responseStatus: true,
+						errorCode: true,
+						deliveredAt: true,
+						updatedAt: true,
+					},
+				},
+			},
 		});
 	}
 
@@ -204,6 +217,74 @@ export class AutomationsService {
 			data: { secretLastFour: secret.slice(-4) },
 		});
 		return { id, secret, secretLastFour: secret.slice(-4) };
+	}
+
+	async testWebhook(id: string, scope: Prisma.WebhookEndpointWhereInput = {}) {
+		this.requireWebhookSecret();
+		const endpoint = await this.db.webhookEndpoint.findFirst({
+			where: { AND: [{ id }, scope] },
+			select: {
+				id: true,
+				url: true,
+				secretVersion: true,
+				businessUnitId: true,
+				teamId: true,
+			},
+		});
+		if (!endpoint) throw new NotFoundException("Webhook not found.");
+
+		const deliveryId = `test_${randomUUID()}`;
+		const testedAt = new Date();
+		const eventType = "webhook.test";
+		const body = JSON.stringify({
+			id: deliveryId,
+			type: eventType,
+			resource: "webhooks",
+			recordId: endpoint.id,
+			businessUnitId: endpoint.businessUnitId,
+			teamId: endpoint.teamId,
+			occurredAt: testedAt.toISOString(),
+			data: {
+				test: true,
+				note: "Manual test delivery from CRM settings.",
+			},
+		});
+		const startedAt = Date.now();
+		try {
+			const response = await postPublicWebhook(endpoint.url, {
+				headers: {
+					"content-type": "application/json",
+					"x-crm-event": eventType,
+					"x-crm-delivery": deliveryId,
+					"x-crm-signature": `sha256=${this.signature(
+						endpoint.id,
+						endpoint.secretVersion,
+						body,
+					)}`,
+				},
+				body,
+				signal: AbortSignal.timeout(10_000),
+			});
+			return {
+				status: response.ok
+					? WebhookDeliveryStatus.SUCCEEDED
+					: WebhookDeliveryStatus.FAILED,
+				responseStatus: response.status,
+				errorCode: response.ok ? null : `HTTP_${response.status}`,
+				durationMs: Date.now() - startedAt,
+				testedAt: testedAt.toISOString(),
+				eventType,
+			};
+		} catch (error) {
+			return {
+				status: WebhookDeliveryStatus.FAILED,
+				responseStatus: null,
+				errorCode: safeErrorCode(error),
+				durationMs: Date.now() - startedAt,
+				testedAt: testedAt.toISOString(),
+				eventType,
+			};
+		}
 	}
 
 	async processBatch() {

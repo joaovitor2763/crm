@@ -16,7 +16,12 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "@crm/ui/components/empty";
-import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
+import {
+	Field,
+	FieldDescription,
+	FieldGroup,
+	FieldLabel,
+} from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
 import { SearchCombobox } from "@crm/ui/components/search-combobox";
@@ -36,6 +41,7 @@ import {
 	TabsTrigger,
 } from "@crm/ui/components/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
@@ -46,7 +52,7 @@ type EventCatalog = ReadonlyArray<
 	RouterOutputs["automations"]["eventCatalog"][number]
 >;
 
-const credentialDateTime = new Intl.DateTimeFormat("en-US", {
+const utcDateTime = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
 	timeStyle: "short",
 	timeZone: "UTC",
@@ -72,6 +78,10 @@ export function AutomationsSettings({
 		enabled: canManageWebhooks,
 	});
 	const [webhookSecret, setWebhookSecret] = useState<string | null>(null);
+	const [lastWebhookTest, setLastWebhookTest] = useState<{
+		webhookId: string;
+		result: RouterOutputs["automations"]["testWebhook"];
+	} | null>(null);
 	const [createMode, setCreateMode] = useState<"automation" | "webhook" | null>(
 		null,
 	);
@@ -142,6 +152,25 @@ export function AutomationsSettings({
 			onError: fail,
 		}),
 	);
+	const testWebhook = useMutation(
+		trpc.automations.testWebhook.mutationOptions({
+			onSuccess: (result, input) => {
+				setLastWebhookTest({ webhookId: input.id, result });
+				if (result.status === "SUCCEEDED") {
+					toast.success(
+						`Test webhook delivered with HTTP ${result.responseStatus}.`,
+					);
+				} else {
+					toast.error(
+						result.responseStatus
+							? `Test webhook returned HTTP ${result.responseStatus}.`
+							: `Test webhook failed: ${result.errorCode ?? "Unknown error"}.`,
+					);
+				}
+			},
+			onError: fail,
+		}),
+	);
 
 	return (
 		<Card>
@@ -173,15 +202,39 @@ export function AutomationsSettings({
 				</div>
 			</CardHeader>
 			<CardContent>
+				<Alert>
+					<AlertTitle>
+						Inbound and outbound integrations are different
+					</AlertTitle>
+					<AlertDescription className="flex flex-col gap-2">
+						<p>
+							<strong>Into CRM:</strong> forms and external systems use the REST
+							API or MCP with a scoped credential. See the{" "}
+							<Link href="/settings?section=access">inbound API guide</Link>.
+						</p>
+						<p>
+							<strong>Out of CRM:</strong> webhooks POST signed event payloads
+							to your HTTPS endpoint. Non-2xx deliveries are retried
+							automatically.
+						</p>
+					</AlertDescription>
+				</Alert>
 				{webhookSecret ? (
 					<Alert>
 						<AlertTitle>Copy the webhook secret now</AlertTitle>
-						<AlertDescription>
-							<Input
-								value={webhookSecret}
-								readOnly
-								aria-label="New webhook secret"
-							/>
+						<AlertDescription className="flex flex-col gap-2">
+							<p>
+								Use this secret to verify the x-crm-signature header. It is
+								shown only once.
+							</p>
+							<div className="flex min-w-0 gap-2">
+								<Input
+									value={webhookSecret}
+									readOnly
+									aria-label="New webhook secret"
+								/>
+								<CopyButton value={webhookSecret} label="Copy webhook secret" />
+							</div>
 						</AlertDescription>
 					</Alert>
 				) : null}
@@ -229,13 +282,15 @@ export function AutomationsSettings({
 							<SelectValue />
 						</SelectTrigger>
 						<SelectContent>
-							<SelectItem value="all">All types</SelectItem>
-							{canManageAutomations ? (
-								<SelectItem value="automation">Rules</SelectItem>
-							) : null}
-							{canManageWebhooks ? (
-								<SelectItem value="webhook">Webhooks</SelectItem>
-							) : null}
+							<SelectGroup>
+								<SelectItem value="all">All types</SelectItem>
+								{canManageAutomations ? (
+									<SelectItem value="automation">Rules</SelectItem>
+								) : null}
+								{canManageWebhooks ? (
+									<SelectItem value="webhook">Webhooks</SelectItem>
+								) : null}
+							</SelectGroup>
 						</SelectContent>
 					</Select>
 				</div>
@@ -288,27 +343,70 @@ export function AutomationsSettings({
 							</Field>
 						</div>
 					))}
-					{filteredWebhooks.map((webhook) => (
-						<div
-							key={webhook.id}
-							className="flex items-center justify-between gap-3 border p-3"
-						>
-							<div>
-								<p className="text-sm font-medium">{webhook.name}</p>
-								<p className="text-xs text-muted-foreground">
-									{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
-									{webhook._count.deliveries} deliveries
-								</p>
+					{filteredWebhooks.map((webhook) => {
+						const latestDelivery = webhook.deliveries[0];
+						const latestTest =
+							lastWebhookTest?.webhookId === webhook.id
+								? lastWebhookTest.result
+								: null;
+						const isTesting =
+							testWebhook.isPending && testWebhook.variables?.id === webhook.id;
+						return (
+							<div
+								key={webhook.id}
+								className="flex flex-wrap items-center justify-between gap-3 border p-3"
+							>
+								<div className="min-w-0">
+									<p className="text-sm font-medium">{webhook.name}</p>
+									<p className="text-muted-foreground text-xs">
+										{webhook.url} · secret …{webhook.secretLastFour} ·{" "}
+										{webhook._count.deliveries} deliveries
+									</p>
+									{latestDelivery ? (
+										<p className="text-muted-foreground text-xs">
+											Last delivery: {latestDelivery.status}
+											{latestDelivery.responseStatus
+												? ` · HTTP ${latestDelivery.responseStatus}`
+												: ""}
+											{latestDelivery.errorCode
+												? ` · ${latestDelivery.errorCode}`
+												: ""}{" "}
+											· {utcDateTime.format(new Date(latestDelivery.updatedAt))}{" "}
+											UTC
+										</p>
+									) : null}
+									{latestTest ? (
+										<p className="text-muted-foreground text-xs">
+											Last manual test: {latestTest.status}
+											{latestTest.responseStatus
+												? ` · HTTP ${latestTest.responseStatus}`
+												: ""}
+											{latestTest.errorCode ? ` · ${latestTest.errorCode}` : ""}{" "}
+											· {latestTest.durationMs} ms
+										</p>
+									) : null}
+								</div>
+								<div className="flex items-center gap-2">
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										disabled={testWebhook.isPending}
+										onClick={() => testWebhook.mutate({ id: webhook.id })}
+									>
+										{isTesting ? "Testing…" : "Test webhook"}
+									</Button>
+									<Switch
+										aria-label={`Enable ${webhook.name}`}
+										checked={webhook.isActive}
+										onCheckedChange={(isActive) =>
+											updateWebhook.mutate({ id: webhook.id, isActive })
+										}
+									/>
+								</div>
 							</div>
-							<Switch
-								aria-label={`Enable ${webhook.name}`}
-								checked={webhook.isActive}
-								onCheckedChange={(isActive) =>
-									updateWebhook.mutate({ id: webhook.id, isActive })
-								}
-							/>
-						</div>
-					))}
+						);
+					})}
 					{!automations.isLoading &&
 					!webhooks.isLoading &&
 					!listFailed &&
@@ -553,6 +651,14 @@ function WebhookForm({
 			}}
 		>
 			<FieldGroup>
+				<Alert>
+					<AlertTitle>This sends data out of CRM</AlertTitle>
+					<AlertDescription>
+						CRM will POST selected events to the URL below. To send a form or
+						update a contact in CRM, use the{" "}
+						<Link href="/settings?section=access">REST API guide</Link> instead.
+					</AlertDescription>
+				</Alert>
 				<Field>
 					<FieldLabel htmlFor="webhook-name">Name</FieldLabel>
 					<Input
@@ -571,6 +677,12 @@ function WebhookForm({
 						placeholder="https://example.com/crm"
 						required
 					/>
+					<FieldDescription>
+						Must be a public HTTPS endpoint that accepts signed JSON POST
+						requests and returns a 2xx response. Verify x-crm-signature as the
+						SHA-256 HMAC of the raw request body using the one-time webhook
+						secret.
+					</FieldDescription>
 				</Field>
 				<Field>
 					<FieldLabel>Events to send</FieldLabel>
@@ -719,7 +831,7 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 				{newToken ? (
 					<Alert className="border-foreground/20">
 						<AlertTitle>Copy this token now</AlertTitle>
-						<AlertDescription className="space-y-3 pt-1">
+						<AlertDescription className="flex flex-col gap-3 pt-1">
 							<p>
 								This is the only time the complete token is shown. Store it in
 								your server-side secret manager; never commit it or expose it in
@@ -740,7 +852,10 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 
 				<IntegrationGuide apiBaseUrl={apiBaseUrl} />
 
-				<section aria-labelledby="issue-credential-title" className="space-y-3">
+				<section
+					aria-labelledby="issue-credential-title"
+					className="flex flex-col gap-3"
+				>
 					<div>
 						<h3 id="issue-credential-title" className="text-sm font-medium">
 							Issue a credential
@@ -755,7 +870,7 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 
 				<section
 					aria-labelledby="issued-credentials-title"
-					className="space-y-2"
+					className="flex flex-col gap-2"
 				>
 					<h3 id="issued-credentials-title" className="text-sm font-medium">
 						Issued credentials
@@ -767,6 +882,9 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 								.join(", ");
 							const teams = credential.teams
 								.map(({ team }) => team.name)
+								.join(", ");
+							const unitIds = credential.businessUnits
+								.map(({ businessUnit }) => businessUnit.id)
 								.join(", ");
 							return (
 								<div
@@ -780,10 +898,14 @@ export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 											{credential.lastFour} · {credential.status}
 										</p>
 										<p className="text-muted-foreground text-xs">
+											Business unit ID:{" "}
+											<code className="font-mono">{unitIds}</code>
+										</p>
+										<p className="text-muted-foreground text-xs">
 											Scope: {units || "No business units"}
 											{teams ? ` · Teams: ${teams}` : ""} · Last used:{" "}
 											{credential.lastUsedAt
-												? `${credentialDateTime.format(
+												? `${utcDateTime.format(
 														new Date(credential.lastUsedAt),
 													)} UTC`
 												: "Never"}
@@ -832,14 +954,35 @@ function IntegrationGuide({ apiBaseUrl }: { apiBaseUrl: string }) {
 		null,
 		2,
 	);
-	const restExample = `curl --request GET \\
-  --url '${restUrl}/contacts?limit=10' \\
-  --header 'Authorization: ${authorization}'`;
+	const leadExample = `curl --request POST \\
+  --url '${restUrl}/leads' \\
+  --header 'Authorization: ${authorization}' \\
+  --header 'Content-Type: application/json' \\
+  --data '{
+    "source": "website-contact-form",
+    "idempotencyKey": "<FORM_SUBMISSION_ID>",
+    "businessUnitId": "<BUSINESS_UNIT_ID>",
+    "firstName": "Example",
+    "lastName": "Person",
+    "email": "person@example.com",
+    "utmSource": "website"
+  }'`;
+	const updateExample = `# Find the scoped contact ID
+curl --request GET \\
+  --url '${restUrl}/contacts?email=person%40example.com' \\
+  --header 'Authorization: ${authorization}'
+
+# Update supported basic fields
+curl --request PATCH \\
+  --url '${restUrl}/contacts/<CONTACT_ID>' \\
+  --header 'Authorization: ${authorization}' \\
+  --header 'Content-Type: application/json' \\
+  --data '{"title":"Sales Director","phone":"+55 11 0000-0000"}'`;
 
 	return (
 		<section
 			aria-labelledby="connect-systems-title"
-			className="space-y-4 rounded-lg border bg-muted/20 p-4"
+			className="flex flex-col gap-4 rounded-lg border bg-muted/20 p-4"
 		>
 			<div>
 				<h3 id="connect-systems-title" className="text-sm font-medium">
@@ -864,9 +1007,10 @@ function IntegrationGuide({ apiBaseUrl }: { apiBaseUrl: string }) {
 			<Tabs defaultValue="mcp">
 				<TabsList aria-label="Connection examples">
 					<TabsTrigger value="mcp">MCP client</TabsTrigger>
-					<TabsTrigger value="rest">REST</TabsTrigger>
+					<TabsTrigger value="lead">Form / lead</TabsTrigger>
+					<TabsTrigger value="update">Update contact</TabsTrigger>
 				</TabsList>
-				<TabsContent value="mcp" className="space-y-2">
+				<TabsContent value="mcp" className="flex flex-col gap-2">
 					<p className="text-muted-foreground">
 						Add this server to any client that supports remote HTTP MCP. Client
 						configuration names can vary; the endpoint and header above are the
@@ -874,16 +1018,33 @@ function IntegrationGuide({ apiBaseUrl }: { apiBaseUrl: string }) {
 					</p>
 					<CodeSample label="Copy MCP config" value={mcpConfig} />
 				</TabsContent>
-				<TabsContent value="rest" className="space-y-2">
+				<TabsContent value="lead" className="flex flex-col gap-2">
 					<p className="text-muted-foreground">
-						Replace the token placeholder and run this server-side to verify
-						access to contacts within the credential scope.
+						Your browser form should submit to your own backend or serverless
+						function, which forwards this request to CRM. Never put the Bearer
+						token in browser code. Use the business-unit ID shown beside the
+						issued credential below.
 					</p>
-					<CodeSample label="Copy REST example" value={restExample} />
+					<CodeSample label="Copy lead example" value={leadExample} />
+					<p className="text-muted-foreground">
+						The response is a durable submission receipt. Search by email within
+						the credential scope when you need the contact ID.
+					</p>
+				</TabsContent>
+				<TabsContent value="update" className="flex flex-col gap-2">
+					<p className="text-muted-foreground">
+						Find the contact within the credential scope, then PATCH its basic
+						profile or attribution fields. The credential role must grant
+						contact read and update permissions.
+					</p>
+					<CodeSample
+						label="Copy contact update example"
+						value={updateExample}
+					/>
 				</TabsContent>
 			</Tabs>
 
-			<ol className="list-decimal space-y-1 pl-4 text-muted-foreground text-xs/relaxed">
+			<ol className="flex list-decimal flex-col gap-1 pl-4 text-muted-foreground text-xs/relaxed">
 				<li>Create a key and copy its one-time token.</li>
 				<li>Store it as a server-side secret, such as CRM_API_KEY.</li>
 				<li>Replace the placeholder in your MCP client or REST request.</li>
@@ -897,7 +1058,7 @@ function IntegrationGuide({ apiBaseUrl }: { apiBaseUrl: string }) {
 
 function ConnectionValue({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="space-y-1">
+		<div className="flex flex-col gap-1">
 			<p className="font-medium text-xs">{label}</p>
 			<div className="flex min-w-0 gap-2">
 				<Input

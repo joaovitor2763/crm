@@ -1,4 +1,9 @@
-import { AutomationStatus, PermissionAction, type Prisma } from "@crm/db";
+import {
+	AutomationStatus,
+	PermissionAction,
+	type Prisma,
+	WebhookDeliveryStatus,
+} from "@crm/db";
 import { Inject } from "@nestjs/common";
 import {
 	Ctx,
@@ -134,6 +139,18 @@ export class AutomationsRouter {
 		);
 	}
 
+	@Mutation({ input: automationIdInput })
+	testWebhook(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof automationIdInput>,
+	) {
+		this.manage(ctx, CRM_RESOURCE.webhooks);
+		return this.automations.testWebhook(
+			input.id,
+			this.webhookScope(ctx, false),
+		);
+	}
+
 	private manage(ctx: AuthedTrpcContext, resource: string) {
 		this.accessControl.assert(ctx.principal, resource, PermissionAction.MANAGE);
 	}
@@ -200,4 +217,11 @@ type WebhookListItem = {
 	createdAt: Date;
 	updatedAt: Date;
 	_count: { deliveries: number };
+	deliveries: {
+		status: WebhookDeliveryStatus;
+		responseStatus: number | null;
+		errorCode: string | null;
+		deliveredAt: Date | null;
+		updatedAt: Date;
+	}[];
 };

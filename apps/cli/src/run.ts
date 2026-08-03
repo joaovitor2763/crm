@@ -20,6 +20,16 @@ export async function run(invocation: CliInvocation): Promise<unknown> {
 			`/api/v1/contacts/${encodeURIComponent(subject)}`,
 		);
 	}
+	if (group === "contacts" && action === "update" && subject) {
+		return requestJson(
+			config,
+			`/api/v1/contacts/${encodeURIComponent(subject)}`,
+			{
+				method: "PATCH",
+				body: JSON.stringify(requireObjectData(invocation.data)),
+			},
+		);
+	}
 	if (group === "contacts" && action === "search" && !subject) {
 		const data = requireObjectData(invocation.data);
 		const query = new URLSearchParams();
@@ -56,6 +66,7 @@ export function helpText(): string {
 		"  health",
 		"  contacts upsert --data JSON",
 		"  contacts get <id>",
+		"  contacts update <id> --data JSON",
 		'  contacts search --data \'{"email":"person@example.com"}\'',
 		"  mcp list",
 		"  mcp call <tool> --data JSON",

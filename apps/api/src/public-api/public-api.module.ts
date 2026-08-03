@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ApiCredentialsModule } from "../api-credentials/api-credentials.module";
 import { AttributionModule } from "../attribution/attribution.module";
+import { ContactsModule } from "../contacts/contacts.module";
 import { DashboardModule } from "../dashboard/dashboard.module";
 import { FieldsModule } from "../fields/fields.module";
 import { RevenueAccountsModule } from "../revenue-accounts/revenue-accounts.module";
@@ -17,6 +18,7 @@ import { RevenueAccountsPublicController } from "./revenue-accounts-public.contr
 		ApiCredentialsModule,
 		AttributionModule,
 		DashboardModule,
+		ContactsModule,
 		FieldsModule,
 		RevenueAccountsModule,
 	],

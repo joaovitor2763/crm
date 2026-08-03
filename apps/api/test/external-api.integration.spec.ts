@@ -37,6 +37,8 @@ let otherTeamBearer: string;
 let otherTeamCredentialId: string;
 let noTeamBearer: string;
 let noTeamCredentialId: string;
+let updateBearer: string;
+let updateCredentialId: string;
 let createOnlyBearer: string;
 let createOnlyCredentialId: string;
 
@@ -67,6 +69,7 @@ async function cleanup() {
 		credentialId ||
 		otherTeamCredentialId ||
 		noTeamCredentialId ||
+		updateCredentialId ||
 		createOnlyCredentialId
 	) {
 		await db.apiCredential.deleteMany({
@@ -76,6 +79,7 @@ async function cleanup() {
 						credentialId,
 						otherTeamCredentialId,
 						noTeamCredentialId,
+						updateCredentialId,
 						createOnlyCredentialId,
 					].filter(Boolean),
 				},
@@ -219,6 +223,18 @@ beforeAll(async () => {
 	);
 	noTeamBearer = noTeam.token;
 	noTeamCredentialId = noTeam.id;
+
+	const updater = await credentials.create(
+		{
+			name: `External API Contact Updater ${suffix}`,
+			roleId: "role-business-unit-admin",
+			businessUnitIds: ["business-unit-default"],
+			teamIds: [],
+		},
+		principal,
+	);
+	updateBearer = updater.token;
+	updateCredentialId = updater.id;
 });
 
 describe("external CRM API", () => {
@@ -547,6 +563,24 @@ describe("external CRM API", () => {
 		expect(contact.body.unitStates[0]?.businessUnitId).toBe(
 			"business-unit-default",
 		);
+
+		const updated = await request(app.getHttpServer())
+			.patch(`/api/v1/contacts/${contacts.body[0].id}`)
+			.set("authorization", `Bearer ${updateBearer}`)
+			.send({ title: "External Systems Manager" })
+			.expect(200);
+		expect(updated.body).toEqual(
+			expect.objectContaining({
+				id: contacts.body[0].id,
+				firstName: "External",
+			}),
+		);
+		expect(
+			await db.contact.findUnique({
+				where: { id: contacts.body[0].id },
+				select: { title: true },
+			}),
+		).toEqual({ title: "External Systems Manager" });
 	});
 
 	it("allows a create-only credential to submit a lead", async () => {
@@ -579,6 +613,12 @@ describe("external CRM API", () => {
 			.send(body)
 			.expect(201);
 		expect(repeated.body).toEqual(first.body);
+
+		await request(app.getHttpServer())
+			.patch(`/api/v1/contacts/${contact?.id}`)
+			.set("authorization", `Bearer ${createOnlyBearer}`)
+			.send({ title: "Not permitted" })
+			.expect(403);
 	});
 
 	it("isolates idempotency by team and by the unassigned namespace", async () => {

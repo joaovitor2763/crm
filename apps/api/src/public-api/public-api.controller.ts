@@ -7,6 +7,7 @@ import {
 	Headers,
 	Inject,
 	Param,
+	Patch,
 	Post,
 	Query,
 } from "@nestjs/common";
@@ -14,9 +15,11 @@ import { AllowAnonymous } from "@thallesp/nestjs-better-auth";
 import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
+import { ContactsService } from "../contacts/contacts.service";
 import { InjectDatabase } from "../database/database.constants";
 import { FieldsService } from "../fields/fields.service";
 import { LeadIngestionService } from "./lead-ingestion.service";
+import { publicContactUpdateInput } from "./public-api.contracts";
 import { scopedContactUnitStateWhere } from "./scoped-unit-state";
 
 @Controller("api/v1")
@@ -29,6 +32,8 @@ export class PublicApiController {
 		private readonly accessControl: AccessControlService,
 		@Inject(LeadIngestionService)
 		private readonly leads: LeadIngestionService,
+		@Inject(ContactsService)
+		private readonly contacts: ContactsService,
 		@Inject(FieldsService)
 		private readonly fields: FieldsService,
 		@InjectDatabase() private readonly db: Db,
@@ -99,6 +104,24 @@ export class PublicApiController {
 				"api",
 			),
 		};
+	}
+
+	@Patch("contacts/:id")
+	async updateContact(
+		@Headers("authorization") authorization: string | undefined,
+		@Param("id") id: string,
+		@Body() body: unknown,
+	) {
+		const principal = await this.principal(authorization);
+		return this.contacts.update(
+			id,
+			publicContactUpdateInput.parse(body),
+			this.accessControl.contactWhere(
+				principal,
+				CRM_RESOURCE.contacts,
+				PermissionAction.UPDATE,
+			),
+		);
 	}
 
 	@Get("contacts")

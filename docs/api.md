@@ -108,6 +108,9 @@ contact identifier (`contactId` is always `null`). This keeps a scoped
 credential from using globally unique identity fields as a cross-unit existence
 oracle. A credential with `contacts:READ` can resolve contacts through the
 scoped contact endpoints after ingestion.
+`PATCH /api/v1/contacts/:id` updates the basic contact fields visible to a
+credential with scoped `contacts:UPDATE`; assignment, lifecycle and
+agent-authored summary fields stay outside this endpoint.
 
 - **One router per module**, named `*.router.ts` so the codegen glob finds it,
   carrying `@Router({ alias: "…" })` and `@UseMiddlewares(AuthMiddleware)`.
