@@ -43,3 +43,5 @@ yarn-error.log*
 # eve build output
 .eve
 .output
+.vercel
+.env*

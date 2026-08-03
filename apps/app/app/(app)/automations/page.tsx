@@ -7,6 +7,7 @@ import {
 	PageShellHeading,
 	PageShellTitle,
 } from "@/components/page-shell";
+import { getCapabilities } from "@/lib/capabilities";
 import { requireSession } from "@/lib/session";
 import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
@@ -18,9 +19,7 @@ export default async function AutomationsPage() {
 	await requireSession();
 	const trpc = getServerTrpc();
 	const queryClient = getServerQueryClient();
-	const capabilities = await queryClient.fetchQuery(
-		trpc.governance.capabilities.queryOptions(),
-	);
+	const capabilities = await getCapabilities();
 	const can = (resource: string) =>
 		capabilities.isAdmin ||
 		capabilities.permissions.some(

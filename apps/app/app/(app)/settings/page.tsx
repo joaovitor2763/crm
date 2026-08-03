@@ -7,6 +7,7 @@ import {
 	PageShellHeading,
 	PageShellTitle,
 } from "@/components/page-shell";
+import { getCapabilities } from "@/lib/capabilities";
 import { requireSession } from "@/lib/session";
 import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
@@ -32,9 +33,7 @@ export default async function SettingsPage() {
 	// Awaited: the whole page is this one query, and rendering "Not connected"
 	// for a beat before flipping to "Connected" is worse than waiting for it.
 	await queryClient.prefetchQuery(trpc.google.status.queryOptions());
-	const capabilities = await queryClient.fetchQuery(
-		trpc.governance.capabilities.queryOptions(),
-	);
+	const capabilities = await getCapabilities();
 	const prefetches: Promise<void>[] = [];
 	const can = (resource: string, action: string) =>
 		capabilities.isAdmin ||
