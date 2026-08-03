@@ -283,16 +283,37 @@ describe("external CRM API", () => {
 				"submit_lead",
 				"get_contact",
 				"search_contacts",
+				"create_contact",
 				"update_contact",
+				"set_contact_lifecycle",
+				"list_archived_contacts",
+				"archive_contact",
+				"restore_contact",
 				"search_companies",
+				"get_company",
 				"create_company",
+				"update_company",
+				"set_company_primary_contact",
+				"list_archived_companies",
+				"archive_company",
+				"restore_company",
 				"list_pipelines",
 				"list_products",
+				"create_product",
+				"update_product",
+				"archive_product",
+				"restore_product",
 				"search_deals",
 				"get_deal",
 				"create_deal",
+				"update_deal",
 				"move_deal",
+				"list_archived_deals",
+				"archive_deal",
+				"restore_deal",
 				"add_deal_product",
+				"update_deal_product",
+				"remove_deal_product",
 				"read_timeline",
 				"create_activity",
 				"list_my_tasks",
@@ -305,12 +326,117 @@ describe("external CRM API", () => {
 				"publish_dashboard_definition",
 				"export_dashboard_definition",
 				"create_revenue_account",
+				"update_revenue_account",
 				"get_revenue_account",
+				"archive_revenue_account",
+				"attach_revenue_account_record",
+				"detach_revenue_account_record",
 				"preview_revenue_account_merge",
 				"merge_revenue_accounts",
 				"read_revenue_analytics",
 			]),
 		);
+	});
+
+	it("manages the product catalogue through MCP with the caller's permissions", async () => {
+		const sku = `MCP-${suffix}`.toUpperCase();
+		const denied = await request(app.getHttpServer())
+			.post("/mcp")
+			.set("authorization", `Bearer ${token}`)
+			.set("accept", "application/json, text/event-stream")
+			.send({
+				jsonrpc: "2.0",
+				id: 10,
+				method: "tools/call",
+				params: {
+					name: "create_product",
+					arguments: {
+						sku,
+						name: "MCP product fixture",
+						priceCents: 125_000,
+						currency: "BRL",
+					},
+				},
+			})
+			.expect(200);
+		expect(mcpPayload(denied).result.isError).toBe(true);
+
+		let productId: string | null = null;
+		try {
+			const created = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 11,
+					method: "tools/call",
+					params: {
+						name: "create_product",
+						arguments: {
+							sku,
+							name: "MCP product fixture",
+							priceCents: 125_000,
+							currency: "BRL",
+						},
+					},
+				})
+				.expect(200);
+			expect(mcpPayload(created).result.isError).not.toBe(true);
+			productId = toolText<{ id: string }>(created).id;
+
+			const updated = await request(app.getHttpServer())
+				.post("/mcp")
+				.set("authorization", `Bearer ${cloneBearer}`)
+				.set("accept", "application/json, text/event-stream")
+				.send({
+					jsonrpc: "2.0",
+					id: 12,
+					method: "tools/call",
+					params: {
+						name: "update_product",
+						arguments: {
+							id: productId,
+							name: "Updated MCP product fixture",
+							priceCents: 150_000,
+						},
+					},
+				})
+				.expect(200);
+			expect(mcpPayload(updated).result.isError).not.toBe(true);
+
+			for (const [id, name] of [
+				[13, "archive_product"],
+				[14, "restore_product"],
+			] as const) {
+				const response = await request(app.getHttpServer())
+					.post("/mcp")
+					.set("authorization", `Bearer ${cloneBearer}`)
+					.set("accept", "application/json, text/event-stream")
+					.send({
+						jsonrpc: "2.0",
+						id,
+						method: "tools/call",
+						params: { name, arguments: { id: productId } },
+					})
+					.expect(200);
+				expect(mcpPayload(response).result.isError).not.toBe(true);
+			}
+
+			expect(
+				await db.product.findUnique({
+					where: { id: productId },
+					select: { name: true, price: true, currency: true, archivedAt: true },
+				}),
+			).toEqual({
+				name: "Updated MCP product fixture",
+				price: expect.anything(),
+				currency: "BRL",
+				archivedAt: null,
+			});
+		} finally {
+			if (productId) await db.product.delete({ where: { id: productId } });
+		}
 	});
 
 	it("lets a clone credential edit records and create tasks as its user", async () => {
@@ -1137,6 +1263,14 @@ describe("external CRM API", () => {
 	});
 });
 
+function toolText<T>(response: request.Response): T {
+	const text = mcpPayload(response).result.content?.find(
+		(content: { type: string; text?: string }) => content.type === "text",
+	)?.text;
+	if (!text) throw new Error("MCP tool response did not contain text content.");
+	return JSON.parse(text) as T;
+}
+
 function mcpPayload(response: request.Response) {
 	if (response.body?.result) return response.body;
 	const data = response.text
@@ -1149,6 +1283,7 @@ function mcpPayload(response: request.Response) {
 		result: {
 			serverInfo: { name: string };
 			tools: Array<{ name: string }>;
+			content?: Array<{ type: string; text?: string }>;
 			isError?: boolean;
 		};
 	};

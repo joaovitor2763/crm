@@ -99,6 +99,25 @@ contact through lead intake, read/search contacts, list MCP tools and call any
 published MCP tool. `--json` produces compact machine output; credentials are
 never included in errors or output.
 
+The MCP mirrors the app's routine record operations rather than only offering
+ingestion. Its operational coverage is:
+
+- contacts: search/read/create/update, lifecycle changes, archive and restore;
+- companies: search/read/create/update, primary-contact selection, archive and
+  restore;
+- deals: search/read/create/update, stage movement, archive and restore;
+- catalogue: list/create/update/archive/restore products, then add, update or
+  remove snapshotted deal line items;
+- activities: read timelines, create activities, list and complete tasks;
+- governed revenue: Account CRUD/relations/merge, attribution, analytics and
+  dashboard-definition operations.
+
+Every tool resolves the bearer credential's current principal and calls the
+same scoped service used by the app. Administrative identity/governance,
+credential issuance, Google connection controls, ontology publishing and
+arbitrary code execution remain intentionally outside MCP. A user-delegate key
+does not turn those control-plane operations into routine agent tools.
+
 Lead intake preserves every attempt in `LeadSubmission`, including invalid and
 duplicate payloads. Idempotency keys and external IDs are namespaced by source,
 business unit and team; an omitted team uses a separate unassigned namespace.

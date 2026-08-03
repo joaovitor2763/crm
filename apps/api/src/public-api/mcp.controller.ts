@@ -11,6 +11,7 @@ import { ActivitiesService } from "../activities/activities.service";
 import { ApiCredentialsService } from "../api-credentials/api-credentials.service";
 import { AttributionService } from "../attribution/attribution.service";
 import { CompaniesService } from "../companies/companies.service";
+import { ContactLifecycleService } from "../contacts/contact-lifecycle.service";
 import { ContactsService } from "../contacts/contacts.service";
 import { DashboardService } from "../dashboard/dashboard.service";
 import { DashboardDefinitionService } from "../dashboard/dashboard-definition.service";
@@ -43,6 +44,8 @@ export class McpController {
 		private readonly companies: CompaniesService,
 		@Inject(ContactsService)
 		private readonly contacts: ContactsService,
+		@Inject(ContactLifecycleService)
+		private readonly lifecycle: ContactLifecycleService,
 		@Inject(DealsService)
 		private readonly deals: DealsService,
 		@Inject(PipelinesService)
@@ -103,6 +106,7 @@ export class McpController {
 			activities: this.activities,
 			companies: this.companies,
 			contacts: this.contacts,
+			lifecycle: this.lifecycle,
 			deals: this.deals,
 			pipelines: this.pipelines,
 			products: this.products,

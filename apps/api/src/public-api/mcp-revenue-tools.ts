@@ -22,10 +22,13 @@ import {
 } from "../dashboard/dashboard-definition.contracts";
 import type { DashboardDefinitionService } from "../dashboard/dashboard-definition.service";
 import {
+	revenueAccountAssociationInput,
 	revenueAccountCreateInput,
+	revenueAccountIdInput,
 	revenueAccountListInput,
 	revenueAccountMergeInput,
 	revenueAccountMergePreviewInput,
+	revenueAccountUpdateArgs,
 } from "../revenue-accounts/revenue-accounts.contracts";
 import type { RevenueAccountsService } from "../revenue-accounts/revenue-accounts.service";
 import { toolResult } from "./mcp-result";
@@ -159,6 +162,16 @@ export function registerRevenueArchitectureTools(
 	);
 
 	server.registerTool(
+		"update_revenue_account",
+		{
+			description:
+				"Update a visible commercial Account's identity, ownership, scope or custom values.",
+			inputSchema: revenueAccountUpdateArgs,
+		},
+		async (input) => toolResult(await accounts.update(input, principal)),
+	);
+
+	server.registerTool(
 		"get_revenue_account",
 		{
 			description: "Read one Account, its visible relations and lineage.",
@@ -169,6 +182,36 @@ export function registerRevenueArchitectureTools(
 				account: await accounts.byId(id, principal),
 				history: await accounts.history(id, principal),
 			}),
+	);
+
+	server.registerTool(
+		"archive_revenue_account",
+		{
+			description:
+				"Archive a visible commercial Account without deleting its relations or lineage.",
+			inputSchema: revenueAccountIdInput,
+		},
+		async ({ id }) => toolResult(await accounts.archive(id, principal)),
+	);
+
+	server.registerTool(
+		"attach_revenue_account_record",
+		{
+			description:
+				"Attach a visible contact, company or deal to a governed commercial Account.",
+			inputSchema: revenueAccountAssociationInput,
+		},
+		async (input) => toolResult(await accounts.associate(input, principal)),
+	);
+
+	server.registerTool(
+		"detach_revenue_account_record",
+		{
+			description:
+				"Detach a contact, company or deal from a governed commercial Account.",
+			inputSchema: revenueAccountAssociationInput,
+		},
+		async (input) => toolResult(await accounts.detach(input, principal)),
 	);
 
 	server.registerTool(

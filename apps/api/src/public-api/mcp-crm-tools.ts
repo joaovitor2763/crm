@@ -1,4 +1,4 @@
-import { type Db, PermissionAction, type Prisma } from "@crm/db";
+import { AccessScope, type Db, PermissionAction, type Prisma } from "@crm/db";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { z } from "zod";
@@ -12,17 +12,38 @@ import {
 	timelineInput,
 } from "../activities/activities.contracts";
 import type { ActivitiesService } from "../activities/activities.service";
-import { companyCreateInput } from "../companies/companies.contracts";
+import {
+	companyCreateInput,
+	companyIdInput,
+	companyUpdateArgs,
+	setPrimaryContactInput,
+} from "../companies/companies.contracts";
 import type { CompaniesService } from "../companies/companies.service";
-import { contactUpdateArgs } from "../contacts/contacts.contracts";
+import type { ContactLifecycleService } from "../contacts/contact-lifecycle.service";
+import {
+	contactCreateInput,
+	contactIdInput,
+	contactLifecycleInput,
+	contactUpdateArgs,
+} from "../contacts/contacts.contracts";
 import type { ContactsService } from "../contacts/contacts.service";
 import {
+	dealIdInput,
 	dealLineItemCreateInput,
+	dealLineItemIdInput,
+	dealLineItemUpdateInput,
 	dealListInput,
+	dealUpdateArgs,
 	setStageInput,
 } from "../deals/deals.contracts";
 import type { DealsService } from "../deals/deals.service";
 import type { PipelinesService } from "../pipelines/pipelines.service";
+import {
+	productCreateInput,
+	productIdInput,
+	productListInput,
+	productUpdateInput,
+} from "../products/products.contracts";
 import type { ProductsService } from "../products/products.service";
 import { toolResult } from "./mcp-result";
 
@@ -45,6 +66,7 @@ type Dependencies = {
 	activities: ActivitiesService;
 	companies: CompaniesService;
 	contacts: ContactsService;
+	lifecycle: ContactLifecycleService;
 	deals: DealsService;
 	pipelines: PipelinesService;
 	products: ProductsService;
@@ -61,6 +83,7 @@ export function registerCrmOperationTools(
 		activities,
 		companies,
 		contacts,
+		lifecycle,
 		deals,
 		pipelines,
 		products,
@@ -75,6 +98,32 @@ export function registerCrmOperationTools(
 		accessControl.dealWhere(principal, CRM_RESOURCE.deals, action);
 	const activityScope = (action: PermissionAction) =>
 		accessControl.activityWhere(principal, CRM_RESOURCE.activities, action);
+	const productScope = (
+		action: PermissionAction,
+		includeGlobal: boolean,
+	): Prisma.ProductWhereInput =>
+		accessControl.configurationWhere(
+			principal,
+			CRM_RESOURCE.products,
+			action,
+			includeGlobal,
+		) as Prisma.ProductWhereInput;
+	const relatedContactScope = (): Prisma.ContactWhereInput =>
+		accessControl.permission(
+			principal,
+			CRM_RESOURCE.contacts,
+			PermissionAction.READ,
+		) === AccessScope.NONE
+			? { id: { in: [] } }
+			: contactScope(PermissionAction.READ);
+	const relatedDealScope = (): Prisma.DealWhereInput =>
+		accessControl.permission(
+			principal,
+			CRM_RESOURCE.deals,
+			PermissionAction.READ,
+		) === AccessScope.NONE
+			? { id: { in: [] } }
+			: dealScope(PermissionAction.READ);
 	const requireDelegatedUser = () => {
 		if (!principal.userId) {
 			throw new ForbiddenException(
@@ -83,6 +132,41 @@ export function registerCrmOperationTools(
 		}
 		return principal.userId;
 	};
+
+	server.registerTool(
+		"create_contact",
+		{
+			description:
+				"Create a contact directly in the CRM. Unlike submit_lead, this returns the canonical contact and is intended for a cloned user acting interactively.",
+			inputSchema: contactCreateInput,
+		},
+		async (input) => {
+			const userId = requireDelegatedUser();
+			if (input.companyId) {
+				await accessControl.assertRecord(
+					principal,
+					CRM_RESOURCE.companies,
+					PermissionAction.READ,
+					input.companyId,
+				);
+			}
+			const ownerId = input.ownerId ?? userId;
+			await accessControl.assertAssignment(
+				principal,
+				CRM_RESOURCE.contacts,
+				PermissionAction.CREATE,
+				{
+					businessUnitId:
+						input.businessUnitId ?? principal.primaryBusinessUnitId,
+					teamId: input.teamId ?? principal.primaryTeamId,
+					ownerId,
+				},
+			);
+			return toolResult(
+				await contacts.create({ ...input, ownerId }, principal),
+			);
+		},
+	);
 
 	server.registerTool(
 		"update_contact",
@@ -122,6 +206,69 @@ export function registerCrmOperationTools(
 	);
 
 	server.registerTool(
+		"set_contact_lifecycle",
+		{
+			description:
+				"Move a visible contact to a lifecycle stage inside one business unit, optionally updating its score, owner and qualification reason.",
+			inputSchema: contactLifecycleInput,
+		},
+		async (input) => {
+			await accessControl.assertRecord(
+				principal,
+				CRM_RESOURCE.contacts,
+				PermissionAction.UPDATE,
+				input.contactId,
+			);
+			await accessControl.assertAssignment(
+				principal,
+				CRM_RESOURCE.contacts,
+				PermissionAction.UPDATE,
+				{
+					businessUnitId: input.businessUnitId,
+					teamId: input.teamId,
+					ownerId: input.ownerId,
+				},
+			);
+			return toolResult(await lifecycle.setLifecycle(input, principal));
+		},
+	);
+
+	server.registerTool(
+		"list_archived_contacts",
+		{
+			description:
+				"List archived contacts visible to this credential so they can be inspected or restored.",
+			inputSchema: {},
+		},
+		async () =>
+			toolResult(await contacts.archived(contactScope(PermissionAction.READ))),
+	);
+
+	server.registerTool(
+		"archive_contact",
+		{
+			description: "Archive a visible contact without deleting its history.",
+			inputSchema: contactIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await contacts.archive(id, contactScope(PermissionAction.ARCHIVE)),
+			),
+	);
+
+	server.registerTool(
+		"restore_contact",
+		{
+			description: "Restore an archived contact visible to this credential.",
+			inputSchema: contactIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await contacts.restore(id, contactScope(PermissionAction.RESTORE)),
+			),
+	);
+
+	server.registerTool(
 		"search_companies",
 		{
 			description:
@@ -131,6 +278,24 @@ export function registerCrmOperationTools(
 		async ({ query }) =>
 			toolResult(
 				await companies.options(query, companyScope(PermissionAction.READ)),
+			),
+	);
+
+	server.registerTool(
+		"get_company",
+		{
+			description:
+				"Read one visible company including the contacts and deals this credential may see.",
+			inputSchema: companyIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await companies.byId(
+					id,
+					companyScope(PermissionAction.READ),
+					relatedContactScope(),
+					relatedDealScope(),
+				),
 			),
 	);
 
@@ -164,6 +329,98 @@ export function registerCrmOperationTools(
 	);
 
 	server.registerTool(
+		"update_company",
+		{
+			description:
+				"Edit an existing company, including ownership and standard profile fields.",
+			inputSchema: companyUpdateArgs,
+		},
+		async (input) => {
+			const scope = companyScope(PermissionAction.UPDATE);
+			if (input.data.ownerId !== undefined) {
+				const current = await companies.assignments(input.id, scope);
+				const assignment =
+					current.unitStates.find(
+						(state) =>
+							Boolean(
+								state.teamId && principal.teamIds.includes(state.teamId),
+							) || principal.businessUnitTreeIds.includes(state.businessUnitId),
+					) ?? current.unitStates[0];
+				await accessControl.assertAssignment(
+					principal,
+					CRM_RESOURCE.companies,
+					PermissionAction.UPDATE,
+					{ ...assignment, ownerId: input.data.ownerId },
+				);
+			}
+			return toolResult(await companies.update(input.id, input.data, scope));
+		},
+	);
+
+	server.registerTool(
+		"set_company_primary_contact",
+		{
+			description:
+				"Set or clear a company's primary contact. Both records must be visible to the credential.",
+			inputSchema: setPrimaryContactInput,
+		},
+		async (input) => {
+			await accessControl.assertRecord(
+				principal,
+				CRM_RESOURCE.companies,
+				PermissionAction.UPDATE,
+				input.companyId,
+			);
+			if (input.contactId) {
+				await accessControl.assertRecord(
+					principal,
+					CRM_RESOURCE.contacts,
+					PermissionAction.READ,
+					input.contactId,
+				);
+			}
+			return toolResult(
+				await companies.setPrimaryContact(input.companyId, input.contactId),
+			);
+		},
+	);
+
+	server.registerTool(
+		"list_archived_companies",
+		{
+			description:
+				"List archived companies visible to this credential so they can be inspected or restored.",
+			inputSchema: {},
+		},
+		async () =>
+			toolResult(await companies.archived(companyScope(PermissionAction.READ))),
+	);
+
+	server.registerTool(
+		"archive_company",
+		{
+			description: "Archive a visible company without deleting its history.",
+			inputSchema: companyIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await companies.archive(id, companyScope(PermissionAction.ARCHIVE)),
+			),
+	);
+
+	server.registerTool(
+		"restore_company",
+		{
+			description: "Restore an archived company visible to this credential.",
+			inputSchema: companyIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await companies.restore(id, companyScope(PermissionAction.RESTORE)),
+			),
+	);
+
+	server.registerTool(
 		"list_pipelines",
 		{
 			description:
@@ -188,19 +445,81 @@ export function registerCrmOperationTools(
 		"list_products",
 		{
 			description:
-				"List visible product IDs, prices and currencies for deal line items.",
-			inputSchema: {},
+				"List visible product IDs, prices and currencies for deal line items. Set includeArchived to find products that can be restored.",
+			inputSchema: productListInput,
 		},
-		async () =>
+		async ({ includeArchived }) =>
 			toolResult(
 				await products.list(
-					false,
-					accessControl.configurationWhere(
-						principal,
-						CRM_RESOURCE.products,
-						PermissionAction.READ,
-						true,
-					) as Prisma.ProductWhereInput,
+					includeArchived,
+					productScope(PermissionAction.READ, true),
+				),
+			),
+	);
+
+	server.registerTool(
+		"create_product",
+		{
+			description:
+				"Create a product in the CRM catalogue. Prices are integer cents and currency is a three-letter code.",
+			inputSchema: productCreateInput,
+		},
+		async (input) => {
+			const businessUnitId =
+				input.businessUnitId ?? principal.primaryBusinessUnitId;
+			await accessControl.assertAssignment(
+				principal,
+				CRM_RESOURCE.products,
+				PermissionAction.MANAGE,
+				{ businessUnitId },
+			);
+			return toolResult(await products.create({ ...input, businessUnitId }));
+		},
+	);
+
+	server.registerTool(
+		"update_product",
+		{
+			description:
+				"Update a visible product's SKU, name, price or currency without changing existing deal snapshots.",
+			inputSchema: productUpdateInput,
+		},
+		async (input) =>
+			toolResult(
+				await products.update(
+					input,
+					productScope(PermissionAction.MANAGE, false),
+				),
+			),
+	);
+
+	server.registerTool(
+		"archive_product",
+		{
+			description:
+				"Archive a visible product so it cannot be added to new deals; historical line items remain intact.",
+			inputSchema: productIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await products.archive(
+					id,
+					productScope(PermissionAction.MANAGE, false),
+				),
+			),
+	);
+
+	server.registerTool(
+		"restore_product",
+		{
+			description: "Restore an archived product to the active catalogue.",
+			inputSchema: productIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await products.restore(
+					id,
+					productScope(PermissionAction.MANAGE, false),
 				),
 			),
 	);
@@ -286,11 +605,47 @@ export function registerCrmOperationTools(
 				},
 			);
 			const { contactId, ...dealInput } = input;
-			const deal = await deals.create({ ...dealInput, companyId, ownerId });
+			const deal = await deals.create(
+				{ ...dealInput, companyId, ownerId },
+				{
+					actorType: principal.actorType,
+					actorId: principal.actorId,
+				},
+			);
 			if (contactId) {
 				await db.dealContact.create({ data: { dealId: deal.id, contactId } });
 			}
 			return toolResult(deal);
+		},
+	);
+
+	server.registerTool(
+		"update_deal",
+		{
+			description:
+				"Edit a visible deal's name, company, owner, value, currency or expected close date. Use move_deal for pipeline stage changes.",
+			inputSchema: dealUpdateArgs,
+		},
+		async (input) => {
+			const scope = dealScope(PermissionAction.UPDATE);
+			const assignment = await deals.assignment(input.id, scope);
+			if (input.data.ownerId !== undefined) {
+				await accessControl.assertAssignment(
+					principal,
+					CRM_RESOURCE.deals,
+					PermissionAction.UPDATE,
+					{ ...assignment, ownerId: input.data.ownerId },
+				);
+			}
+			if (input.data.companyId !== undefined) {
+				await accessControl.assertRecord(
+					principal,
+					CRM_RESOURCE.companies,
+					PermissionAction.READ,
+					input.data.companyId,
+				);
+			}
+			return toolResult(await deals.update(input.id, input.data, scope));
 		},
 	);
 
@@ -304,8 +659,44 @@ export function registerCrmOperationTools(
 		async (input) => {
 			const userId = requireDelegatedUser();
 			await deals.byId(input.id, dealScope(PermissionAction.UPDATE));
-			return toolResult(await deals.setStage(input, userId, principal.roleKey));
+			return toolResult(
+				await deals.setStage(input, userId, principal.roleKey, {
+					actorType: principal.actorType,
+					actorId: principal.actorId,
+				}),
+			);
 		},
+	);
+
+	server.registerTool(
+		"list_archived_deals",
+		{
+			description:
+				"List archived deals visible to this credential so they can be inspected or restored.",
+			inputSchema: {},
+		},
+		async () =>
+			toolResult(await deals.archived(dealScope(PermissionAction.READ))),
+	);
+
+	server.registerTool(
+		"archive_deal",
+		{
+			description: "Archive a visible deal without deleting its history.",
+			inputSchema: dealIdInput,
+		},
+		async ({ id }) =>
+			toolResult(await deals.archive(id, dealScope(PermissionAction.ARCHIVE))),
+	);
+
+	server.registerTool(
+		"restore_deal",
+		{
+			description: "Restore an archived deal visible to this credential.",
+			inputSchema: dealIdInput,
+		},
+		async ({ id }) =>
+			toolResult(await deals.restore(id, dealScope(PermissionAction.RESTORE))),
 	);
 
 	server.registerTool(
@@ -318,6 +709,31 @@ export function registerCrmOperationTools(
 		async (input) =>
 			toolResult(
 				await deals.addLineItem(input, dealScope(PermissionAction.UPDATE)),
+			),
+	);
+
+	server.registerTool(
+		"update_deal_product",
+		{
+			description:
+				"Change the quantity of a product line already attached to a visible deal.",
+			inputSchema: dealLineItemUpdateInput,
+		},
+		async (input) =>
+			toolResult(
+				await deals.updateLineItem(input, dealScope(PermissionAction.UPDATE)),
+			),
+	);
+
+	server.registerTool(
+		"remove_deal_product",
+		{
+			description: "Remove a product line from a visible deal.",
+			inputSchema: dealLineItemIdInput,
+		},
+		async ({ id }) =>
+			toolResult(
+				await deals.removeLineItem(id, dealScope(PermissionAction.UPDATE)),
 			),
 	);
 
