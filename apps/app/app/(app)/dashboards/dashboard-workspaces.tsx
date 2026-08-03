@@ -1452,7 +1452,31 @@ function WidgetComposerDialog({
 						go.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+				<div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+					<div className="flex min-h-72 flex-col border p-4">
+						{needsAttributeKey ? (
+							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
+								Enter the deal attribute key to preview this cut.
+							</div>
+						) : preview.isLoading ? (
+							<div className="flex flex-1 items-center justify-center">
+								<Spinner />
+							</div>
+						) : previewView ? (
+							<div className="flex flex-1 flex-col justify-center">
+								<WidgetChart
+									view={previewView}
+									visualization={visualization}
+									options={{ legend }}
+									height={260}
+								/>
+							</div>
+						) : (
+							<div className="flex flex-1 items-center justify-center text-destructive text-xs">
+								{preview.error?.message ?? "Preview is unavailable."}
+							</div>
+						)}
+					</div>
 					<div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
 						{templates?.length ? (
 							<Field>
@@ -1612,30 +1636,6 @@ function WidgetComposerDialog({
 								onCheckedChange={setLegend}
 							/>
 						</label>
-					</div>
-					<div className="flex min-h-72 flex-col border p-4">
-						{needsAttributeKey ? (
-							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
-								Enter the deal attribute key to preview this cut.
-							</div>
-						) : preview.isLoading ? (
-							<div className="flex flex-1 items-center justify-center">
-								<Spinner />
-							</div>
-						) : previewView ? (
-							<div className="flex flex-1 flex-col justify-center">
-								<WidgetChart
-									view={previewView}
-									visualization={visualization}
-									options={{ legend }}
-									height={260}
-								/>
-							</div>
-						) : (
-							<div className="flex flex-1 items-center justify-center text-destructive text-xs">
-								{preview.error?.message ?? "Preview is unavailable."}
-							</div>
-						)}
 					</div>
 				</div>
 				<DialogFooter>
