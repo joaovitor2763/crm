@@ -34,6 +34,7 @@ export default async function AutomationsPage() {
 	if (canManageAutomations || canManageWebhooks) {
 		const prefetches = [
 			queryClient.prefetchQuery(trpc.governance.directory.queryOptions()),
+			queryClient.prefetchQuery(trpc.automations.eventCatalog.queryOptions()),
 		];
 		if (canManageAutomations) {
 			prefetches.push(

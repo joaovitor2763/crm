@@ -29,16 +29,16 @@ export const dashboardAnalyticsInput = z
 			.max(ANALYTICS_DIMENSIONS.length)
 			.default(["channel", "owner", "utmSource", "utmMedium", "utmCampaign"]),
 		attributeKey: z.string().trim().min(1).max(80).optional(),
-		grain: z.enum(["day", "week", "month", "quarter"]).optional(),
+		grain: z.enum(["hour", "day", "week", "month", "quarter"]).optional(),
 		comparison: z.enum(["none", "previousPeriod", "previousYear"]).optional(),
 		limit: z.number().int().min(1).max(100).default(25),
 	})
 	.superRefine((input, context) => {
-		if (input.from && input.to && new Date(input.from) >= new Date(input.to)) {
+		if (input.from && input.to && new Date(input.from) > new Date(input.to)) {
 			context.addIssue({
 				code: "custom",
 				path: ["to"],
-				message: "The end of the window must be after its start.",
+				message: "The end of the window cannot be before its start.",
 			});
 		}
 		if (input.dimensions.includes("dealAttribute") && !input.attributeKey) {

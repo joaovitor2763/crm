@@ -26,6 +26,7 @@ const OWNER_SELECT = {
 
 /** Months in the trend chart, the current one included. */
 const TREND_MONTHS = 6;
+const MAX_ANALYTICS_BUCKETS = 750;
 
 /**
  * Window behind the rolling rates — win rate, average deal size, cycle time.
@@ -50,9 +51,15 @@ function monthKey(date: Date): number {
 	return date.getFullYear() * 12 + date.getMonth();
 }
 
-function parseAnalyticsDate(value: string | undefined): Date | null {
+function parseAnalyticsDate(
+	value: string | undefined,
+	endOfDay = false,
+): Date | null {
 	if (!value) return null;
 	const date = new Date(value);
+	if (endOfDay && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+		date.setUTCDate(date.getUTCDate() + 1);
+	}
 	return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -80,10 +87,12 @@ export class DashboardService {
 		pipelineScope: Prisma.PipelineWhereInput = {},
 		contactScope: Prisma.ContactWhereInput = {},
 	) {
-		const to = parseAnalyticsDate(input.to) ?? new Date();
+		const to = parseAnalyticsDate(input.to, true) ?? new Date();
+		const defaultWindowDays = input.grain === "hour" ? 7 : 90;
 		const from =
 			parseAnalyticsDate(input.from) ??
-			new Date(to.getTime() - 90 * 24 * 60 * 60 * 1000);
+			new Date(to.getTime() - defaultWindowDays * 24 * 60 * 60 * 1000);
+		assertAnalyticsWindow(from, to, input.grain);
 		const pipelineWhere: Prisma.PipelineWhereInput = {
 			AND: [
 				{ archivedAt: null },
@@ -489,5 +498,35 @@ export class DashboardService {
 				meta: meta as Record<string, unknown> | null,
 			})),
 		};
+	}
+}
+
+function assertAnalyticsWindow(
+	from: Date,
+	to: Date,
+	grain: DashboardAnalyticsInput["grain"],
+) {
+	if (!grain) return;
+	const spanMs = Math.max(0, to.getTime() - from.getTime());
+	const dayMs = 24 * 60 * 60 * 1000;
+	const months =
+		(to.getUTCFullYear() - from.getUTCFullYear()) * 12 +
+		to.getUTCMonth() -
+		from.getUTCMonth() +
+		2;
+	const buckets =
+		grain === "hour"
+			? Math.ceil(spanMs / (dayMs / 24)) + 1
+			: grain === "day"
+				? Math.ceil(spanMs / dayMs) + 1
+				: grain === "week"
+					? Math.ceil(spanMs / (7 * dayMs)) + 1
+					: grain === "quarter"
+						? Math.ceil(months / 3)
+						: months;
+	if (buckets > MAX_ANALYTICS_BUCKETS) {
+		throw new BadRequestException(
+			`That ${grain} range is too large. Choose a shorter date window or a broader aggregation.`,
+		);
 	}
 }

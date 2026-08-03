@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	chartConfig,
 	chartRows,
+	formatPeriodLabel,
 } from "@/app/(app)/studio/studio-analytics-data";
 
 describe("Studio analytics presentation", () => {
@@ -21,11 +22,11 @@ describe("Studio analytics presentation", () => {
 		} as never;
 
 		expect(chartRows(view)).toEqual([
-			{ label: "Paid", value: 4 },
-			{ label: "Organic", value: 2 },
+			{ deals_0: 4, label: "Paid", value: 4 },
+			{ deals_0: 2, label: "Organic", value: 2 },
 		]);
 		expect(chartConfig(view)).toEqual({
-			value: { label: "By channel", color: "var(--chart-1)" },
+			deals_0: { label: "Deals", color: "var(--chart-1)" },
 		});
 	});
 
@@ -40,8 +41,13 @@ describe("Studio analytics presentation", () => {
 			},
 		} as never;
 		expect(chartRows(view)).toEqual([
-			{ label: "Open", value: 3 },
-			{ label: "Won", value: 0 },
+			{ deals_0: 3, label: "Open", value: 3 },
+			{ deals_0: 0, label: "Won", value: 0 },
 		]);
+	});
+
+	it("keeps hourly and weekly periods distinguishable", () => {
+		expect(formatPeriodLabel("2026-08-03 09:00", "hour")).toBe("08-03 09:00");
+		expect(formatPeriodLabel("Week of 2026-08-03", "week")).toBe("Week 08-03");
 	});
 });

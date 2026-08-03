@@ -187,7 +187,7 @@ export function StudioDashboardDefinitionEditor({
 					<EnumField
 						label="Time grain"
 						value={spec.timeRange.grain}
-						options={["day", "week", "month", "quarter"] as const}
+						options={["hour", "day", "week", "month", "quarter"] as const}
 						onChange={(value) =>
 							updateSpec({
 								timeRange: {

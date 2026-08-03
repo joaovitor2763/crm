@@ -19,6 +19,7 @@ import {
 	SelectValue,
 } from "@crm/ui/components/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useDeferredValue, useState } from "react";
 import { toast } from "sonner";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
@@ -61,12 +62,6 @@ export function GovernanceSettings() {
 			onError: fail,
 		}),
 	);
-	const setUser = useMutation(
-		trpc.governance.setUserAccess.mutationOptions({
-			onSuccess: () => refresh("User access updated."),
-			onError: fail,
-		}),
-	);
 	const data = overview.data;
 
 	return (
@@ -88,19 +83,67 @@ export function GovernanceSettings() {
 				{data ? (
 					<PermissionForm data={data} mutate={setPermission.mutate} />
 				) : null}
-
-				<div className="flex flex-col gap-3">
-					{data?.users.map((user) => (
-						<UserAccessForm
-							key={user.id}
-							user={user}
-							data={data}
-							mutate={setUser.mutate}
-						/>
-					))}
-				</div>
 			</CardContent>
 		</Card>
+	);
+}
+
+export function UserManagement() {
+	const trpc = useTRPC();
+	const queryClient = useQueryClient();
+	const overview = useQuery(trpc.governance.overview.queryOptions());
+	const [q, setQ] = useState("");
+	const deferredQ = useDeferredValue(q.trim().toLowerCase());
+	const setUser = useMutation(
+		trpc.governance.setUserAccess.mutationOptions({
+			onSuccess: async () => {
+				await queryClient.invalidateQueries(
+					trpc.governance.overview.queryFilter(),
+				);
+				toast.success("User access updated.");
+			},
+			onError: (error) => toast.error(error.message),
+		}),
+	);
+	const data = overview.data;
+	const users = (data?.users ?? []).filter(
+		(user) =>
+			!deferredQ ||
+			`${user.name} ${user.email} ${user.access?.role.name ?? ""}`
+				.toLowerCase()
+				.includes(deferredQ),
+	);
+	return (
+		<div className="flex flex-col gap-4">
+			<div className="grid gap-3 border-b pb-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+				<Field>
+					<FieldLabel htmlFor="user-search">Find a user</FieldLabel>
+					<Input
+						id="user-search"
+						value={q}
+						onChange={(event) => setQ(event.target.value)}
+						placeholder="Search name, email or role…"
+					/>
+				</Field>
+				<p className="text-muted-foreground text-xs tabular-nums">
+					{users.length} of {data?.users.length ?? 0} users
+				</p>
+			</div>
+			{data && users.length ? (
+				users.map((user) => (
+					<UserAccessForm
+						key={user.id}
+						user={user}
+						data={data}
+						mutate={setUser.mutate}
+					/>
+				))
+			) : (
+				<div className="border py-12 text-center text-muted-foreground text-sm">
+					No users match this search.
+				</div>
+			)}
+		</div>
 	);
 }
 

@@ -28,7 +28,13 @@ export const dashboardVisualization = z.enum([
 	"table",
 	"kpi",
 ]);
-export const dashboardTimeGrain = z.enum(["day", "week", "month", "quarter"]);
+export const dashboardTimeGrain = z.enum([
+	"hour",
+	"day",
+	"week",
+	"month",
+	"quarter",
+]);
 export const dashboardComparison = z.enum([
 	"none",
 	"previousPeriod",

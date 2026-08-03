@@ -1,4 +1,4 @@
-import { createLoader, parseAsStringLiteral } from "nuqs/server";
+import { createLoader, parseAsString, parseAsStringLiteral } from "nuqs/server";
 
 /**
  * The overview URL. Shared by the page's server-side prefetch and the client
@@ -18,6 +18,15 @@ export const overviewParsers = {
 	// A literal parser, not a plain string: `?scope=nonsense` then falls back to
 	// the default rather than reaching the API as an unhandled value.
 	scope: parseAsStringLiteral(OVERVIEW_SCOPES).withDefault("me"),
+	from: parseAsString.withDefault(""),
+	to: parseAsString.withDefault(""),
+	grain: parseAsStringLiteral([
+		"hour",
+		"day",
+		"week",
+		"month",
+		"quarter",
+	] as const).withDefault("week"),
 };
 
 export const loadOverviewSearchParams = createLoader(overviewParsers);

@@ -9,6 +9,26 @@ import type {
 
 const FALLBACK_MODEL = "deepseek/deepseek-v4-flash-0731";
 const FALLBACK_CONTEXT_WINDOW = 1_048_576;
+const RECOMMENDED_MODELS = [
+	{ id: "minimax/minimax-m3", label: "MiniMax M3", contextWindow: 1_048_576 },
+	{ id: "moonshotai/kimi-k3", label: "Kimi K3", contextWindow: 1_048_576 },
+	{
+		id: "openai/gpt-5.6-luna",
+		label: "GPT-5.6 Luna",
+		contextWindow: 1_048_576,
+	},
+	{ id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", contextWindow: 1_048_576 },
+	{
+		id: "openai/gpt-5.6-terra",
+		label: "GPT-5.6 Terra",
+		contextWindow: 1_048_576,
+	},
+	{
+		id: FALLBACK_MODEL,
+		label: "DeepSeek V4 Flash",
+		contextWindow: FALLBACK_CONTEXT_WINDOW,
+	},
+] as const;
 const DEFAULTS = {
 	interactive: FALLBACK_MODEL,
 	research: FALLBACK_MODEL,
@@ -33,9 +53,12 @@ export class AgentAdminService {
 			),
 			providerConfigured: Boolean(row?.apiKeyEncrypted),
 			lastFour: row?.apiKeyLastFour ?? null,
-			models: row?.models.length ? row.models : [FALLBACK_MODEL],
+			models: row?.models.length
+				? row.models
+				: RECOMMENDED_MODELS.map((model) => model.id),
 			modelContextWindows: parseContextWindows(row?.modelContextWindows),
 			defaults: parseDefaults(row?.defaults),
+			recommendedModels: RECOMMENDED_MODELS,
 		};
 	}
 
@@ -193,7 +216,9 @@ export class AgentAdminService {
 }
 
 function parseContextWindows(value: unknown): Record<string, number> {
-	const fallback = { [FALLBACK_MODEL]: FALLBACK_CONTEXT_WINDOW };
+	const fallback = Object.fromEntries(
+		RECOMMENDED_MODELS.map((model) => [model.id, model.contextWindow]),
+	);
 	if (!value || typeof value !== "object" || Array.isArray(value))
 		return fallback;
 	const parsed = Object.fromEntries(

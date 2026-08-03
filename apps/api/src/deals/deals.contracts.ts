@@ -12,7 +12,22 @@ export const CLOSING_WINDOWS = [
 
 export type ClosingWindow = (typeof CLOSING_WINDOWS)[number];
 
-export const dealListInput = listInput.extend({
+const calendarDay = z
+	.string()
+	.regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date in YYYY-MM-DD format.")
+	.refine((value) => {
+		const parsed = new Date(`${value}T00:00:00.000Z`);
+		return (
+			!Number.isNaN(parsed.getTime()) &&
+			parsed.toISOString().slice(0, 10) === value
+		);
+	}, "Use a valid calendar date.");
+
+const calendarDayFacet = z
+	.union([z.literal("all"), calendarDay])
+	.default("all");
+
+const dealListBaseInput = listInput.extend({
 	/**
 	 * The tab: `"open"`, `"closed"` or `"all"`.
 	 *
@@ -31,6 +46,30 @@ export const dealListInput = listInput.extend({
 	pipeline: z.string().default("all"),
 	/** A `ClosingWindow`, or `"all"`. */
 	closing: z.string().default("all"),
+	/** Optional inclusive expected-close-date window (YYYY-MM-DD). */
+	closeFrom: calendarDayFacet,
+	closeTo: calendarDayFacet,
+});
+
+export const dealBoardInput = dealListBaseInput.pick({
+	q: true,
+	owner: true,
+	pipeline: true,
+	closing: true,
+});
+
+export const dealListInput = dealListBaseInput.superRefine((input, context) => {
+	if (
+		input.closeFrom !== "all" &&
+		input.closeTo !== "all" &&
+		input.closeFrom > input.closeTo
+	) {
+		context.addIssue({
+			code: "custom",
+			path: ["closeTo"],
+			message: "Close to cannot be before close from.",
+		});
+	}
 });
 
 export type DealListInput = z.infer<typeof dealListInput>;
@@ -85,13 +124,6 @@ export const setStageInput = z.object({
 });
 
 export type SetStageInput = z.infer<typeof setStageInput>;
-
-export const dealBoardInput = dealListInput.pick({
-	q: true,
-	owner: true,
-	pipeline: true,
-	closing: true,
-});
 
 export const dealLineItemCreateInput = z.object({
 	dealId: z.string(),

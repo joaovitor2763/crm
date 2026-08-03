@@ -1,0 +1,74 @@
+export const AUTOMATION_EVENT_CATALOG = [
+	{
+		id: "lead.submitted",
+		label: "Lead submitted",
+		description: "A lead arrives through the public ingestion API.",
+		automationEligible: true,
+	},
+	{
+		id: "company.created",
+		label: "Company created",
+		description: "A company record is created.",
+		automationEligible: false,
+	},
+	{
+		id: "contact.created",
+		label: "Contact created",
+		description: "A contact record is created.",
+		automationEligible: true,
+	},
+	{
+		id: "contact.became_mql",
+		label: "Contact became MQL",
+		description: "A contact becomes marketing qualified.",
+		automationEligible: true,
+	},
+	{
+		id: "contact.lifecycle_changed",
+		label: "Contact lifecycle changed",
+		description: "A contact moves to another lifecycle stage.",
+		automationEligible: true,
+	},
+	{
+		id: "revenue-conversion.recorded",
+		label: "Revenue conversion recorded",
+		description: "A governed conversion is attributed.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.created",
+		label: "Revenue account created",
+		description: "A revenue account is created.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.updated",
+		label: "Revenue account updated",
+		description: "A revenue account changes.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.archived",
+		label: "Revenue account archived",
+		description: "A revenue account is archived.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.relation.attached",
+		label: "Account relation attached",
+		description: "A record is linked to a revenue account.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.relation.detached",
+		label: "Account relation detached",
+		description: "A record is unlinked from a revenue account.",
+		automationEligible: false,
+	},
+	{
+		id: "revenue-account.merged",
+		label: "Revenue accounts merged",
+		description: "Duplicate revenue accounts are merged.",
+		automationEligible: false,
+	},
+] as const;

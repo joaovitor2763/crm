@@ -17,6 +17,7 @@ import { GoogleConnection } from "./google-connection";
 import { GovernanceSettings } from "./governance-settings";
 import { MarketingSettings } from "./marketing-settings";
 import { SettingsSections } from "./settings-sections";
+import { WorkspaceSettings } from "./workspace-settings";
 
 export const metadata: Metadata = {
 	title: "Settings",
@@ -71,10 +72,14 @@ export default async function SettingsPage() {
 	) {
 		prefetches.push(
 			queryClient.prefetchQuery(trpc.governance.directory.queryOptions()),
+			queryClient.prefetchQuery(trpc.automations.eventCatalog.queryOptions()),
 		);
 	}
 	if (capabilities.isAdmin) {
 		prefetches.push(
+			queryClient.prefetchQuery(
+				trpc.governance.workspaceConfiguration.queryOptions(),
+			),
 			queryClient.prefetchQuery(trpc.agentAdmin.configuration.queryOptions()),
 			queryClient.prefetchQuery(
 				trpc.agentAdmin.tasks.queryOptions({
@@ -129,6 +134,17 @@ export default async function SettingsPage() {
 				<HydrateClient>
 					<SettingsSections
 						sections={[
+							...(capabilities.isAdmin
+								? [
+										{
+											id: "workspace",
+											label: "Workspace",
+											description:
+												"Default currency and installation-wide preferences.",
+											content: <WorkspaceSettings />,
+										},
+									]
+								: []),
 							{
 								id: "connections",
 								label: "Connections",

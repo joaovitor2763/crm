@@ -6,6 +6,7 @@ import {
 	type DataTableFacet,
 } from "@crm/ui/components/data-table";
 import { EmptyCellValue } from "@crm/ui/components/empty-cell";
+import { Input } from "@crm/ui/components/input";
 import { formatMoney, relativeTimeFromIso } from "@crm/ui/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { CLOSING_OPTIONS } from "@/components/crm/closing-window";
@@ -180,6 +181,44 @@ export function DealsTable() {
 			total={deals.data?.total ?? 0}
 			facetCounts={facetCounts}
 			facets={facets}
+			leadingActions={
+				<div className="grid grid-cols-2 gap-2">
+					<label
+						htmlFor="deal-close-from"
+						className="grid gap-1 text-muted-foreground text-xs"
+					>
+						Close from
+						<Input
+							autoComplete="off"
+							id="deal-close-from"
+							name="dealCloseFrom"
+							type="date"
+							value={input.closeFrom === "all" ? "" : input.closeFrom}
+							onChange={(event) =>
+								query.setFilter("closeFrom", event.target.value || "all")
+							}
+							className="h-8 min-w-0 text-foreground"
+						/>
+					</label>
+					<label
+						htmlFor="deal-close-to"
+						className="grid gap-1 text-muted-foreground text-xs"
+					>
+						Close to
+						<Input
+							autoComplete="off"
+							id="deal-close-to"
+							name="dealCloseTo"
+							type="date"
+							value={input.closeTo === "all" ? "" : input.closeTo}
+							onChange={(event) =>
+								query.setFilter("closeTo", event.target.value || "all")
+							}
+							className="h-8 min-w-0 text-foreground"
+						/>
+					</label>
+				</div>
+			}
 			tabs={{
 				id: "status",
 				allLabel: "All deals",

@@ -13,6 +13,16 @@ import {
 import { CardTableEmpty } from "@crm/ui/components/card-table";
 import { Checkbox } from "@crm/ui/components/checkbox";
 import { EmptyCellValue } from "@crm/ui/components/empty-cell";
+import { Field, FieldLabel } from "@crm/ui/components/field";
+import { Input } from "@crm/ui/components/input";
+import {
+	Select,
+	SelectContent,
+	SelectGroup,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@crm/ui/components/select";
 import {
 	SimpleTable,
 	type SimpleTableColumn,
@@ -28,7 +38,7 @@ import {
 } from "@crm/ui/lib/format";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { useQueryState } from "nuqs";
+import { useQueryStates } from "nuqs";
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 import {
@@ -69,12 +79,24 @@ export function DashboardSummary() {
 	// Read, not written, here: the toggle in the page header owns the setter, and
 	// both sides agree because the value lives in the URL rather than in a
 	// provider threaded between them.
-	const [scope] = useQueryState("scope", overviewParsers.scope);
+	const [{ scope, from, to, grain }, setOverview] =
+		useQueryStates(overviewParsers);
 
 	const summaryQuery = useQuery({
 		...trpc.dashboard.summary.queryOptions({ scope }),
 		// Switching scope keeps the previous numbers on screen while the new ones
 		// load, the same way the tables hold their rows while paging.
+		placeholderData: (previous) => previous,
+	});
+	const analyticsQuery = useQuery({
+		...trpc.dashboard.analytics.queryOptions({
+			scope,
+			from: from || undefined,
+			to: to || undefined,
+			grain,
+			dimensions: [],
+			limit: 25,
+		}),
 		placeholderData: (previous) => previous,
 	});
 	const tasksQuery = useQuery(
@@ -133,7 +155,60 @@ export function DashboardSummary() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<SalesDashboard summary={summary} />
+			<div className="grid gap-3 border-b pb-4 sm:grid-cols-3 lg:max-w-2xl">
+				<Field>
+					<FieldLabel htmlFor="overview-from">Trend from</FieldLabel>
+					<Input
+						autoComplete="off"
+						id="overview-from"
+						name="overviewFrom"
+						type="date"
+						value={from}
+						onChange={(event) => void setOverview({ from: event.target.value })}
+					/>
+				</Field>
+				<Field>
+					<FieldLabel htmlFor="overview-to">Trend to</FieldLabel>
+					<Input
+						autoComplete="off"
+						id="overview-to"
+						name="overviewTo"
+						type="date"
+						value={to}
+						onChange={(event) => void setOverview({ to: event.target.value })}
+					/>
+				</Field>
+				<Field>
+					<FieldLabel>Aggregate by</FieldLabel>
+					<Select
+						value={grain}
+						onValueChange={(value) =>
+							void setOverview({ grain: value as typeof grain })
+						}
+					>
+						<SelectTrigger>
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectGroup>
+								<SelectItem value="hour">Hour</SelectItem>
+								<SelectItem value="day">Day</SelectItem>
+								<SelectItem value="week">Week</SelectItem>
+								<SelectItem value="month">Month</SelectItem>
+								<SelectItem value="quarter">Quarter</SelectItem>
+							</SelectGroup>
+						</SelectContent>
+					</Select>
+				</Field>
+			</div>
+			<SalesDashboard
+				summary={summary}
+				timeSeries={
+					analyticsQuery.data?.views.find((view) => view.key === "timeSeries")
+						?.rows
+				}
+				window={analyticsQuery.data?.window}
+			/>
 
 			{/*
 			 * Two panels of one fixed height rather than four cards that each grew

@@ -13,6 +13,7 @@ import { CRM_RESOURCE } from "../access-control/access-control.constants";
 import { AccessControlService } from "../access-control/access-control.service";
 import type { AuthedTrpcContext } from "../trpc/context.types";
 import { AuthMiddleware } from "../trpc/middlewares/auth.middleware";
+import { AUTOMATION_EVENT_CATALOG } from "./automation-events";
 import {
 	automationCreateInput,
 	automationIdInput,
@@ -36,6 +37,11 @@ export class AutomationsRouter {
 	list(@Ctx() ctx: AuthedTrpcContext): Promise<AutomationListItem[]> {
 		this.manage(ctx, CRM_RESOURCE.automations);
 		return this.automations.list(this.automationScope(ctx, true));
+	}
+
+	@Query()
+	eventCatalog() {
+		return AUTOMATION_EVENT_CATALOG;
 	}
 
 	@Mutation({ input: automationCreateInput })

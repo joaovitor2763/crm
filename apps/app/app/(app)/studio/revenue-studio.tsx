@@ -4,6 +4,7 @@ import Archive from "@carbon/icons-react/es/Archive";
 import Building from "@carbon/icons-react/es/Building";
 import Column from "@carbon/icons-react/es/Column";
 import Dashboard from "@carbon/icons-react/es/Dashboard";
+import MagicWand from "@carbon/icons-react/es/MagicWand";
 import Partnership from "@carbon/icons-react/es/Partnership";
 import Settings from "@carbon/icons-react/es/Settings";
 import { Button } from "@crm/ui/components/button";
@@ -74,6 +75,12 @@ const NAV_ITEMS = [
 		icon: <Icon icon={Partnership} />,
 	},
 	{
+		id: "automations",
+		label: "Automations",
+		description: "Rules and webhooks",
+		icon: <Icon icon={MagicWand} />,
+	},
+	{
 		id: "accounts",
 		label: "Accounts",
 		description: "Aggregation model",
@@ -84,6 +91,12 @@ const NAV_ITEMS = [
 		label: "Lineage and merge",
 		description: "History and safety",
 		icon: <Icon icon={Archive} />,
+	},
+	{
+		id: "dashboards",
+		label: "Dashboards",
+		description: "Analytics and definitions",
+		icon: <Icon icon={Dashboard} />,
 	},
 	{
 		id: "ontology",
@@ -127,6 +140,31 @@ export function RevenueStudio({ access }: { access: StudioAccess }) {
 
 	return (
 		<div className="flex min-h-0 flex-col gap-5">
+			{view === "overview" ? (
+				<nav
+					aria-label="Studio tools"
+					className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"
+				>
+					{NAV_ITEMS.filter((item) => item.id !== "overview").map((item) => (
+						<button
+							key={item.id}
+							type="button"
+							className="grid min-h-16 grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-lg border bg-card p-3 text-left outline-none hover:bg-muted/50 focus-visible:ring-1 focus-visible:ring-ring/50"
+							onClick={() => selectView(item.id)}
+						>
+							<span className="text-muted-foreground">{item.icon}</span>
+							<span className="min-w-0">
+								<span className="block truncate font-medium text-sm">
+									{item.label}
+								</span>
+								<span className="block truncate text-muted-foreground text-xs">
+									{item.description}
+								</span>
+							</span>
+						</button>
+					))}
+				</nav>
+			) : null}
 			{view !== "overview" ? (
 				<div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
 					<div className="flex min-w-0 items-center gap-3">

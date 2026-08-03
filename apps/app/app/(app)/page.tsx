@@ -23,7 +23,8 @@ export default async function OverviewPage({
 
 	// Parsed with the same parser the toggle uses, so the first paint is already
 	// scoped to whoever the URL says rather than to the default.
-	const { scope } = await loadOverviewSearchParams(searchParams);
+	const { scope, from, to, grain } =
+		await loadOverviewSearchParams(searchParams);
 
 	const trpc = getServerTrpc();
 	const queryClient = getServerQueryClient();
@@ -34,6 +35,16 @@ export default async function OverviewPage({
 	await Promise.all([
 		queryClient.prefetchQuery(trpc.users.me.queryOptions()),
 		queryClient.prefetchQuery(trpc.dashboard.summary.queryOptions({ scope })),
+		queryClient.prefetchQuery(
+			trpc.dashboard.analytics.queryOptions({
+				scope,
+				from: from || undefined,
+				to: to || undefined,
+				grain,
+				dimensions: [],
+				limit: 25,
+			}),
+		),
 		queryClient.prefetchQuery(
 			trpc.activities.myTasks.queryOptions({ window: "all", limit: 10 }),
 		),

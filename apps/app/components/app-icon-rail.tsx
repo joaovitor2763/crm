@@ -67,6 +67,7 @@ const ITEMS: RailItem[] = [
 		match: "prefix",
 	},
 	{ title: "Studio", href: "/studio", icon: Column, match: "prefix" },
+	{ title: "Users", href: "/users", icon: UserMultiple, match: "prefix" },
 	SETTINGS_ITEM,
 ];
 
@@ -174,7 +175,7 @@ export function AppIconRail() {
 	const moreActive = ITEMS.slice(4).some((item) => isActive(item, pathname));
 	const groups = [
 		{ label: "CRM", items: ITEMS.slice(0, 4) },
-		{ label: "Build", items: ITEMS.slice(4, 7) },
+		{ label: "Build", items: ITEMS.slice(4, 8) },
 	];
 
 	return (

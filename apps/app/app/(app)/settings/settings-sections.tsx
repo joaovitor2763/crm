@@ -35,7 +35,7 @@ export function SettingsSections({
 		{
 			label: "Workspace",
 			sections: sections.filter((section) =>
-				["connections", "governance"].includes(section.id),
+				["workspace", "connections", "governance"].includes(section.id),
 			),
 		},
 		{
@@ -87,7 +87,7 @@ export function SettingsSections({
 						<summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1 font-medium text-[10px] text-muted-foreground uppercase tracking-wider outline-none hover:bg-muted hover:text-foreground focus-visible:ring-1 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
 							<Icon
 								icon={ChevronDown}
-								size="sm"
+								size={16}
 								className="transition-transform group-open/settings:rotate-180 motion-reduce:transition-none"
 							/>
 							{group.label}

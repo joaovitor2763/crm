@@ -29,7 +29,7 @@ import { dealListInput, dealIdInput, dealBoardInput, dealCreateInput, dealUpdate
 import { fieldSchemaInput, objectDefinitionCreateInput, fieldCreateInput, fieldUpdateInput, fieldIdInput, fieldPermissionInput, relationDefinitionCreateInput, recordRelationCreateInput, customRecordCreateInput, recordCustomValuesInput } from "../fields/fields.contracts";
 import { ontologySchemaListInput, ontologyVersionIdInput, ontologyCreateDraftInput, ontologyReplaceDraftInput, ontologyPublishInput } from "../fields/ontology.contracts";
 import { setAutoCreateInput, suppressDomainInput, threadInput, calendarEventInput } from "../google/google.contracts";
-import { businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
+import { workspaceConfigurationUpdateInput, businessUnitCreateInput, businessUnitUpdateInput, teamCreateInput, teamUpdateInput, roleCreateInput, roleUpdateInput, rolePermissionInput, userAccessUpdateInput } from "../governance/governance.contracts";
 import { marketingListInput, marketingFormCreateInput, marketingFormUpdateInput, marketingEventCreateInput, marketingEventUpdateInput, marketingIdInput } from "../marketing/marketing.contracts";
 import { pipelineListInput, pipelineIdInput, pipelineBlueprintValidationInput, pipelineBlueprintTransitionInput, pipelineBlueprintUpdateInput, pipelineCreateInput, pipelineUpdateInput, pipelineStageCreateInput, pipelineStageUpdateInput, pipelineStageReorderInput, pipelineStageIdInput } from "../pipelines/pipelines.contracts";
 import { productListInput, productCreateInput, productUpdateInput, productIdInput } from "../products/products.contracts";
@@ -113,6 +113,8 @@ const appRouter = t.router({
   automations: t.router({
     list: publicProcedure
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["list"]>>),
+    eventCatalog: publicProcedure
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["eventCatalog"]>>),
     create: publicProcedure
       .input(automationCreateInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<AutomationsRouter["create"]>>),
@@ -393,6 +395,11 @@ const appRouter = t.router({
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["overview"]>>),
     capabilities: publicProcedure
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["capabilities"]>>),
+    workspaceConfiguration: publicProcedure
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["workspaceConfiguration"]>>),
+    updateWorkspaceConfiguration: publicProcedure
+      .input(workspaceConfigurationUpdateInput)
+      .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["updateWorkspaceConfiguration"]>>),
     directory: publicProcedure
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<GovernanceRouter["directory"]>>),
     createBusinessUnit: publicProcedure

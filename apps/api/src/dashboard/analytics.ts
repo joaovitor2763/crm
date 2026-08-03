@@ -51,7 +51,7 @@ export type RevenueAnalyticsInput = {
 	from: AnalyticsDate;
 	to: AnalyticsDate;
 	now?: AnalyticsDate;
-	grain?: "day" | "week" | "month" | "quarter";
+	grain?: "hour" | "day" | "week" | "month" | "quarter";
 	comparison?: "none" | "previousPeriod" | "previousYear";
 };
 
@@ -359,6 +359,10 @@ function bucketStart(
 	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
 ) {
 	const value = new Date(date);
+	if (grain === "hour") {
+		value.setUTCMinutes(0, 0, 0);
+		return value;
+	}
 	value.setUTCHours(0, 0, 0, 0);
 	if (grain === "day") return value;
 	if (grain === "week") {
@@ -379,7 +383,8 @@ function bucketEnd(
 	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
 ) {
 	const end = new Date(start);
-	if (grain === "day") end.setUTCDate(end.getUTCDate() + 1);
+	if (grain === "hour") end.setUTCHours(end.getUTCHours() + 1);
+	else if (grain === "day") end.setUTCDate(end.getUTCDate() + 1);
 	else if (grain === "week") end.setUTCDate(end.getUTCDate() + 7);
 	else if (grain === "quarter") end.setUTCMonth(end.getUTCMonth() + 3);
 	else end.setUTCMonth(end.getUTCMonth() + 1);
@@ -390,6 +395,8 @@ function periodLabel(
 	date: Date,
 	grain: NonNullable<RevenueAnalyticsInput["grain"]>,
 ) {
+	if (grain === "hour")
+		return `${date.toISOString().slice(0, 13).replace("T", " ")}:00`;
 	if (grain === "day") return date.toISOString().slice(0, 10);
 	if (grain === "week") return `Week of ${date.toISOString().slice(0, 10)}`;
 	if (grain === "quarter")

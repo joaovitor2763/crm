@@ -487,6 +487,8 @@ function DonutStat({
 		data.map((d) => [d.key, { label: d.label, color: d.color }]),
 	);
 	const hasCenter = centerValue != null || centerLabel != null;
+	const centerText = String(centerValue ?? "");
+	const centerFontSize = centerText.length > 12 ? 13 : centerText.length > 9 ? 16 : 22;
 	const innerRadius = Math.round(height * 0.34);
 	const outerRadius = Math.round(height * 0.46);
 
@@ -552,9 +554,12 @@ function DonutStat({
 										<tspan
 											x={viewBox.cx}
 											y={viewBox.cy}
-											className="fill-foreground font-medium text-2xl tabular-nums"
+											className="fill-foreground font-medium tabular-nums"
+											fontSize={centerFontSize}
+											textLength={centerText.length > 9 ? Math.round(innerRadius * 1.45) : undefined}
+											lengthAdjust={centerText.length > 9 ? "spacingAndGlyphs" : undefined}
 										>
-											{String(centerValue ?? "")}
+											{centerText}
 										</tspan>
 										{centerLabel != null ? (
 											<tspan

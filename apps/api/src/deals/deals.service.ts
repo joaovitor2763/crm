@@ -363,6 +363,10 @@ export class DealsService {
 
 	async create(input: DealCreateInput) {
 		const businessUnitId = input.businessUnitId ?? "business-unit-default";
+		const workspace = await this.db.workspaceConfiguration.findUnique({
+			where: { id: "default" },
+			select: { currency: true },
+		});
 		const candidate = await this.resolveInitialStage(
 			input.pipelineId,
 			input.stageId,
@@ -392,7 +396,8 @@ export class DealsService {
 						stageChangedAt: now,
 						closedAt: isClosedStage(stage.type) ? now : null,
 						amount: fromCents(input.amountCents),
-						currency: input.currency?.toUpperCase() ?? "USD",
+						currency:
+							input.currency?.toUpperCase() ?? workspace?.currency ?? "USD",
 						expectedCloseDate: parseDate(input.expectedCloseDate),
 					},
 					select: { id: true, name: true, companyId: true },
@@ -855,6 +860,22 @@ export class DealsService {
 		if (input.closing !== FACET_ALL) {
 			Object.assign(where, closingFilter(input.closing as ClosingWindow));
 		}
+		if (input.closeFrom !== FACET_ALL || input.closeTo !== FACET_ALL) {
+			const from =
+				input.closeFrom === FACET_ALL
+					? undefined
+					: (parseDate(input.closeFrom) ?? undefined);
+			const to =
+				input.closeTo === FACET_ALL ? undefined : endOfDate(input.closeTo);
+			where.AND = [
+				...(Array.isArray(where.AND)
+					? where.AND
+					: where.AND
+						? [where.AND]
+						: []),
+				{ expectedCloseDate: { gte: from, lt: to } },
+			];
+		}
 		return where;
 	}
 
@@ -1062,5 +1083,12 @@ function parseDate(value: string | null | undefined): Date | null {
 	if (Number.isNaN(date.getTime())) {
 		throw new BadRequestException(`"${value}" is not a date.`);
 	}
+	return date;
+}
+
+function endOfDate(value: string) {
+	const date = parseDate(value);
+	if (!date) return undefined;
+	date.setUTCDate(date.getUTCDate() + 1);
 	return date;
 }

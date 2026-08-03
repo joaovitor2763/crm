@@ -1261,6 +1261,16 @@ model AiProviderConfiguration {
   @@map("aiProviderConfiguration")
 }
 
+/// Installation-wide preferences for this deliberately single-tenant workspace.
+model WorkspaceConfiguration {
+  id        String   @id @default("default")
+  currency  String   @default("USD")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("workspaceConfiguration")
+}
+
 /// Every runtime event the agent emits, written by a hook.
 ///
 /// The id is eve's own `meta.id` (a ULID), so an `on conflict do nothing`

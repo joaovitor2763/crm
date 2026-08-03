@@ -20,5 +20,12 @@ export const dealsSearchParams = createListSearchParams({
 	defaultSort: "createdAt",
 	defaultDir: "desc",
 	tabId: "status",
-	facetIds: ["owner", "pipeline", "stage", "closing"] as const,
+	facetIds: [
+		"owner",
+		"pipeline",
+		"stage",
+		"closing",
+		"closeFrom",
+		"closeTo",
+	] as const,
 });

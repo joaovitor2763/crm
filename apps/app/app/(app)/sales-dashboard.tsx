@@ -57,7 +57,15 @@ function changeDelta(
  * The KPI strip and the two charts behind it: six months of closed-won against
  * new pipeline, and where the open pipeline currently sits.
  */
-export function SalesDashboard({ summary }: { summary: Summary }) {
+export function SalesDashboard({
+	summary,
+	timeSeries,
+	window,
+}: {
+	summary: Summary;
+	timeSeries?: Array<Record<string, string | number | null>>;
+	window?: { from: string; to: string };
+}) {
 	const {
 		pipeline,
 		wonThisMonth,
@@ -67,7 +75,16 @@ export function SalesDashboard({ summary }: { summary: Summary }) {
 		closingThisMonthTotal,
 	} = summary;
 
-	const hasTrend = trend.some((point) => point.won > 0 || point.created > 0);
+	const selectedTrend =
+		timeSeries?.map((row) => ({
+			month: String(row.period ?? ""),
+			won: Number(row.won ?? 0),
+			created: Number(row.created ?? 0),
+		})) ?? trend;
+	const hasTrend = selectedTrend.some(
+		(point) => point.won > 0 || point.created > 0,
+	);
+	const customTrend = Boolean(timeSeries);
 
 	const stageSlices = pipeline.stages
 		.map((stage) => ({
@@ -128,12 +145,16 @@ export function SalesDashboard({ summary }: { summary: Summary }) {
 			<DashboardRow split="hero">
 				<ChartPanel
 					title="Closed won vs. new pipeline"
-					description="Last six months, by the month a deal closed or was created"
+					description={
+						customTrend && window
+							? "Selected date window, using the chosen aggregation"
+							: "Last six months, by the month a deal closed or was created"
+					}
 				>
 					{hasTrend ? (
 						<div className="flex flex-1 flex-col justify-center py-4">
 							<AreaTrend
-								data={trend}
+								data={selectedTrend}
 								config={TREND_CONFIG}
 								xKey="month"
 								height={196}
@@ -141,7 +162,11 @@ export function SalesDashboard({ summary }: { summary: Summary }) {
 								bloom="high"
 								showLegend
 								formatValue={(value) =>
-									formatMoney(typeof value === "number" ? value : Number(value))
+									customTrend
+										? formatCount(Number(value), "deal")
+										: formatMoney(
+												typeof value === "number" ? value : Number(value),
+											)
 								}
 							/>
 						</div>

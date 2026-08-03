@@ -14,6 +14,7 @@ import { Input } from "@crm/ui/components/input";
 import {
 	Select,
 	SelectContent,
+	SelectGroup,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
@@ -21,12 +22,20 @@ import {
 import { Spinner } from "@crm/ui/components/spinner";
 import { useQuery } from "@tanstack/react-query";
 import { useQueryState } from "nuqs";
-import { BarTrend } from "@/components/dashboard-charts";
+import { AreaTrend, BarTrend } from "@/components/dashboard-charts";
 import { useTRPC } from "@/lib/trpc/client";
 import { OverviewScopeToggle } from "../overview-scope";
 import { overviewParsers } from "../overview-search-params";
 import { SalesDashboard } from "../sales-dashboard";
-import { chartConfig, chartRows, formatMetric } from "./studio-analytics-data";
+import {
+	analyticsRowLabel,
+	analyticsRowValue,
+	chartConfig,
+	chartRows,
+	chartSeries,
+	formatMetric,
+	formatPeriodLabel,
+} from "./studio-analytics-data";
 import { StudioDashboardDefinitions } from "./studio-dashboard-definitions";
 import { studioParsers } from "./studio-search-params";
 
@@ -42,6 +51,7 @@ const DIMENSIONS = [
 ] as const;
 
 const VIEW_LABELS = {
+	timeSeries: "Conversion over time",
 	conversionFunnel: "Conversion funnel",
 	conversionTime: "Time to conversion",
 	stagePerformance: "Stage performance",
@@ -71,6 +81,15 @@ export function StudioDashboards({
 		"analyticsAttribute",
 		studioParsers.analyticsAttribute,
 	);
+	const [from, setFrom] = useQueryState(
+		"analyticsFrom",
+		studioParsers.analyticsFrom,
+	);
+	const [to, setTo] = useQueryState("analyticsTo", studioParsers.analyticsTo);
+	const [grain, setGrain] = useQueryState(
+		"analyticsGrain",
+		studioParsers.analyticsGrain,
+	);
 	const summary = useQuery(trpc.dashboard.summary.queryOptions({ scope }));
 	const pipelines = useQuery(
 		trpc.pipelines.list.queryOptions({ includeArchived: false }),
@@ -83,6 +102,9 @@ export function StudioDashboards({
 			attributeKey:
 				dimension === "dealAttribute" ? attribute || undefined : undefined,
 			limit: 25,
+			from: from || undefined,
+			to: to || undefined,
+			grain,
 		}),
 		enabled: dimension !== "dealAttribute" || Boolean(attribute.trim()),
 	});
@@ -108,14 +130,14 @@ export function StudioDashboards({
 
 			<Card>
 				<CardHeader>
-					<CardTitle>Analytics builder</CardTitle>
+					<CardTitle>Revenue analysis</CardTitle>
 					<CardDescription>
-						Choose one governed cut for a standard view. Selections persist in
-						the URL, so a view can be shared or revisited.
+						Choose a question, time window and breakdown. The URL keeps the view
+						shareable.
 					</CardDescription>
 				</CardHeader>
 				<CardContent className="flex flex-col gap-5">
-					<div className="grid gap-3 md:grid-cols-4 md:items-end">
+					<div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6 xl:items-end">
 						<Field>
 							<FieldLabel>View</FieldLabel>
 							<Select
@@ -126,11 +148,13 @@ export function StudioDashboards({
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{Object.entries(VIEW_LABELS).map(([key, label]) => (
-										<SelectItem key={key} value={key}>
-											{label}
-										</SelectItem>
-									))}
+									<SelectGroup>
+										{Object.entries(VIEW_LABELS).map(([key, label]) => (
+											<SelectItem key={key} value={key}>
+												{label}
+											</SelectItem>
+										))}
+									</SelectGroup>
 								</SelectContent>
 							</Select>
 						</Field>
@@ -146,11 +170,13 @@ export function StudioDashboards({
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									{DIMENSIONS.map(([key, label]) => (
-										<SelectItem key={key} value={key}>
-											{label}
-										</SelectItem>
-									))}
+									<SelectGroup>
+										{DIMENSIONS.map(([key, label]) => (
+											<SelectItem key={key} value={key}>
+												{label}
+											</SelectItem>
+										))}
+									</SelectGroup>
 								</SelectContent>
 							</Select>
 						</Field>
@@ -164,12 +190,14 @@ export function StudioDashboards({
 									<SelectValue placeholder="All pipelines" />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="all">All pipelines</SelectItem>
-									{(pipelines.data ?? []).map((item) => (
-										<SelectItem key={item.id} value={item.id}>
-											{item.name}
-										</SelectItem>
-									))}
+									<SelectGroup>
+										<SelectItem value="all">All pipelines</SelectItem>
+										{(pipelines.data ?? []).map((item) => (
+											<SelectItem key={item.id} value={item.id}>
+												{item.name}
+											</SelectItem>
+										))}
+									</SelectGroup>
 								</SelectContent>
 							</Select>
 						</Field>
@@ -179,28 +207,75 @@ export function StudioDashboards({
 									Deal field key
 								</FieldLabel>
 								<Input
+									autoComplete="off"
 									id="analytics-attribute"
+									name="analyticsAttribute"
 									value={attribute}
 									onChange={(event) => void setAttribute(event.target.value)}
 									placeholder="e.g. segment"
 								/>
 							</Field>
-						) : (
-							<div className="flex items-end">
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => {
-										void setView("conversionFunnel");
-										void setDimension("channel");
-										void setPipeline("all");
-										void setAttribute("");
-									}}
-								>
-									Reset view
-								</Button>
-							</div>
-						)}
+						) : null}
+						<Field>
+							<FieldLabel htmlFor="analytics-from">From</FieldLabel>
+							<Input
+								autoComplete="off"
+								id="analytics-from"
+								name="analyticsFrom"
+								type="date"
+								value={from}
+								onChange={(event) => void setFrom(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="analytics-to">To</FieldLabel>
+							<Input
+								autoComplete="off"
+								id="analytics-to"
+								name="analyticsTo"
+								type="date"
+								value={to}
+								onChange={(event) => void setTo(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel>Aggregate by</FieldLabel>
+							<Select
+								value={grain}
+								onValueChange={(value) => void setGrain(value as typeof grain)}
+							>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectGroup>
+										<SelectItem value="hour">Hour</SelectItem>
+										<SelectItem value="day">Day</SelectItem>
+										<SelectItem value="week">Week</SelectItem>
+										<SelectItem value="month">Month</SelectItem>
+										<SelectItem value="quarter">Quarter</SelectItem>
+									</SelectGroup>
+								</SelectContent>
+							</Select>
+						</Field>
+					</div>
+					<div className="flex justify-end">
+						<Button
+							type="button"
+							variant="ghost"
+							size="sm"
+							onClick={() => {
+								void setView("conversionFunnel");
+								void setDimension("channel");
+								void setPipeline("all");
+								void setAttribute("");
+								void setFrom("");
+								void setTo("");
+								void setGrain("month");
+							}}
+						>
+							Reset analysis
+						</Button>
 					</div>
 					{dimension === "dealAttribute" && !attribute.trim() ? (
 						<p className="text-muted-foreground text-xs">
@@ -220,7 +295,9 @@ export function StudioDashboards({
 							{analytics.error.message}
 						</p>
 					) : null}
-					{selectedView ? <AnalyticsView view={selectedView} /> : null}
+					{selectedView ? (
+						<AnalyticsView view={selectedView} grain={grain} />
+					) : null}
 				</CardContent>
 			</Card>
 			<StudioDashboardDefinitions canManage={canManage} />
@@ -230,28 +307,48 @@ export function StudioDashboards({
 
 function AnalyticsView({
 	view,
+	grain,
 }: {
 	view: import("./studio-analytics-data").AnalyticsView;
+	grain: "hour" | "day" | "week" | "month" | "quarter";
 }) {
 	return (
-		<div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,0.8fr)]">
-			<div className="min-w-0 border p-3">
+		<section className="border-t pt-5">
+			<div className="min-w-0">
 				<div className="mb-3">
 					<p className="font-medium text-sm">{view.title}</p>
 					<p className="text-muted-foreground text-xs">{view.description}</p>
 				</div>
-				<BarTrend
-					data={chartRows(view)}
-					config={chartConfig(view)}
-					xKey="label"
-					height={260}
-					showXAxis={view.chart.data.labels.length < 12}
-					formatValue={formatMetric}
-				/>
+				{view.key === "timeSeries" ? (
+					<AreaTrend
+						data={chartRows(view)}
+						config={chartConfig(view)}
+						series={chartSeries(view).slice(0, 2)}
+						xKey="label"
+						height={260}
+						showXAxis={view.chart.data.labels.length <= 12}
+						showLegend
+						formatX={(value) => formatPeriodLabel(value, grain)}
+						formatValue={formatMetric}
+					/>
+				) : (
+					<BarTrend
+						data={chartRows(view)}
+						config={chartConfig(view)}
+						series={chartSeries(view)}
+						xKey="label"
+						height={260}
+						showXAxis={view.chart.data.labels.length <= 5}
+						formatX={(value) =>
+							value.length > 18 ? `${value.slice(0, 16)}…` : value
+						}
+						formatValue={formatMetric}
+					/>
+				)}
 			</div>
-			<div className="border p-3">
-				<p className="mb-3 font-medium text-sm">Rows</p>
-				<div className="flex max-h-64 flex-col gap-2 overflow-auto">
+			<div className="mt-5">
+				<p className="mb-3 font-medium text-sm">Breakdown</p>
+				<div className="grid max-h-64 gap-x-6 overflow-auto sm:grid-cols-2">
 					{view.rows.length === 0 ? (
 						<p className="text-muted-foreground text-xs">
 							No records in this window.
@@ -259,20 +356,20 @@ function AnalyticsView({
 					) : (
 						view.rows.slice(0, 12).map((row) => (
 							<div
-								key={`${String(row.label ?? "row")}:${String(row.deals ?? row.value ?? "")}`}
+								key={JSON.stringify(row)}
 								className="flex items-center justify-between gap-3 border-b pb-2 text-xs"
 							>
 								<span className="min-w-0 truncate">
-									{String(row.label ?? "Unlabelled")}
+									{analyticsRowLabel(row)}
 								</span>
 								<span className="shrink-0 tabular-nums">
-									{String(row.deals ?? row.value ?? "—")}
+									{analyticsRowValue(row)}
 								</span>
 							</div>
 						))
 					)}
 				</div>
 			</div>
-		</div>
+		</section>
 	);
 }

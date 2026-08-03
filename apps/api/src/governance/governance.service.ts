@@ -28,6 +28,7 @@ import type {
 	TeamCreateInput,
 	TeamUpdateInput,
 	UserAccessUpdateInput,
+	WorkspaceConfigurationUpdateInput,
 } from "./governance.contracts";
 import {
 	assertBusinessUnitInScope,
@@ -43,6 +44,22 @@ import {
 @Injectable()
 export class GovernanceService {
 	constructor(@InjectDatabase() private readonly db: Db) {}
+
+	async workspaceConfiguration() {
+		return (
+			(await this.db.workspaceConfiguration.findUnique({
+				where: { id: "default" },
+			})) ?? { id: "default", currency: "USD" }
+		);
+	}
+
+	async updateWorkspaceConfiguration(input: WorkspaceConfigurationUpdateInput) {
+		return this.db.workspaceConfiguration.upsert({
+			where: { id: "default" },
+			create: { id: "default", currency: input.currency },
+			update: { currency: input.currency },
+		});
+	}
 
 	async overview(principal: EffectivePrincipal) {
 		const scoped = !principal.isAdmin;

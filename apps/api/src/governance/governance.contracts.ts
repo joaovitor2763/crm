@@ -67,6 +67,18 @@ export const userAccessUpdateInput = z.object({
 
 export const governanceIdInput = z.object({ id: z.string() });
 
+export const workspaceConfigurationUpdateInput = z.object({
+	currency: z
+		.string()
+		.trim()
+		.length(3)
+		.regex(/^[A-Z]{3}$/, "Use an ISO 4217 currency code."),
+});
+
+export type WorkspaceConfigurationUpdateInput = z.infer<
+	typeof workspaceConfigurationUpdateInput
+>;
+
 export type BusinessUnitCreateInput = z.infer<typeof businessUnitCreateInput>;
 export type BusinessUnitUpdateInput = z.infer<typeof businessUnitUpdateInput>;
 export type TeamCreateInput = z.infer<typeof teamCreateInput>;

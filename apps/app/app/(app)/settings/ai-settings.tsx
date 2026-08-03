@@ -296,6 +296,11 @@ function AiConfigurationForm({
 		models: string[];
 		modelContextWindows: Record<string, number>;
 		defaults: { interactive: string; research: string; enrichment: string };
+		recommendedModels: readonly {
+			id: string;
+			label: string;
+			contextWindow: number;
+		}[];
 	};
 	pending: boolean;
 	onSave: (input: {
@@ -335,7 +340,28 @@ function AiConfigurationForm({
 			)
 			.map((entry) => [entry.model, entry.contextWindow]),
 	);
-	const options = models.map((model) => ({ value: model, label: model }));
+	const labelById = new Map(
+		config.recommendedModels.map((model) => [model.id, model.label]),
+	);
+	const options = models.map((model) => ({
+		value: model,
+		label: labelById.get(model) ?? model,
+	}));
+	const addRecommendedModels = () => {
+		const existing = new Set(models);
+		const additions = config.recommendedModels.filter(
+			(model) => !existing.has(model.id),
+		);
+		if (additions.length === 0) return;
+		setModelsText(
+			[
+				modelsText.trim(),
+				...additions.map((model) => `${model.id} | ${model.contextWindow}`),
+			]
+				.filter(Boolean)
+				.join("\n"),
+		);
+	};
 	return (
 		<form
 			onSubmit={(event) => {
@@ -390,7 +416,17 @@ function AiConfigurationForm({
 				</Button>
 			) : null}
 			<Field>
-				<FieldLabel htmlFor="approved-models">Approved models</FieldLabel>
+				<div className="flex items-center justify-between gap-3">
+					<FieldLabel htmlFor="approved-models">Approved models</FieldLabel>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={addRecommendedModels}
+					>
+						Add recommended models
+					</Button>
+				</div>
 				<textarea
 					id="approved-models"
 					value={modelsText}

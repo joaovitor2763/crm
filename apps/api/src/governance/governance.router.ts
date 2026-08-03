@@ -1,5 +1,5 @@
 import { PermissionAction } from "@crm/db";
-import { Inject } from "@nestjs/common";
+import { ForbiddenException, Inject } from "@nestjs/common";
 import {
 	Ctx,
 	Input,
@@ -22,6 +22,7 @@ import {
 	teamCreateInput,
 	teamUpdateInput,
 	userAccessUpdateInput,
+	workspaceConfigurationUpdateInput,
 } from "./governance.contracts";
 import { GovernanceService } from "./governance.service";
 
@@ -47,6 +48,27 @@ export class GovernanceRouter {
 	@Query()
 	capabilities(@Ctx() ctx: AuthedTrpcContext) {
 		return ctx.principal;
+	}
+
+	@Query()
+	workspaceConfiguration(@Ctx() ctx: AuthedTrpcContext) {
+		if (!ctx.principal.isAdmin)
+			throw new ForbiddenException(
+				"Only global administrators can manage workspace preferences.",
+			);
+		return this.governance.workspaceConfiguration();
+	}
+
+	@Mutation({ input: workspaceConfigurationUpdateInput })
+	updateWorkspaceConfiguration(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof workspaceConfigurationUpdateInput>,
+	) {
+		if (!ctx.principal.isAdmin)
+			throw new ForbiddenException(
+				"Only global administrators can manage workspace preferences.",
+			);
+		return this.governance.updateWorkspaceConfiguration(input);
 	}
 
 	@Query()

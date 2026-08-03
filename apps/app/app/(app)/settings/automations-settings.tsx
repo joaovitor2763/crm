@@ -11,6 +11,7 @@ import {
 } from "@crm/ui/components/card";
 import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
+import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import {
 	Select,
 	SelectContent,
@@ -27,6 +28,9 @@ import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
 
 type Overview = RouterOutputs["governance"]["directory"];
+type EventCatalog = ReadonlyArray<
+	RouterOutputs["automations"]["eventCatalog"][number]
+>;
 
 export function AutomationsSettings({
 	canManageAutomations = true,
@@ -38,6 +42,7 @@ export function AutomationsSettings({
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const governance = useQuery(trpc.governance.directory.queryOptions());
+	const eventCatalog = useQuery(trpc.automations.eventCatalog.queryOptions());
 	const automations = useQuery({
 		...trpc.automations.list.queryOptions(),
 		enabled: canManageAutomations,
@@ -151,11 +156,13 @@ export function AutomationsSettings({
 						{createMode === "automation" ? (
 							<AutomationForm
 								data={governance.data}
+								events={eventCatalog.data ?? []}
 								mutate={(input) => create.mutate(input)}
 							/>
 						) : (
 							<WebhookForm
 								data={governance.data}
+								events={eventCatalog.data ?? []}
 								mutate={(input) => createWebhook.mutate(input)}
 							/>
 						)}
@@ -261,9 +268,11 @@ export function AutomationsSettings({
 
 function AutomationForm({
 	data,
+	events,
 	mutate,
 }: {
 	data?: Overview;
+	events: EventCatalog;
 	mutate: (input: {
 		name: string;
 		roleId: string;
@@ -286,6 +295,8 @@ function AutomationForm({
 		];
 	}) => void;
 }) {
+	const [eventType, setEventType] = useState("lead.submitted");
+	const contactEvents = events.filter((event) => event.automationEligible);
 	return (
 		<form
 			onSubmit={(event) => {
@@ -296,7 +307,7 @@ function AutomationForm({
 					name: String(form.get("name")),
 					roleId: String(form.get("roleId")),
 					businessUnitId: unit || null,
-					trigger: { eventTypes: [String(form.get("eventType"))] },
+					trigger: { eventTypes: [eventType] },
 					conditions: [],
 					actions: [
 						{
@@ -354,13 +365,21 @@ function AutomationForm({
 					</Select>
 				</Field>
 				<Field>
-					<FieldLabel htmlFor="automation-event">Event</FieldLabel>
-					<Input
-						id="automation-event"
-						name="eventType"
-						defaultValue="lead.submitted"
-						required
+					<FieldLabel>When this happens</FieldLabel>
+					<SearchCombobox
+						value={eventType}
+						onValueChange={setEventType}
+						options={contactEvents.map((event) => ({
+							value: event.id,
+							label: event.label,
+						}))}
+						placeholder="Choose an event"
+						searchPlaceholder="Search events…"
+						className="w-full"
 					/>
+					<p className="text-muted-foreground text-xs">
+						{contactEvents.find((event) => event.id === eventType)?.description}
+					</p>
 				</Field>
 				<Field>
 					<FieldLabel>Lifecycle action</FieldLabel>
@@ -404,9 +423,11 @@ function AutomationForm({
 
 function WebhookForm({
 	data,
+	events,
 	mutate,
 }: {
 	data?: Overview;
+	events: EventCatalog;
 	mutate: (input: {
 		name: string;
 		url: string;
@@ -414,6 +435,9 @@ function WebhookForm({
 		businessUnitId?: string | null;
 	}) => void;
 }) {
+	const [selectedEvents, setSelectedEvents] = useState<string[]>([
+		"lead.submitted",
+	]);
 	return (
 		<form
 			onSubmit={(event) => {
@@ -423,10 +447,7 @@ function WebhookForm({
 				mutate({
 					name: String(form.get("name")),
 					url: String(form.get("url")),
-					eventTypes: String(form.get("eventTypes"))
-						.split(",")
-						.map((eventType) => eventType.trim())
-						.filter(Boolean),
+					eventTypes: selectedEvents,
 					businessUnitId: unit || null,
 				});
 			}}
@@ -452,13 +473,37 @@ function WebhookForm({
 					/>
 				</Field>
 				<Field>
-					<FieldLabel htmlFor="webhook-events">Events</FieldLabel>
-					<Input
-						id="webhook-events"
-						name="eventTypes"
-						defaultValue="lead.submitted,contact.became_mql"
-						required
-					/>
+					<FieldLabel>Events to send</FieldLabel>
+					<div className="grid gap-2 sm:grid-cols-2">
+						{events.map((event) => {
+							const selected = selectedEvents.includes(event.id);
+							return (
+								<Button
+									key={event.id}
+									type="button"
+									variant={selected ? "secondary" : "outline"}
+									className="h-auto justify-start whitespace-normal p-3 text-left"
+									aria-pressed={selected}
+									onClick={() =>
+										setSelectedEvents((current) =>
+											selected
+												? current.filter((id) => id !== event.id)
+												: [...current, event.id],
+										)
+									}
+								>
+									<span>
+										<span className="block font-medium text-xs">
+											{event.label}
+										</span>
+										<span className="block text-muted-foreground text-xs">
+											{event.description}
+										</span>
+									</span>
+								</Button>
+							);
+						})}
+					</div>
 				</Field>
 				<Field>
 					<FieldLabel>Business unit</FieldLabel>
@@ -477,7 +522,9 @@ function WebhookForm({
 						</SelectContent>
 					</Select>
 				</Field>
-				<Button type="submit">Create webhook</Button>
+				<Button type="submit" disabled={selectedEvents.length === 0}>
+					Create webhook
+				</Button>
 			</FieldGroup>
 		</form>
 	);

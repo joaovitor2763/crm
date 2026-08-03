@@ -29,6 +29,7 @@ export const studioParsers = {
 		"merge",
 	] as const).withDefault("details"),
 	analyticsView: parseAsStringLiteral([
+		"timeSeries",
 		"conversionFunnel",
 		"conversionTime",
 		"stagePerformance",
@@ -46,6 +47,15 @@ export const studioParsers = {
 	] as const).withDefault("channel"),
 	analyticsPipeline: parseAsString.withDefault("all"),
 	analyticsAttribute: parseAsString.withDefault(""),
+	analyticsFrom: parseAsString.withDefault(""),
+	analyticsTo: parseAsString.withDefault(""),
+	analyticsGrain: parseAsStringLiteral([
+		"hour",
+		"day",
+		"week",
+		"month",
+		"quarter",
+	] as const).withDefault("month"),
 	dashboard: parseAsString.withDefault(""),
 	ontology: parseAsString.withDefault(""),
 	attributionType: parseAsStringLiteral([
