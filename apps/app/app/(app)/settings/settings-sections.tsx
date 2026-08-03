@@ -35,7 +35,9 @@ export function SettingsSections({
 		{
 			label: "Workspace",
 			sections: sections.filter((section) =>
-				["workspace", "connections", "governance"].includes(section.id),
+				["workspace", "connections", "governance", "admins"].includes(
+					section.id,
+				),
 			),
 		},
 		{

@@ -416,6 +416,9 @@ function AddUserDialog({
 	const defaultRoleId =
 		data.roles.find((role) => role.key === "read-only")?.id ??
 		data.roles[0]?.id;
+	const [roleId, setRoleId] = useState(defaultRoleId ?? "");
+	const isGlobalAdminRole =
+		data.roles.find((role) => role.id === roleId)?.isAdmin ?? false;
 
 	return (
 		<Dialog open={open} onOpenChange={(next) => !pending && onOpenChange(next)}>
@@ -432,13 +435,20 @@ function AddUserDialog({
 					onSubmit={(event) => {
 						event.preventDefault();
 						const form = new FormData(event.currentTarget);
+						const password = String(form.get("password") ?? "");
+						if (password !== String(form.get("confirmation") ?? "")) {
+							toast.error("The passwords do not match.");
+							return;
+						}
 						mutate({
 							name: String(form.get("name") ?? ""),
 							email: String(form.get("email") ?? ""),
-							password: String(form.get("password") ?? ""),
-							roleId: String(form.get("roleId") ?? ""),
-							primaryBusinessUnitId: unitId === NONE ? null : unitId,
-							primaryTeamId: teamId === NONE ? null : teamId,
+							password,
+							roleId,
+							primaryBusinessUnitId:
+								isGlobalAdminRole || unitId === NONE ? null : unitId,
+							primaryTeamId:
+								isGlobalAdminRole || teamId === NONE ? null : teamId,
 						});
 					}}
 				>
@@ -480,8 +490,33 @@ function AddUserDialog({
 							/>
 						</Field>
 						<Field>
+							<FieldLabel htmlFor="new-user-password-confirmation">
+								Confirm initial password
+							</FieldLabel>
+							<Input
+								id="new-user-password-confirmation"
+								name="confirmation"
+								autoComplete="new-password"
+								disabled={pending}
+								minLength={12}
+								maxLength={128}
+								type="password"
+								required
+							/>
+						</Field>
+						<Field>
 							<FieldLabel>Role</FieldLabel>
-							<Select name="roleId" defaultValue={defaultRoleId} required>
+							<Select
+								value={roleId}
+								onValueChange={(value) => {
+									setRoleId(value);
+									if (data.roles.find((role) => role.id === value)?.isAdmin) {
+										setUnitId(NONE);
+										setTeamId(NONE);
+									}
+								}}
+								required
+							>
 								<SelectTrigger>
 									<SelectValue placeholder="Choose role" />
 								</SelectTrigger>
@@ -496,48 +531,52 @@ function AddUserDialog({
 								</SelectContent>
 							</Select>
 						</Field>
-						<Field>
-							<FieldLabel>Business unit</FieldLabel>
-							<Select
-								value={unitId}
-								onValueChange={(value) => {
-									setUnitId(value);
-									setTeamId(NONE);
-								}}
-							>
-								<SelectTrigger>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectGroup>
-										<SelectItem value={NONE}>No unit</SelectItem>
-										{data.businessUnits.map((unit) => (
-											<SelectItem key={unit.id} value={unit.id}>
-												{unit.name}
-											</SelectItem>
-										))}
-									</SelectGroup>
-								</SelectContent>
-							</Select>
-						</Field>
-						<Field>
-							<FieldLabel>Team</FieldLabel>
-							<Select value={teamId} onValueChange={setTeamId}>
-								<SelectTrigger>
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectGroup>
-										<SelectItem value={NONE}>No team</SelectItem>
-										{teams.map((team) => (
-											<SelectItem key={team.id} value={team.id}>
-												{team.name}
-											</SelectItem>
-										))}
-									</SelectGroup>
-								</SelectContent>
-							</Select>
-						</Field>
+						{isGlobalAdminRole ? null : (
+							<>
+								<Field>
+									<FieldLabel>Business unit</FieldLabel>
+									<Select
+										value={unitId}
+										onValueChange={(value) => {
+											setUnitId(value);
+											setTeamId(NONE);
+										}}
+									>
+										<SelectTrigger>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectGroup>
+												<SelectItem value={NONE}>No unit</SelectItem>
+												{data.businessUnits.map((unit) => (
+													<SelectItem key={unit.id} value={unit.id}>
+														{unit.name}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										</SelectContent>
+									</Select>
+								</Field>
+								<Field>
+									<FieldLabel>Team</FieldLabel>
+									<Select value={teamId} onValueChange={setTeamId}>
+										<SelectTrigger>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectGroup>
+												<SelectItem value={NONE}>No team</SelectItem>
+												{teams.map((team) => (
+													<SelectItem key={team.id} value={team.id}>
+														{team.name}
+													</SelectItem>
+												))}
+											</SelectGroup>
+										</SelectContent>
+									</Select>
+								</Field>
+							</>
+						)}
 					</FieldGroup>
 					<DialogFooter>
 						<DialogClose asChild>
@@ -545,7 +584,7 @@ function AddUserDialog({
 								Cancel
 							</Button>
 						</DialogClose>
-						<Button type="submit" disabled={pending || !defaultRoleId}>
+						<Button type="submit" disabled={pending || !roleId}>
 							{pending ? <Spinner data-icon="inline-start" /> : null}
 							Create user
 						</Button>

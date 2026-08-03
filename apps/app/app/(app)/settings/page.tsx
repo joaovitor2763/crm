@@ -15,7 +15,7 @@ import { AiSettings } from "./ai-settings";
 import { ArchivedRecordsSettings } from "./archived-records-settings";
 import { ExternalAccessSettings } from "./automations-settings";
 import { GoogleConnection } from "./google-connection";
-import { GovernanceSettings } from "./governance-settings";
+import { GovernanceSettings, UserManagement } from "./governance-settings";
 import { MarketingSettings } from "./marketing-settings";
 import { SettingsSections } from "./settings-sections";
 import { WorkspaceSettings } from "./workspace-settings";
@@ -76,6 +76,7 @@ export default async function SettingsPage() {
 	}
 	if (capabilities.isAdmin) {
 		prefetches.push(
+			queryClient.prefetchQuery(trpc.governance.capabilities.queryOptions()),
 			queryClient.prefetchQuery(
 				trpc.governance.workspaceConfiguration.queryOptions(),
 			),
@@ -163,6 +164,13 @@ export default async function SettingsPage() {
 								: []),
 							...(capabilities.isAdmin
 								? [
+										{
+											id: "admins",
+											label: "Admins",
+											description:
+												"Add users and manage their passwords, roles and access.",
+											content: <UserManagement />,
+										},
 										{
 											id: "ai",
 											label: "AI & tasks",
