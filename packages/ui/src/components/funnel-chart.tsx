@@ -111,6 +111,12 @@ export interface FunnelChartProps {
 	labelLayout?: "spread" | "grouped";
 	labelOrientation?: "vertical" | "horizontal";
 	labelAlign?: "center" | "start" | "end";
+	/**
+	 * Overrides the percentage shown per stage. The default is cumulative
+	 * (stage ÷ first stage); pass per-step rates here to show conversion from
+	 * the previous stage instead.
+	 */
+	percentages?: number[];
 	grid?:
 		| boolean
 		| {
@@ -679,6 +685,7 @@ export function FunnelChart({
 	labelOrientation,
 	labelAlign = "center",
 	grid: gridProp = false,
+	percentages,
 }: FunnelChartProps) {
 	const ref = useRef<HTMLDivElement>(null);
 	const [sz, setSz] = useState({ w: 0, h: 0 });
@@ -887,7 +894,7 @@ export function FunnelChart({
 
 					{/* Label overlays — hover triggers */}
 					{data.map((stage, i) => {
-						const pct = (stage.value / max) * 100;
+						const pct = percentages?.[i] ?? (stage.value / max) * 100;
 						const posStyle: CSSProperties = horiz
 							? { left: (segW + gap) * i, width: segW, top: 0, height: H }
 							: { top: (segH + gap) * i, height: segH, left: 0, width: W };

@@ -52,6 +52,7 @@ import {
 import { Spinner } from "@crm/ui/components/spinner";
 import { StatusIndicator } from "@crm/ui/components/status-indicator";
 import { Switch } from "@crm/ui/components/switch";
+import { ToggleGroup, ToggleGroupItem } from "@crm/ui/components/toggle-group";
 import { formatMoneyCompact, formatPercent } from "@crm/ui/lib/format";
 import { cn } from "@crm/ui/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -822,6 +823,8 @@ type WidgetOptions = {
 	stacked?: boolean;
 	/** Which field of the view's rows to plot; the dataset's default otherwise. */
 	valueField?: "deals" | "won" | "valueCents" | "conversionRate";
+	/** Funnel bubbles: share of the first stage, or rate vs. the previous one. */
+	funnelRates?: "cumulative" | "step";
 };
 
 /** What a breakdown row can put on the Y axis, and how to read it back. */
@@ -917,16 +920,29 @@ function WidgetChart({
 		);
 	}
 
+	const funnelData = [...slices]
+		.sort((left, right) => right.value - left.value)
+		.map((slice) => ({
+			label: slice.label,
+			value: slice.value,
+			color: slice.color,
+		}));
+	// Step rates read each stage against the one before it; the component's own
+	// default is cumulative (share of the first stage).
+	const funnelPercentages =
+		options.funnelRates === "step"
+			? funnelData.map((stage, index) => {
+					const previous = funnelData[index - 1];
+					if (!previous) return 100;
+					return previous.value > 0 ? (stage.value / previous.value) * 100 : 0;
+				})
+			: undefined;
+
 	const plot =
 		visualization === "funnel" ? (
 			<FunnelChart
-				data={[...slices]
-					.sort((left, right) => right.value - left.value)
-					.map((slice) => ({
-						label: slice.label,
-						value: slice.value,
-						color: slice.color,
-					}))}
+				data={funnelData}
+				percentages={funnelPercentages}
 				showLabels={false}
 				showValues={false}
 				labelLayout="grouped"
@@ -1413,6 +1429,9 @@ function WidgetComposerDialog({
 	const [valueField, setValueField] = useState<
 		NonNullable<WidgetOptions["valueField"]>
 	>(baseOptions.valueField ?? "deals");
+	const [funnelRates, setFunnelRates] = useState<
+		NonNullable<WidgetOptions["funnelRates"]>
+	>(baseOptions.funnelRates ?? "cumulative");
 	const [pipelineId, setPipelineId] = useState(
 		baseSpec.filters.find((filter) => filter.key === "pipelineId")?.value ??
 			"all",
@@ -1508,6 +1527,7 @@ function WidgetComposerDialog({
 			...baseSpec.options,
 			legend,
 			valueField: metric === "breakdown" ? valueField : undefined,
+			funnelRates,
 		},
 	};
 
@@ -1713,6 +1733,28 @@ function WidgetComposerDialog({
 								className="w-full"
 							/>
 						</Field>
+						{visualization === "funnel" ? (
+							<Field>
+								<FieldLabel>Stage rates</FieldLabel>
+								<ToggleGroup
+									type="single"
+									variant="outline"
+									size="sm"
+									spacing={0}
+									value={funnelRates}
+									onValueChange={(next) => {
+										if (next === "cumulative" || next === "step")
+											setFunnelRates(next);
+									}}
+									aria-label="How funnel percentages read"
+								>
+									<ToggleGroupItem value="cumulative">
+										Cumulative
+									</ToggleGroupItem>
+									<ToggleGroupItem value="step">Per step</ToggleGroupItem>
+								</ToggleGroup>
+							</Field>
+						) : null}
 						<label
 							htmlFor="composer-legend"
 							className="flex items-center justify-between gap-3 border p-3 text-sm"
@@ -1785,6 +1827,7 @@ function WidgetComposerDialog({
 									options={{
 										legend,
 										valueField: metric === "breakdown" ? valueField : undefined,
+										funnelRates,
 									}}
 									height={440}
 								/>
