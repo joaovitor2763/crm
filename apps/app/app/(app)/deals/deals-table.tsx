@@ -182,10 +182,10 @@ export function DealsTable() {
 			facetCounts={facetCounts}
 			facets={facets}
 			leadingActions={
-				<div className="grid grid-cols-2 gap-2">
+				<div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:w-auto sm:min-w-72">
 					<label
 						htmlFor="deal-close-from"
-						className="grid gap-1 text-muted-foreground text-xs"
+						className="grid min-w-0 gap-1 text-muted-foreground text-xs"
 					>
 						Close from
 						<Input
@@ -202,7 +202,7 @@ export function DealsTable() {
 					</label>
 					<label
 						htmlFor="deal-close-to"
-						className="grid gap-1 text-muted-foreground text-xs"
+						className="grid min-w-0 gap-1 text-muted-foreground text-xs"
 					>
 						Close to
 						<Input

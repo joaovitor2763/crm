@@ -47,6 +47,7 @@ import { Switch } from "@crm/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { businessObjectLabel } from "@/lib/business-object-label";
 import { useTRPC } from "@/lib/trpc/client";
 
 const FIELD_TYPES = [
@@ -178,7 +179,7 @@ export function FieldsSettings() {
 						onValueChange={setSelectedId}
 						options={objects.map((object) => ({
 							value: object.id,
-							label: object.pluralName,
+							label: businessObjectLabel(object),
 							description: `${object.kind} · ${object.key}`,
 						}))}
 						placeholder="Select object"
@@ -260,7 +261,7 @@ export function FieldsSettings() {
 									<EmptyDescription>
 										{q
 											? "Try another term."
-											: `Add the first custom field to ${selected.pluralName}.`}
+											: `Add the first custom field to ${businessObjectLabel(selected)}.`}
 									</EmptyDescription>
 								</EmptyHeader>
 							</Empty>
@@ -371,7 +372,10 @@ export function FieldsSettings() {
 						}}
 					>
 						<DialogHeader>
-							<DialogTitle>New field for {selected?.pluralName}</DialogTitle>
+							<DialogTitle>
+								New field for{" "}
+								{selected ? businessObjectLabel(selected) : "object"}
+							</DialogTitle>
 							<DialogDescription>
 								Choose the storage type carefully. The key and type become
 								immutable after creation.

@@ -19,6 +19,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { dealStageColor, dealStageLabel } from "@/components/crm/deal-stage";
 import { AreaTrend, DonutStat } from "@/components/dashboard-charts";
+import { type ChartTimeGrain, formatChartPeriod } from "@/lib/chart-period";
 import type { RouterOutputs } from "@/lib/trpc/types";
 
 type Summary = RouterOutputs["dashboard"]["summary"];
@@ -61,10 +62,12 @@ export function SalesDashboard({
 	summary,
 	timeSeries,
 	window,
+	grain,
 }: {
 	summary: Summary;
 	timeSeries?: Array<Record<string, string | number | null>>;
 	window?: { from: string; to: string };
+	grain?: ChartTimeGrain;
 }) {
 	const {
 		pipeline,
@@ -161,6 +164,11 @@ export function SalesDashboard({
 								variant="gradient"
 								bloom="high"
 								showLegend
+								formatX={
+									customTrend && grain
+										? (value) => formatChartPeriod(value, grain)
+										: undefined
+								}
 								formatValue={(value) =>
 									customTrend
 										? formatCount(Number(value), "deal")

@@ -278,6 +278,8 @@ function AreaTrend({
 					dataKey={xKey}
 					hide={!showXAxis}
 					tick={<EdgeTick formatX={formatX} />}
+					interval="preserveStartEnd"
+					minTickGap={24}
 					{...X_AXIS_PROPS}
 				/>
 				{tooltip(formatX, formatValue)}
@@ -364,6 +366,8 @@ function BarTrend({
 					dataKey={xKey}
 					hide={!showXAxis}
 					tick={<EdgeTick formatX={formatX} />}
+					interval="preserveStartEnd"
+					minTickGap={24}
 					{...X_AXIS_PROPS}
 				/>
 				{tooltip(formatX, formatValue)}

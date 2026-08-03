@@ -1,3 +1,4 @@
+import { businessObjectLabel } from "@/lib/business-object-label";
 import type { RouterOutputs } from "@/lib/trpc/types";
 import { companiesSearchParams } from "../companies/companies-search-params";
 
@@ -27,8 +28,8 @@ export function relationRows(schema: StudioSchema): StudioRelation[] {
 	return schema.flatMap((object) =>
 		object.sourceRelations.map((relation) => ({
 			id: relation.id,
-			source: object.pluralName,
-			target: relation.targetObject.pluralName,
+			source: businessObjectLabel(object),
+			target: businessObjectLabel(relation.targetObject),
 			name: relation.name,
 			inverseName: relation.inverseName,
 			key: relation.key,

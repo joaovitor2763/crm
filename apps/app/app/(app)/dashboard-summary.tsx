@@ -203,6 +203,7 @@ export function DashboardSummary() {
 			</div>
 			<SalesDashboard
 				summary={summary}
+				grain={grain}
 				timeSeries={
 					analyticsQuery.data?.views.find((view) => view.key === "timeSeries")
 						?.rows

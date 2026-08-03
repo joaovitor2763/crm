@@ -24,7 +24,7 @@ import {
 	EmptyHeader,
 	EmptyTitle,
 } from "@crm/ui/components/empty";
-import { Field, FieldLabel } from "@crm/ui/components/field";
+import { Field, FieldDescription, FieldLabel } from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
 import {
@@ -44,6 +44,7 @@ import { StatusIndicator } from "@crm/ui/components/status-indicator";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { businessObjectLabel } from "@/lib/business-object-label";
 import { useTRPC } from "@/lib/trpc/client";
 import type { RouterOutputs } from "@/lib/trpc/types";
 import { relationRows } from "./studio-data";
@@ -94,8 +95,8 @@ export function StudioRelations({
 	);
 	const options = schema.map((object) => ({
 		value: object.id,
-		label: object.pluralName,
-		description: object.key,
+		label: businessObjectLabel(object),
+		keywords: [object.key],
 	}));
 
 	return (
@@ -207,68 +208,102 @@ export function StudioRelations({
 								the other.
 							</DialogDescription>
 						</DialogHeader>
-						<div className="my-4 grid gap-3 sm:grid-cols-2">
+						<div className="my-4 grid min-w-0 gap-3 sm:grid-cols-2">
 							<Field>
-								<FieldLabel>Source object</FieldLabel>
+								<FieldLabel htmlFor="relation-source">From object</FieldLabel>
 								<SearchCombobox
+									id="relation-source"
 									value={sourceId}
 									onValueChange={setSourceId}
 									options={options}
-									placeholder="Choose source"
+									placeholder="Choose an object"
 									searchPlaceholder="Search objects…"
+									ariaLabel="From object"
 									className="w-full"
 								/>
+								<FieldDescription>
+									The record where this relationship starts.
+								</FieldDescription>
 							</Field>
 							<Field>
-								<FieldLabel>Target object</FieldLabel>
+								<FieldLabel htmlFor="relation-target">To object</FieldLabel>
 								<SearchCombobox
+									id="relation-target"
 									value={targetId}
 									onValueChange={setTargetId}
 									options={options}
-									placeholder="Choose target"
+									placeholder="Choose an object"
 									searchPlaceholder="Search objects…"
+									ariaLabel="To object"
 									className="w-full"
 								/>
+								<FieldDescription>
+									The record this relationship points to.
+								</FieldDescription>
 							</Field>
 							<Field>
-								<FieldLabel htmlFor="relation-name">Forward name</FieldLabel>
+								<FieldLabel htmlFor="relation-name">From label</FieldLabel>
 								<Input
 									id="relation-name"
 									name="name"
 									placeholder="Has contacts"
+									autoComplete="off"
 									required
 								/>
+								<FieldDescription>
+									How the from object describes this link.
+								</FieldDescription>
 							</Field>
 							<Field>
-								<FieldLabel htmlFor="relation-inverse">Inverse name</FieldLabel>
+								<FieldLabel htmlFor="relation-inverse">To label</FieldLabel>
 								<Input
 									id="relation-inverse"
 									name="inverseName"
 									placeholder="Belongs to company"
+									autoComplete="off"
 									required
 								/>
+								<FieldDescription>
+									How the to object describes the reverse link.
+								</FieldDescription>
 							</Field>
 							<Field>
-								<FieldLabel htmlFor="relation-key">Key</FieldLabel>
+								<FieldLabel htmlFor="relation-key">Relation key</FieldLabel>
 								<Input
 									id="relation-key"
 									name="key"
 									placeholder="contacts"
+									autoComplete="off"
+									spellCheck={false}
 									required
 								/>
+								<FieldDescription>
+									A stable identifier used by APIs and automations.
+								</FieldDescription>
 							</Field>
 							<Field>
-								<FieldLabel>Cardinality</FieldLabel>
+								<FieldLabel htmlFor="relation-cardinality">
+									Relationship type
+								</FieldLabel>
 								<Select name="cardinality" defaultValue="MANY_TO_MANY">
-									<SelectTrigger>
+									<SelectTrigger id="relation-cardinality">
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value="ONE_TO_ONE">One to one</SelectItem>
-										<SelectItem value="ONE_TO_MANY">One to many</SelectItem>
-										<SelectItem value="MANY_TO_MANY">Many to many</SelectItem>
+										<SelectItem value="ONE_TO_ONE">
+											One record to one record
+										</SelectItem>
+										<SelectItem value="ONE_TO_MANY">
+											One record to many records
+										</SelectItem>
+										<SelectItem value="MANY_TO_MANY">
+											Many records to many records
+										</SelectItem>
 									</SelectContent>
 								</Select>
+								<FieldDescription>
+									How many records each side can connect.
+								</FieldDescription>
 							</Field>
 						</div>
 						<DialogFooter>

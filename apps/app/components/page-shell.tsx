@@ -7,7 +7,7 @@ function PageShell({ className, ...props }: React.ComponentProps<"div">) {
 		<PageTransition>
 			<main
 				data-slot="page-shell-scroll"
-				className="flex min-w-0 flex-1 flex-col overflow-y-auto bg-muted/20 px-4 pt-4 pb-24 md:px-6 md:pt-6 md:pb-6"
+				className="flex min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto bg-muted/20 px-4 pt-4 pb-24 md:px-6 md:pt-6 md:pb-6"
 			>
 				<div
 					data-slot="page-shell"

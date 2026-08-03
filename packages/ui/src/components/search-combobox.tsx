@@ -22,6 +22,8 @@ export type SearchComboboxOption = {
 	value: string;
 	label: string;
 	description?: string;
+	/** Searchable aliases that do not need to clutter the visible option. */
+	keywords?: string[];
 };
 
 export function SearchCombobox({
@@ -34,6 +36,7 @@ export function SearchCombobox({
 	disabled,
 	className,
 	ariaLabel,
+	id,
 }: {
 	value: string;
 	onValueChange: (value: string) => void;
@@ -44,6 +47,7 @@ export function SearchCombobox({
 	disabled?: boolean;
 	className?: string;
 	ariaLabel?: string;
+	id?: string;
 }) {
 	const [open, setOpen] = useState(false);
 	const selected = options.find((option) => option.value === value);
@@ -52,6 +56,7 @@ export function SearchCombobox({
 		<Popover open={open} onOpenChange={setOpen}>
 			<PopoverTrigger asChild>
 				<Button
+					id={id}
 					type="button"
 					variant="outline"
 					size="sm"
@@ -68,17 +73,17 @@ export function SearchCombobox({
 			<PopoverContent
 				align="start"
 				size="fit"
-				className="w-[var(--radix-popover-trigger-width)] min-w-56"
+				className="w-[var(--radix-popover-trigger-width)] min-w-56 max-w-[calc(100vw-2rem)]"
 			>
 				<Command>
 					<CommandInput placeholder={searchPlaceholder} />
-					<CommandList>
+					<CommandList className="max-h-[min(18rem,var(--radix-popover-content-available-height))] overscroll-contain">
 						<CommandEmpty>{emptyMessage}</CommandEmpty>
 						<CommandGroup>
 							{options.map((option) => (
 								<CommandItem
 									key={option.value}
-									value={`${option.value} ${option.label} ${option.description ?? ""}`}
+									value={`${option.value} ${option.label} ${option.description ?? ""} ${option.keywords?.join(" ") ?? ""}`}
 									data-checked={option.value === value}
 									onSelect={() => {
 										onValueChange(option.value);
