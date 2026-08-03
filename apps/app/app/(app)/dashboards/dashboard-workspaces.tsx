@@ -1064,7 +1064,6 @@ function WorkspaceWidget({
 		height: number;
 	} | null>(null);
 	const resizeStart = useRef<{
-		axis: "x" | "y";
 		x: number;
 		y: number;
 		width: number;
@@ -1072,42 +1071,34 @@ function WorkspaceWidget({
 		colPx: number;
 	} | null>(null);
 
-	const beginResize =
-		(axis: "x" | "y") => (event: ReactPointerEvent<HTMLElement>) => {
-			const card = cardRef.current;
-			if (!card) return;
-			// The card is draggable for reordering; a resize must not also start a
-			// drag, and the pointer stays ours even when it leaves the handle.
-			event.preventDefault();
-			event.stopPropagation();
-			event.currentTarget.setPointerCapture(event.pointerId);
-			resizeStart.current = {
-				axis,
-				x: event.clientX,
-				y: event.clientY,
-				width: widget.width,
-				height: widget.height,
-				colPx: card.offsetWidth / widget.width,
-			};
-			// Locks the size preview on immediately so the card stops being
-			// draggable before the browser can promote this gesture to a drag.
-			setPreview({ width: widget.width, height: widget.height });
+	const beginResize = (event: ReactPointerEvent<HTMLElement>) => {
+		const card = cardRef.current;
+		if (!card) return;
+		// The card is draggable for reordering; a resize must not also start a
+		// drag, and the pointer stays ours even when it leaves the handle.
+		event.preventDefault();
+		event.stopPropagation();
+		event.currentTarget.setPointerCapture(event.pointerId);
+		resizeStart.current = {
+			x: event.clientX,
+			y: event.clientY,
+			width: widget.width,
+			height: widget.height,
+			colPx: card.offsetWidth / widget.width,
 		};
+		// Locks the size preview on immediately so the card stops being
+		// draggable before the browser can promote this gesture to a drag.
+		setPreview({ width: widget.width, height: widget.height });
+	};
 	const moveResize = (event: ReactPointerEvent<HTMLElement>) => {
 		const start = resizeStart.current;
 		if (!start) return;
-		if (start.axis === "x") {
-			const cols = start.width + (event.clientX - start.x) / start.colPx;
-			setPreview({ width: snapSpan(cols), height: start.height });
-		} else {
-			const rows = Math.round(
-				start.height + (event.clientY - start.y) / ROW_PX,
-			);
-			setPreview({
-				width: start.width,
-				height: Math.min(Math.max(rows, HEIGHT_ROWS.min), HEIGHT_ROWS.max),
-			});
-		}
+		const cols = start.width + (event.clientX - start.x) / start.colPx;
+		const rows = Math.round(start.height + (event.clientY - start.y) / ROW_PX);
+		setPreview({
+			width: snapSpan(cols),
+			height: Math.min(Math.max(rows, HEIGHT_ROWS.min), HEIGHT_ROWS.max),
+		});
 	};
 	const endResize = () => {
 		const start = resizeStart.current;
@@ -1224,9 +1215,9 @@ function WorkspaceWidget({
 				<>
 					<button
 						type="button"
-						aria-label={`Resize ${widget.title} width`}
+						aria-label={`Resize ${widget.title}`}
 						draggable={false}
-						onPointerDown={beginResize("x")}
+						onPointerDown={beginResize}
 						onPointerMove={moveResize}
 						onPointerUp={endResize}
 						onPointerCancel={endResize}
@@ -1234,25 +1225,12 @@ function WorkspaceWidget({
 							event.preventDefault();
 							event.stopPropagation();
 						}}
-						className="-right-1.5 absolute inset-y-0 z-10 hidden w-3 cursor-col-resize items-center justify-center opacity-40 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
+						className="absolute right-0 bottom-0 z-10 hidden size-6 cursor-nwse-resize items-end justify-end p-1 opacity-50 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
 					>
-						<span className="h-8 w-1 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
-					</button>
-					<button
-						type="button"
-						aria-label={`Resize ${widget.title} height`}
-						draggable={false}
-						onPointerDown={beginResize("y")}
-						onPointerMove={moveResize}
-						onPointerUp={endResize}
-						onPointerCancel={endResize}
-						onDragStart={(event) => {
-							event.preventDefault();
-							event.stopPropagation();
-						}}
-						className="-bottom-1.5 absolute inset-x-0 z-10 hidden h-3 cursor-row-resize items-center justify-center opacity-40 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
-					>
-						<span className="h-1 w-8 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
+						<span
+							aria-hidden
+							className="size-2.5 rounded-br-sm border-muted-foreground/70 border-r-2 border-b-2"
+						/>
 					</button>
 				</>
 			) : null}
