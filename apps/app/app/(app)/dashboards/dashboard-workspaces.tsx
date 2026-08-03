@@ -63,6 +63,7 @@ import {
 } from "nuqs";
 import {
 	type DragEvent,
+	type ReactNode,
 	type PointerEvent as ReactPointerEvent,
 	useDeferredValue,
 	useRef,
@@ -1276,15 +1277,89 @@ const BREAKDOWN_DIMENSIONS: Array<{
 	{ value: "utmContent", label: "UTM content" },
 	{ value: "dealAttribute", label: "Deal attribute" },
 ];
+/** What is being dragged from the field palette, if anything. */
+type PaletteDrag =
+	| { kind: "metric"; value: DashboardSpec["metric"] }
+	| { kind: "dimension"; value: DashboardSpec["groupBy"][number] };
+
+function PaletteChip({
+	label,
+	onDragStart,
+	onDragEnd,
+}: {
+	label: string;
+	onDragStart: () => void;
+	onDragEnd: () => void;
+}) {
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: drag source only; keyboard users get the same fields via the comboboxes in the wells
+		<span
+			draggable
+			onDragStart={(event) => {
+				event.dataTransfer.effectAllowed = "copy";
+				event.dataTransfer.setData("text/plain", label);
+				onDragStart();
+			}}
+			onDragEnd={onDragEnd}
+			className="cursor-grab select-none border bg-background px-2 py-1 text-xs hover:bg-muted/50 active:cursor-grabbing"
+		>
+			{label}
+		</span>
+	);
+}
 
 /**
- * The one editor a widget ever gets, whether it exists yet or not.
- *
- * Adding and editing used to be different dialogs — a rich builder with a live
- * preview for new widgets, a blind form for existing ones — which meant the
- * moment a chart needed adjusting, the preview vanished. This is the HubSpot
- * shape instead: every control on the left, the actual chart re-rendering on
- * the right, same component both ways in.
+ * A slot a palette chip can land on. Quiet until a compatible chip is in the
+ * air, then dashed and inviting, the way HubSpot's "Arraste campos" wells work.
+ */
+function DropZone({
+	active,
+	over,
+	onDrop,
+	onDragEnter,
+	onDragLeave,
+	children,
+}: {
+	active: boolean;
+	over: boolean;
+	onDrop: () => void;
+	onDragEnter: () => void;
+	onDragLeave: () => void;
+	children: ReactNode;
+}) {
+	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: drop target only; dropping is a pointer shortcut for the picker rendered inside it
+		<div
+			onDragOver={(event) => {
+				if (active) event.preventDefault();
+			}}
+			onDragEnter={() => {
+				if (active) onDragEnter();
+			}}
+			onDragLeave={onDragLeave}
+			onDrop={(event) => {
+				if (!active) return;
+				event.preventDefault();
+				onDrop();
+			}}
+			className={cn(
+				"flex flex-col gap-1.5 p-2 transition-colors",
+				active
+					? "border border-muted-foreground/50 border-dashed bg-muted/30"
+					: "border border-transparent",
+				over && "border-ring bg-muted/60",
+			)}
+		>
+			{children}
+		</div>
+	);
+}
+
+/**
+ * The one editor a widget ever gets, whether it exists yet or not — now the
+ * full HubSpot shape: a full-screen surface, configuration rail on the left,
+ * the live chart taking the rest, and a field palette whose chips drag onto
+ * the Measure and Break down wells.
  */
 function WidgetComposerDialog({
 	templates,
@@ -1347,6 +1422,13 @@ function WidgetComposerDialog({
 		to: baseSpec.timeRange.to?.slice(0, 10) ?? "",
 	});
 	const [grain, setGrain] = useState<string>(baseSpec.timeRange.grain);
+
+	// Palette drag state: dataTransfer is unreadable during dragover, so the
+	// chip announces itself here and the wells key their highlight off it.
+	const [dragging, setDragging] = useState<PaletteDrag | null>(null);
+	const [overZone, setOverZone] = useState<"measure" | "breakdown" | null>(
+		null,
+	);
 
 	const metricLabel =
 		METRICS.find((option) => option.value === metric)?.label ?? "New widget";
@@ -1440,44 +1522,25 @@ function WidgetComposerDialog({
 	});
 	const previewView = preview.data?.view as AnalyticsView | undefined;
 
+	const endDrag = () => {
+		setDragging(null);
+		setOverZone(null);
+	};
+
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-4xl">
+			<DialogContent className="flex h-[94dvh] flex-col sm:top-[3dvh] sm:max-w-[min(96vw,1600px)] sm:translate-y-0">
 				<DialogHeader>
 					<DialogTitle>
 						{initial ? "Edit widget" : "Build a widget"}
 					</DialogTitle>
 					<DialogDescription>
-						Pick what to measure and how to draw it — the preview updates as you
-						go.
+						Drag a field onto Measure or Break down, or pick from the lists —
+						the chart updates as you go.
 					</DialogDescription>
 				</DialogHeader>
-				<div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-					<div className="flex min-h-72 flex-col border p-4">
-						{needsAttributeKey ? (
-							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
-								Enter the deal attribute key to preview this cut.
-							</div>
-						) : preview.isLoading ? (
-							<div className="flex flex-1 items-center justify-center">
-								<Spinner />
-							</div>
-						) : previewView ? (
-							<div className="flex flex-1 flex-col justify-center">
-								<WidgetChart
-									view={previewView}
-									visualization={visualization}
-									options={{ legend }}
-									height={260}
-								/>
-							</div>
-						) : (
-							<div className="flex flex-1 items-center justify-center text-destructive text-xs">
-								{preview.error?.message ?? "Preview is unavailable."}
-							</div>
-						)}
-					</div>
-					<div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
+				<div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[340px_minmax(0,1fr)]">
+					<div className="flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
 						{templates?.length ? (
 							<Field>
 								<FieldLabel>Start from</FieldLabel>
@@ -1514,7 +1577,27 @@ function WidgetComposerDialog({
 								onChange={(event) => setDescription(event.target.value)}
 							/>
 						</Field>
-						<Field>
+
+						<p className="mt-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+							Chart data
+						</p>
+						<DropZone
+							active={dragging !== null}
+							over={overZone === "measure"}
+							onDragEnter={() => setOverZone("measure")}
+							onDragLeave={() =>
+								setOverZone((zone) => (zone === "measure" ? null : zone))
+							}
+							onDrop={() => {
+								if (!dragging) return;
+								if (dragging.kind === "metric") setMetric(dragging.value);
+								else {
+									setMetric("breakdown");
+									setDimension(dragging.value);
+								}
+								endDrag();
+							}}
+						>
 							<FieldLabel>Measure</FieldLabel>
 							<SearchCombobox
 								value={metric}
@@ -1525,38 +1608,55 @@ function WidgetComposerDialog({
 								searchPlaceholder="Search measures…"
 								className="w-full"
 							/>
-						</Field>
+						</DropZone>
+						<DropZone
+							active={dragging?.kind === "dimension"}
+							over={overZone === "breakdown"}
+							onDragEnter={() => setOverZone("breakdown")}
+							onDragLeave={() =>
+								setOverZone((zone) => (zone === "breakdown" ? null : zone))
+							}
+							onDrop={() => {
+								if (dragging?.kind !== "dimension") return;
+								setMetric("breakdown");
+								setDimension(dragging.value);
+								endDrag();
+							}}
+						>
+							<FieldLabel>Break down by</FieldLabel>
+							{metric === "breakdown" ? (
+								<SearchCombobox
+									value={dimension}
+									onValueChange={(value) =>
+										setDimension(value as DashboardSpec["groupBy"][number])
+									}
+									options={BREAKDOWN_DIMENSIONS.map((option) => ({
+										...option,
+									}))}
+									searchPlaceholder="Search dimensions…"
+									className="w-full"
+								/>
+							) : (
+								<p className="py-1 text-muted-foreground text-xs">
+									Drop a dimension here to cut deals by it.
+								</p>
+							)}
+						</DropZone>
 						{metric === "breakdown" ? (
-							<>
-								<Field>
-									<FieldLabel>Break down by</FieldLabel>
-									<SearchCombobox
-										value={dimension}
-										onValueChange={(value) =>
-											setDimension(value as DashboardSpec["groupBy"][number])
-										}
-										options={BREAKDOWN_DIMENSIONS.map((option) => ({
-											...option,
-										}))}
-										searchPlaceholder="Search dimensions…"
-										className="w-full"
-									/>
-								</Field>
-								<Field>
-									<FieldLabel>Value</FieldLabel>
-									<SearchCombobox
-										value={valueField}
-										onValueChange={(value) =>
-											setValueField(
-												value as NonNullable<WidgetOptions["valueField"]>,
-											)
-										}
-										options={VALUE_FIELDS.map((option) => ({ ...option }))}
-										searchPlaceholder="Search values…"
-										className="w-full"
-									/>
-								</Field>
-							</>
+							<Field>
+								<FieldLabel>Value</FieldLabel>
+								<SearchCombobox
+									value={valueField}
+									onValueChange={(value) =>
+										setValueField(
+											value as NonNullable<WidgetOptions["valueField"]>,
+										)
+									}
+									options={VALUE_FIELDS.map((option) => ({ ...option }))}
+									searchPlaceholder="Search values…"
+									className="w-full"
+								/>
+							</Field>
 						) : null}
 						{metric === "breakdown" && dimension === "dealAttribute" ? (
 							<Field>
@@ -1571,6 +1671,38 @@ function WidgetComposerDialog({
 								/>
 							</Field>
 						) : null}
+
+						<p className="mt-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+							Fields — drag onto a well above
+						</p>
+						<div className="flex flex-wrap gap-1.5">
+							{METRICS.map((option) => (
+								<PaletteChip
+									key={option.value}
+									label={option.label}
+									onDragStart={() =>
+										setDragging({ kind: "metric", value: option.value })
+									}
+									onDragEnd={endDrag}
+								/>
+							))}
+						</div>
+						<div className="flex flex-wrap gap-1.5">
+							{BREAKDOWN_DIMENSIONS.map((option) => (
+								<PaletteChip
+									key={option.value}
+									label={option.label}
+									onDragStart={() =>
+										setDragging({ kind: "dimension", value: option.value })
+									}
+									onDragEnd={endDrag}
+								/>
+							))}
+						</div>
+
+						<p className="mt-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+							Display
+						</p>
 						<Field>
 							<FieldLabel>Chart type</FieldLabel>
 							<SearchCombobox
@@ -1581,6 +1713,26 @@ function WidgetComposerDialog({
 								className="w-full"
 							/>
 						</Field>
+						<label
+							htmlFor="composer-legend"
+							className="flex items-center justify-between gap-3 border p-3 text-sm"
+						>
+							<span>
+								Legend
+								<span className="block text-muted-foreground text-xs">
+									List the categories with their values under the chart
+								</span>
+							</span>
+							<Switch
+								id="composer-legend"
+								checked={legend}
+								onCheckedChange={setLegend}
+							/>
+						</label>
+
+						<p className="mt-1 font-medium text-muted-foreground text-xs uppercase tracking-wide">
+							Filters
+						</p>
 						<Field>
 							<FieldLabel>Pipeline</FieldLabel>
 							<SearchCombobox
@@ -1607,35 +1759,41 @@ function WidgetComposerDialog({
 						</Field>
 						<Field>
 							<FieldLabel>Frequency</FieldLabel>
-							<Select value={grain} onValueChange={setGrain}>
-								<SelectTrigger className="w-full">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									{GRAINS.map((option) => (
-										<SelectItem key={option.value} value={option.value}>
-											{option.label}
-										</SelectItem>
-									))}
-								</SelectContent>
-							</Select>
-						</Field>
-						<label
-							htmlFor="composer-legend"
-							className="flex items-center justify-between gap-3 border p-3 text-sm"
-						>
-							<span>
-								Legend
-								<span className="block text-muted-foreground text-xs">
-									List the categories with their values under the chart
-								</span>
-							</span>
-							<Switch
-								id="composer-legend"
-								checked={legend}
-								onCheckedChange={setLegend}
+							<SearchCombobox
+								value={grain}
+								onValueChange={setGrain}
+								options={GRAINS.map((option) => ({ ...option }))}
+								searchPlaceholder="Search frequencies…"
+								className="w-full"
 							/>
-						</label>
+						</Field>
+					</div>
+					<div className="flex min-h-0 flex-col border p-5">
+						{needsAttributeKey ? (
+							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
+								Enter the deal attribute key to preview this cut.
+							</div>
+						) : preview.isLoading ? (
+							<div className="flex flex-1 items-center justify-center">
+								<Spinner />
+							</div>
+						) : previewView ? (
+							<div className="flex min-h-0 flex-1 flex-col justify-center overflow-y-auto">
+								<WidgetChart
+									view={previewView}
+									visualization={visualization}
+									options={{
+										legend,
+										valueField: metric === "breakdown" ? valueField : undefined,
+									}}
+									height={440}
+								/>
+							</div>
+						) : (
+							<div className="flex flex-1 items-center justify-center text-destructive text-xs">
+								{preview.error?.message ?? "Preview is unavailable."}
+							</div>
+						)}
 					</div>
 				</div>
 				<DialogFooter>
