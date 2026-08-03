@@ -8,6 +8,7 @@ import {
 	PageShellTitle,
 } from "@/components/page-shell";
 import { getCapabilities } from "@/lib/capabilities";
+import { API_URL } from "@/lib/env";
 import { requireSession } from "@/lib/session";
 import { HydrateClient } from "@/lib/trpc/hydrate";
 import { getServerQueryClient, getServerTrpc } from "@/lib/trpc/server";
@@ -187,7 +188,7 @@ export default async function SettingsPage() {
 											label: "External access",
 											description:
 												"API credentials and governed integration access.",
-											content: <ExternalAccessSettings />,
+											content: <ExternalAccessSettings apiBaseUrl={API_URL} />,
 										},
 									]
 								: []),

@@ -1,5 +1,6 @@
 "use client";
 
+import Copy from "@carbon/icons-react/es/Copy";
 import { Alert, AlertDescription, AlertTitle } from "@crm/ui/components/alert";
 import { Button } from "@crm/ui/components/button";
 import {
@@ -16,6 +17,7 @@ import {
 	EmptyTitle,
 } from "@crm/ui/components/empty";
 import { Field, FieldGroup, FieldLabel } from "@crm/ui/components/field";
+import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
 import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import {
@@ -27,6 +29,12 @@ import {
 	SelectValue,
 } from "@crm/ui/components/select";
 import { Switch } from "@crm/ui/components/switch";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@crm/ui/components/tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -37,6 +45,12 @@ type Overview = RouterOutputs["governance"]["directory"];
 type EventCatalog = ReadonlyArray<
 	RouterOutputs["automations"]["eventCatalog"][number]
 >;
+
+const credentialDateTime = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+	timeStyle: "short",
+	timeZone: "UTC",
+});
 
 export function AutomationsSettings({
 	canManageAutomations = true,
@@ -666,7 +680,7 @@ function WebhookForm({
 	);
 }
 
-export function ExternalAccessSettings() {
+export function ExternalAccessSettings({ apiBaseUrl }: { apiBaseUrl: string }) {
 	const trpc = useTRPC();
 	const queryClient = useQueryClient();
 	const governance = useQuery(trpc.governance.directory.queryOptions());
@@ -703,40 +717,233 @@ export function ExternalAccessSettings() {
 			</CardHeader>
 			<CardContent>
 				{newToken ? (
-					<Alert>
+					<Alert className="border-foreground/20">
 						<AlertTitle>Copy this token now</AlertTitle>
-						<AlertDescription>
-							<Input value={newToken} readOnly aria-label="New API token" />
+						<AlertDescription className="space-y-3 pt-1">
+							<p>
+								This is the only time the complete token is shown. Store it in
+								your server-side secret manager; never commit it or expose it in
+								browser code.
+							</p>
+							<div className="flex min-w-0 gap-2">
+								<Input
+									value={newToken}
+									readOnly
+									aria-label="New API token"
+									className="min-w-0 font-mono text-xs"
+								/>
+								<CopyButton value={newToken} label="Copy token" />
+							</div>
 						</AlertDescription>
 					</Alert>
 				) : null}
-				<CredentialForm data={governance.data} mutate={create.mutate} />
-				{credentials.data?.map((credential) => (
-					<div
-						key={credential.id}
-						className="flex items-center justify-between gap-3 border p-3"
-					>
-						<div>
-							<p className="text-sm font-medium">{credential.name}</p>
-							<p className="text-xs text-muted-foreground">
-								{credential.role.name} · {credential.prefix}…
-								{credential.lastFour} · {credential.status}
-							</p>
-						</div>
-						{credential.status === "ACTIVE" ? (
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								onClick={() => revoke.mutate({ id: credential.id })}
-							>
-								Revoke
-							</Button>
-						) : null}
+
+				<IntegrationGuide apiBaseUrl={apiBaseUrl} />
+
+				<section aria-labelledby="issue-credential-title" className="space-y-3">
+					<div>
+						<h3 id="issue-credential-title" className="text-sm font-medium">
+							Issue a credential
+						</h3>
+						<p className="text-muted-foreground text-xs/relaxed">
+							The selected role controls permitted actions. Business-unit and
+							team scopes limit which records the connected system can reach.
+						</p>
 					</div>
-				))}
+					<CredentialForm data={governance.data} mutate={create.mutate} />
+				</section>
+
+				<section
+					aria-labelledby="issued-credentials-title"
+					className="space-y-2"
+				>
+					<h3 id="issued-credentials-title" className="text-sm font-medium">
+						Issued credentials
+					</h3>
+					{credentials.data?.length ? (
+						credentials.data.map((credential) => {
+							const units = credential.businessUnits
+								.map(({ businessUnit }) => businessUnit.name)
+								.join(", ");
+							const teams = credential.teams
+								.map(({ team }) => team.name)
+								.join(", ");
+							return (
+								<div
+									key={credential.id}
+									className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+								>
+									<div className="min-w-0">
+										<p className="text-sm font-medium">{credential.name}</p>
+										<p className="text-muted-foreground text-xs">
+											{credential.role.name} · {credential.prefix}…
+											{credential.lastFour} · {credential.status}
+										</p>
+										<p className="text-muted-foreground text-xs">
+											Scope: {units || "No business units"}
+											{teams ? ` · Teams: ${teams}` : ""} · Last used:{" "}
+											{credential.lastUsedAt
+												? `${credentialDateTime.format(
+														new Date(credential.lastUsedAt),
+													)} UTC`
+												: "Never"}
+										</p>
+									</div>
+									{credential.status === "ACTIVE" ? (
+										<Button
+											type="button"
+											variant="outline"
+											size="sm"
+											disabled={revoke.isPending}
+											onClick={() => revoke.mutate({ id: credential.id })}
+										>
+											Revoke
+										</Button>
+									) : null}
+								</div>
+							);
+						})
+					) : (
+						<p className="rounded-md border border-dashed p-3 text-muted-foreground text-xs">
+							No credentials issued yet.
+						</p>
+					)}
+				</section>
 			</CardContent>
 		</Card>
+	);
+}
+
+function IntegrationGuide({ apiBaseUrl }: { apiBaseUrl: string }) {
+	const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+	const mcpUrl = `${baseUrl}/mcp`;
+	const restUrl = `${baseUrl}/api/v1`;
+	const authorization = "Bearer <YOUR_TOKEN>";
+	const mcpConfig = JSON.stringify(
+		{
+			mcpServers: {
+				crm: {
+					type: "http",
+					url: mcpUrl,
+					headers: { Authorization: authorization },
+				},
+			},
+		},
+		null,
+		2,
+	);
+	const restExample = `curl --request GET \\
+  --url '${restUrl}/contacts?limit=10' \\
+  --header 'Authorization: ${authorization}'`;
+
+	return (
+		<section
+			aria-labelledby="connect-systems-title"
+			className="space-y-4 rounded-lg border bg-muted/20 p-4"
+		>
+			<div>
+				<h3 id="connect-systems-title" className="text-sm font-medium">
+					Connect your systems
+				</h3>
+				<p className="text-muted-foreground text-xs/relaxed">
+					Use Streamable HTTP MCP for agents and the REST API for direct system
+					integrations. Both use the same Bearer token and enforce its assigned
+					role and scope.
+				</p>
+			</div>
+
+			<div className="grid gap-3 lg:grid-cols-2">
+				<ConnectionValue label="MCP endpoint" value={mcpUrl} />
+				<ConnectionValue label="REST base URL" value={restUrl} />
+			</div>
+			<ConnectionValue
+				label="Authorization header"
+				value={`Authorization: ${authorization}`}
+			/>
+
+			<Tabs defaultValue="mcp">
+				<TabsList aria-label="Connection examples">
+					<TabsTrigger value="mcp">MCP client</TabsTrigger>
+					<TabsTrigger value="rest">REST</TabsTrigger>
+				</TabsList>
+				<TabsContent value="mcp" className="space-y-2">
+					<p className="text-muted-foreground">
+						Add this server to any client that supports remote HTTP MCP. Client
+						configuration names can vary; the endpoint and header above are the
+						authoritative values.
+					</p>
+					<CodeSample label="Copy MCP config" value={mcpConfig} />
+				</TabsContent>
+				<TabsContent value="rest" className="space-y-2">
+					<p className="text-muted-foreground">
+						Replace the token placeholder and run this server-side to verify
+						access to contacts within the credential scope.
+					</p>
+					<CodeSample label="Copy REST example" value={restExample} />
+				</TabsContent>
+			</Tabs>
+
+			<ol className="list-decimal space-y-1 pl-4 text-muted-foreground text-xs/relaxed">
+				<li>Create a key and copy its one-time token.</li>
+				<li>Store it as a server-side secret, such as CRM_API_KEY.</li>
+				<li>Replace the placeholder in your MCP client or REST request.</li>
+				<li>
+					Revoke the key here immediately if it is exposed or no longer used.
+				</li>
+			</ol>
+		</section>
+	);
+}
+
+function ConnectionValue({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="space-y-1">
+			<p className="font-medium text-xs">{label}</p>
+			<div className="flex min-w-0 gap-2">
+				<Input
+					value={value}
+					readOnly
+					aria-label={label}
+					className="min-w-0 font-mono text-xs"
+				/>
+				<CopyButton value={value} label={`Copy ${label.toLowerCase()}`} />
+			</div>
+		</div>
+	);
+}
+
+function CodeSample({ label, value }: { label: string; value: string }) {
+	return (
+		<div className="overflow-hidden rounded-md border bg-background">
+			<div className="flex justify-end border-b p-1.5">
+				<CopyButton value={value} label={label} />
+			</div>
+			<pre className="overflow-x-auto p-3 font-mono text-[11px] leading-relaxed">
+				<code>{value}</code>
+			</pre>
+		</div>
+	);
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+	return (
+		<Button
+			type="button"
+			variant="outline"
+			size="sm"
+			aria-label={label}
+			onClick={async () => {
+				try {
+					await navigator.clipboard.writeText(value);
+					toast.success("Copied to clipboard.");
+				} catch {
+					toast.error("Could not copy to clipboard.");
+				}
+			}}
+		>
+			<Icon icon={Copy} />
+			<span className="hidden sm:inline">Copy</span>
+		</Button>
 	);
 }
 
