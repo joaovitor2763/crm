@@ -85,7 +85,12 @@ export const STANDARD_DASHBOARD_TEMPLATES: readonly StandardDashboardTemplate[] 
 			key: "macro-bowtie",
 			name: "Macro bowtie",
 			description: "The company-level revenue motion across all pipelines.",
-			spec: { ...base, metric: "macroBowtie", groupBy: ["pipeline", "stage"] },
+			spec: {
+				...base,
+				metric: "macroBowtie",
+				groupBy: ["pipeline", "stage"],
+				visualization: "funnel",
+			},
 		},
 	];
 

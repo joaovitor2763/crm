@@ -12,9 +12,9 @@ import {
 } from "@crm/ui/components/card";
 import { CardTableEmpty } from "@crm/ui/components/card-table";
 import { Checkbox } from "@crm/ui/components/checkbox";
+import { DateRangePicker } from "@crm/ui/components/date-range-picker";
 import { EmptyCellValue } from "@crm/ui/components/empty-cell";
 import { Field, FieldLabel } from "@crm/ui/components/field";
-import { Input } from "@crm/ui/components/input";
 import {
 	Select,
 	SelectContent,
@@ -155,27 +155,13 @@ export function DashboardSummary() {
 
 	return (
 		<div className="flex flex-col gap-6">
-			<div className="grid gap-3 border-b pb-4 sm:grid-cols-3 lg:max-w-2xl">
+			<div className="grid gap-3 border-b pb-4 sm:grid-cols-2 lg:max-w-2xl">
 				<Field>
-					<FieldLabel htmlFor="overview-from">Trend from</FieldLabel>
-					<Input
-						autoComplete="off"
-						id="overview-from"
-						name="overviewFrom"
-						type="date"
-						value={from}
-						onChange={(event) => void setOverview({ from: event.target.value })}
-					/>
-				</Field>
-				<Field>
-					<FieldLabel htmlFor="overview-to">Trend to</FieldLabel>
-					<Input
-						autoComplete="off"
-						id="overview-to"
-						name="overviewTo"
-						type="date"
-						value={to}
-						onChange={(event) => void setOverview({ to: event.target.value })}
+					<FieldLabel htmlFor="overview-window">Trend window</FieldLabel>
+					<DateRangePicker
+						id="overview-window"
+						value={{ from, to }}
+						onChange={(next) => void setOverview(next)}
 					/>
 				</Field>
 				<Field>

@@ -29,6 +29,7 @@ import {
 	dashboardWidgetCreateInput,
 	dashboardWidgetIdInput,
 	dashboardWidgetLayoutInput,
+	dashboardWidgetPreviewInput,
 	dashboardWidgetUpdateInput,
 	dashboardWorkspaceCreateInput,
 	dashboardWorkspaceIdInput,
@@ -66,6 +67,14 @@ export class DashboardRouter {
 	@Query({ input: dashboardWidgetIdInput })
 	renderWidget(@Ctx() ctx: AuthedTrpcContext, @Input("id") id: string) {
 		return this.workspaces.renderWidget(id, ctx.principal, ctx.user.id);
+	}
+
+	@Query({ input: dashboardWidgetPreviewInput })
+	previewWidget(
+		@Ctx() ctx: AuthedTrpcContext,
+		@Input() input: z.infer<typeof dashboardWidgetPreviewInput>,
+	) {
+		return this.definitions.renderSpec("preview", input.spec, ctx.principal);
 	}
 
 	@Mutation({ input: dashboardWorkspaceCreateInput })

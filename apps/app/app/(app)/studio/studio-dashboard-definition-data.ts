@@ -22,10 +22,15 @@ export const DASHBOARD_DIMENSIONS = [
 	"stage",
 ] as const;
 
+// Kept in step with `dashboardVisualization` in the API's definition contracts.
 export const DASHBOARD_VISUALIZATIONS = [
 	"bar",
 	"line",
+	"area",
 	"doughnut",
+	"pie",
+	"radial",
+	"funnel",
 	"table",
 	"kpi",
 ] as const;

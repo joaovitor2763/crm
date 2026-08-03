@@ -14,8 +14,15 @@ import { DashboardWorkspaces } from "./dashboard-workspaces";
 
 export const metadata: Metadata = { title: "Dashboards" };
 
-export default async function DashboardsPage() {
+export default async function DashboardsPage({
+	searchParams,
+}: {
+	searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
 	await requireSession();
+	// Inside a specific dashboard the canvas has its own header; repeating the
+	// section title above it pushes the actual charts below the fold.
+	const openDashboard = Boolean((await searchParams).dashboard);
 	const trpc = getServerTrpc();
 	const queryClient = getServerQueryClient();
 	const capabilities = await queryClient.fetchQuery(
@@ -47,14 +54,16 @@ export default async function DashboardsPage() {
 
 	return (
 		<PageShell>
-			<PageShellHeader>
-				<PageShellHeading>
-					<PageShellTitle>Dashboards</PageShellTitle>
-					<PageShellDescription>
-						Reusable revenue views for you and the wider team.
-					</PageShellDescription>
-				</PageShellHeading>
-			</PageShellHeader>
+			{openDashboard ? null : (
+				<PageShellHeader>
+					<PageShellHeading>
+						<PageShellTitle>Dashboards</PageShellTitle>
+						<PageShellDescription>
+							Reusable revenue views for you and the wider team.
+						</PageShellDescription>
+					</PageShellHeading>
+				</PageShellHeader>
+			)}
 			<PageShellContent>
 				{canRead ? (
 					<HydrateClient>

@@ -161,8 +161,6 @@ export function SalesDashboard({
 								config={TREND_CONFIG}
 								xKey="month"
 								height={196}
-								variant="gradient"
-								bloom="high"
 								showLegend
 								formatX={
 									customTrend && grain

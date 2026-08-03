@@ -251,21 +251,22 @@
 }
 
 /*
- * Bloom — the chart aesthetic (see dashboard-chart.tsx), ported to plain HTML
- * surfaces (status/severity indicators, meters, progress bars).
+ * Bloom — a soft colored halo via box-shadow for plain HTML surfaces
+ * (status/severity indicators, meters, progress bars); set `--bloom-color` on
+ * the element (it defaults to currentColor).
  *
- * `.bloom-*` adds a soft colored halo via box-shadow; set `--bloom-color` on
- * the element (it defaults to currentColor). Theme-independent, so a meter
- * beside a row matches the plot above it.
+ * Dark mode only: a glow reads as light emitted against a dark surface. On a
+ * white page the same halo reads as a printing smudge, so in light mode these
+ * classes are inert.
  */
 @layer utilities {
-	.bloom-low {
+	.dark .bloom-low {
 		box-shadow: 0 0 4px var(--bloom-color, currentColor);
 	}
-	.bloom-high {
+	.dark .bloom-high {
 		box-shadow: 0 0 7px var(--bloom-color, currentColor);
 	}
-	.bloom-aura {
+	.dark .bloom-aura {
 		box-shadow:
 			0 0 4px var(--bloom-color, currentColor),
 			0 0 10px var(--bloom-color, currentColor);

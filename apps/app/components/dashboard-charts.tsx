@@ -31,3 +31,17 @@ export const BarTrend = dynamic(() => load().then((m) => m.BarTrend), {
 	ssr: false,
 	loading,
 });
+
+export const RadialStat = dynamic(() => load().then((m) => m.RadialStat), {
+	ssr: false,
+	loading,
+});
+
+/**
+ * Not recharts, but the same deal: it measures the DOM (ResizeObserver) and
+ * carries the motion runtime, neither of which belongs in the shell bundle.
+ */
+export const FunnelChart = dynamic(
+	() => import("@crm/ui/components/funnel-chart").then((m) => m.FunnelChart),
+	{ ssr: false, loading },
+);

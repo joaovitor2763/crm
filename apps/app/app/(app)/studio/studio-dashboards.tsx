@@ -9,6 +9,7 @@ import {
 	CardTitle,
 } from "@crm/ui/components/card";
 import { DashboardSection } from "@crm/ui/components/dashboard";
+import { DateRangePicker } from "@crm/ui/components/date-range-picker";
 import { Field, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
 import {
@@ -217,25 +218,14 @@ export function StudioDashboards({
 							</Field>
 						) : null}
 						<Field>
-							<FieldLabel htmlFor="analytics-from">From</FieldLabel>
-							<Input
-								autoComplete="off"
-								id="analytics-from"
-								name="analyticsFrom"
-								type="date"
-								value={from}
-								onChange={(event) => void setFrom(event.target.value)}
-							/>
-						</Field>
-						<Field>
-							<FieldLabel htmlFor="analytics-to">To</FieldLabel>
-							<Input
-								autoComplete="off"
-								id="analytics-to"
-								name="analyticsTo"
-								type="date"
-								value={to}
-								onChange={(event) => void setTo(event.target.value)}
+							<FieldLabel htmlFor="analytics-window">Date window</FieldLabel>
+							<DateRangePicker
+								id="analytics-window"
+								value={{ from, to }}
+								onChange={(next) => {
+									void setFrom(next.from);
+									void setTo(next.to);
+								}}
 							/>
 						</Field>
 						<Field>

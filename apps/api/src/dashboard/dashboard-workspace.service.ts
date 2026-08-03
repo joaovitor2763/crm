@@ -183,8 +183,16 @@ export class DashboardWorkspaceService {
 		});
 		if (!current) throw new NotFoundException("Dashboard widget not found.");
 		await this.editable(current.dashboardId, principal, userId);
-		const { id: _id, ...data } = input;
-		return this.db.dashboardWidget.update({ where: { id: current.id }, data });
+		const { id: _id, spec, ...data } = input;
+		return this.db.dashboardWidget.update({
+			where: { id: current.id },
+			data: {
+				...data,
+				...(spec !== undefined && {
+					spec: dashboardDefinitionSpec.parse(spec) as Prisma.InputJsonValue,
+				}),
+			},
+		});
 	}
 
 	async updateLayout(
@@ -203,7 +211,11 @@ export class DashboardWorkspaceService {
 			input.widgets.map((widget) =>
 				this.db.dashboardWidget.update({
 					where: { id: widget.id },
-					data: { position: widget.position, width: widget.width },
+					data: {
+						position: widget.position,
+						width: widget.width,
+						...(widget.height !== undefined && { height: widget.height }),
+					},
 				}),
 			),
 		);

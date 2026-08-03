@@ -21,7 +21,7 @@ import { automationCreateInput, automationUpdateInput, automationIdInput, webhoo
 import { companyListInput, companyIdInput, companyOptionsInput, companyCreateInput, companyUpdateArgs, setPrimaryContactInput } from "../companies/companies.contracts";
 import { contactListInput, contactIdInput, contactCreateInput, contactLifecycleInput, contactUpdateArgs, factDecisionInput } from "../contacts/contacts.contracts";
 import { conversationListInput, conversationEventsInput, conversationSaveInput, conversationIdInput } from "../conversations/conversations.contracts";
-import { dashboardWorkspaceListInput, dashboardWorkspaceIdInput, dashboardWidgetIdInput, dashboardWorkspaceCreateInput, dashboardWorkspaceUpdateInput, dashboardWidgetCreateInput, dashboardWidgetUpdateInput, dashboardWidgetLayoutInput } from "../dashboard/dashboard-workspace.contracts";
+import { dashboardWorkspaceListInput, dashboardWorkspaceIdInput, dashboardWidgetIdInput, dashboardWidgetPreviewInput, dashboardWorkspaceCreateInput, dashboardWorkspaceUpdateInput, dashboardWidgetCreateInput, dashboardWidgetUpdateInput, dashboardWidgetLayoutInput } from "../dashboard/dashboard-workspace.contracts";
 import { dashboardDefinitionListInput, dashboardDefinitionIdInput, dashboardDefinitionCreateInput, dashboardDefinitionUpdateInput, dashboardDefinitionDuplicateInput, dashboardDefinitionVersionInput } from "../dashboard/dashboard-definition.contracts";
 import { dashboardSummaryInput } from "../dashboard/dashboard.contracts";
 import { dashboardAnalyticsInput } from "../dashboard/analytics.contracts";
@@ -222,6 +222,9 @@ const appRouter = t.router({
     renderWidget: publicProcedure
       .input(dashboardWidgetIdInput)
       .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["renderWidget"]>>),
+    previewWidget: publicProcedure
+      .input(dashboardWidgetPreviewInput)
+      .query(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["previewWidget"]>>),
     createWorkspace: publicProcedure
       .input(dashboardWorkspaceCreateInput)
       .mutation(async () => "PLACEHOLDER_DO_NOT_REMOVE" as unknown as Awaited<ReturnType<DashboardRouter["createWorkspace"]>>),

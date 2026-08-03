@@ -5,8 +5,8 @@ import {
 	type DataTableColumn,
 	type DataTableFacet,
 } from "@crm/ui/components/data-table";
+import { DateRangePicker } from "@crm/ui/components/date-range-picker";
 import { EmptyCellValue } from "@crm/ui/components/empty-cell";
-import { Input } from "@crm/ui/components/input";
 import { formatMoney, relativeTimeFromIso } from "@crm/ui/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import { CLOSING_OPTIONS } from "@/components/crm/closing-window";
@@ -182,42 +182,24 @@ export function DealsTable() {
 			facetCounts={facetCounts}
 			facets={facets}
 			leadingActions={
-				<div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:w-auto sm:min-w-72">
-					<label
-						htmlFor="deal-close-from"
-						className="grid min-w-0 gap-1 text-muted-foreground text-xs"
-					>
-						Close from
-						<Input
-							autoComplete="off"
-							id="deal-close-from"
-							name="dealCloseFrom"
-							type="date"
-							value={input.closeFrom === "all" ? "" : input.closeFrom}
-							onChange={(event) =>
-								query.setFilter("closeFrom", event.target.value || "all")
-							}
-							className="h-8 min-w-0 text-foreground"
-						/>
-					</label>
-					<label
-						htmlFor="deal-close-to"
-						className="grid min-w-0 gap-1 text-muted-foreground text-xs"
-					>
-						Close to
-						<Input
-							autoComplete="off"
-							id="deal-close-to"
-							name="dealCloseTo"
-							type="date"
-							value={input.closeTo === "all" ? "" : input.closeTo}
-							onChange={(event) =>
-								query.setFilter("closeTo", event.target.value || "all")
-							}
-							className="h-8 min-w-0 text-foreground"
-						/>
-					</label>
-				</div>
+				<label
+					htmlFor="deal-close-window"
+					className="grid w-full min-w-0 gap-1 text-muted-foreground text-xs sm:w-auto sm:min-w-56"
+				>
+					Close date
+					<DateRangePicker
+						id="deal-close-window"
+						value={{
+							from: input.closeFrom === "all" ? "" : input.closeFrom,
+							to: input.closeTo === "all" ? "" : input.closeTo,
+						}}
+						onChange={(next) => {
+							query.setFilter("closeFrom", next.from || "all");
+							query.setFilter("closeTo", next.to || "all");
+						}}
+						className="text-foreground"
+					/>
+				</label>
 			}
 			tabs={{
 				id: "status",

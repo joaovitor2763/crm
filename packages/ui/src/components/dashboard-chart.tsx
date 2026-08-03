@@ -21,6 +21,8 @@ import {
 	LabelList,
 	Pie,
 	PieChart,
+	RadialBar,
+	RadialBarChart,
 	Text,
 	XAxis,
 } from "recharts";
@@ -116,109 +118,6 @@ function EdgeTick({
 	);
 }
 
-type DitherVariant = "gradient" | "dotted" | "hatched" | "solid";
-type Bloom = "off" | "low" | "high" | "aura";
-
-function bloomFilter(bloom: Bloom, color: string) {
-	switch (bloom) {
-		case "low":
-			return `drop-shadow(0 0 2px ${color})`;
-		case "high":
-			return `drop-shadow(0 0 5px ${color})`;
-		case "aura":
-			return `drop-shadow(0 0 3px ${color}) drop-shadow(0 0 9px ${color})`;
-		default:
-			return undefined;
-	}
-}
-
-function ditherPatternId(base: string, key: string) {
-	return `${base}-dither-${key}`;
-}
-
-function ditherFadeId(base: string, key: string) {
-	return `${base}-fade-${key}`;
-}
-
-function DitherDefs({
-	base,
-	keys,
-	variant,
-}: {
-	base: string;
-	keys: string[];
-	variant: DitherVariant;
-}) {
-	if (variant === "solid") {
-		return null;
-	}
-	return (
-		<>
-			{keys.map((key) => {
-				const color = `var(--color-${key})`;
-				const id = ditherPatternId(base, key);
-				if (variant === "hatched") {
-					return (
-						<pattern
-							key={id}
-							id={id}
-							width={6}
-							height={6}
-							patternUnits="userSpaceOnUse"
-							patternTransform="rotate(45)"
-						>
-							<line
-								x1={0}
-								y1={0}
-								x2={0}
-								y2={6}
-								stroke={color}
-								strokeWidth={1.5}
-							/>
-						</pattern>
-					);
-				}
-				return (
-					<pattern
-						key={id}
-						id={id}
-						width={4}
-						height={4}
-						patternUnits="userSpaceOnUse"
-					>
-						<rect x={0} y={0} width={1.4} height={1.4} fill={color} />
-						<rect x={2} y={2} width={1.4} height={1.4} fill={color} />
-					</pattern>
-				);
-			})}
-			{variant === "gradient"
-				? keys.map((key) => {
-						const fadeId = ditherFadeId(base, key);
-						const fadeGradId = `${fadeId}-grad`;
-						return (
-							<React.Fragment key={fadeId}>
-								<linearGradient id={fadeGradId} x1="0" y1="0" x2="0" y2="1">
-									<stop offset="0%" stopColor="white" stopOpacity={0.06} />
-									<stop offset="55%" stopColor="white" stopOpacity={0.45} />
-									<stop offset="100%" stopColor="white" stopOpacity={0.95} />
-								</linearGradient>
-								<mask id={fadeId}>
-									<rect
-										x="0"
-										y="0"
-										width="100%"
-										height="100%"
-										fill={`url(#${fadeGradId})`}
-									/>
-								</mask>
-							</React.Fragment>
-						);
-					})
-				: null}
-		</>
-	);
-}
-
 function AreaTrend({
 	data,
 	config,
@@ -231,16 +130,11 @@ function AreaTrend({
 	formatX,
 	formatValue,
 	stacked = false,
-	variant = "gradient",
-	bloom = "low",
 }: CartesianProps & {
 	stacked?: boolean;
-	variant?: DitherVariant;
-	bloom?: Bloom;
 }) {
 	const keys = seriesKeys(config, series);
 	const gradientId = React.useId().replace(/:/g, "");
-	const dithered = variant !== "solid";
 
 	return (
 		<ChartContainer
@@ -262,16 +156,15 @@ function AreaTrend({
 							<stop
 								offset="5%"
 								stopColor={`var(--color-${key})`}
-								stopOpacity={0.3}
+								stopOpacity={0.8}
 							/>
 							<stop
 								offset="95%"
 								stopColor={`var(--color-${key})`}
-								stopOpacity={0}
+								stopOpacity={0.1}
 							/>
 						</linearGradient>
 					))}
-					<DitherDefs base={gradientId} keys={keys} variant={variant} />
 				</defs>
 				<CartesianGrid vertical={false} stroke="var(--border)" />
 				<XAxis
@@ -294,36 +187,8 @@ function AreaTrend({
 						stackId={stacked ? "stack" : undefined}
 						dot={false}
 						activeDot={{ r: 3, strokeWidth: 0 }}
-						style={
-							bloom === "off"
-								? undefined
-								: { filter: bloomFilter(bloom, `var(--color-${key})`) }
-						}
 					/>
 				))}
-				{dithered
-					? keys.map((key) => (
-							<Area
-								key={`dither-${key}`}
-								dataKey={key}
-								type="monotone"
-								stroke="none"
-								fill={`url(#${ditherPatternId(gradientId, key)})`}
-								fillOpacity={1}
-								mask={
-									variant === "gradient"
-										? `url(#${ditherFadeId(gradientId, key)})`
-										: undefined
-								}
-								stackId={stacked ? "dither-stack" : undefined}
-								dot={false}
-								activeDot={false}
-								isAnimationActive={false}
-								legendType="none"
-								tooltipType="none"
-							/>
-						))
-					: null}
 				{showLegend ? (
 					<ChartLegend
 						verticalAlign="bottom"
@@ -585,5 +450,54 @@ function DonutStat({
 	);
 }
 
+/**
+ * Radial bar chart for the same slice shape as {@link DonutStat} — each slice
+ * becomes a ring, longest first, with the shared tooltip.
+ */
+function RadialStat({
+	data,
+	className,
+	height = 200,
+	formatValue,
+}: {
+	data: DonutSlice[];
+	className?: string;
+	height?: number;
+	formatValue?: (value: number | string) => string;
+}) {
+	const config: ChartConfig = Object.fromEntries(
+		data.map((d) => [d.key, { label: d.label, color: d.color }]),
+	);
+	const rows = [...data]
+		.sort((left, right) => right.value - left.value)
+		.map((slice) => ({ ...slice, fill: slice.color }));
+
+	return (
+		<ChartContainer
+			config={config}
+			className={cn("mx-auto aspect-square", className)}
+			style={{ height }}
+		>
+			<RadialBarChart
+				data={rows}
+				innerRadius={Math.round(height * 0.16)}
+				outerRadius={Math.round(height * 0.48)}
+			>
+				<ChartTooltip
+					cursor={false}
+					content={
+						<ChartTooltipContent
+							hideLabel
+							nameKey="key"
+							valueFormatter={formatValue}
+						/>
+					}
+				/>
+				<RadialBar dataKey="value" background={{ fill: "var(--muted)" }} />
+			</RadialBarChart>
+		</ChartContainer>
+	);
+}
+
 export type { Datum, DonutSlice };
-export { AreaTrend, BarStat, BarTrend, DonutStat };
+export { AreaTrend, BarStat, BarTrend, DonutStat, RadialStat };

@@ -36,6 +36,7 @@ export const dashboardWidgetUpdateInput = z.object({
 	title: z.string().trim().min(1).max(160).optional(),
 	description: z.string().trim().max(500).nullable().optional(),
 	width: z.number().int().min(3).max(12).optional(),
+	spec: dashboardDefinitionSpec.optional(),
 });
 
 export const dashboardWidgetLayoutInput = z.object({
@@ -46,12 +47,18 @@ export const dashboardWidgetLayoutInput = z.object({
 				id: z.string().min(1),
 				position: z.number().int().min(0),
 				width: z.number().int().min(3).max(12),
+				height: z.number().int().min(2).max(12).optional(),
 			}),
 		)
 		.max(100),
 });
 
 export const dashboardWidgetIdInput = z.object({ id: z.string().min(1) });
+
+/** A spec rendered without being saved — the add-widget builder's preview. */
+export const dashboardWidgetPreviewInput = z.object({
+	spec: dashboardDefinitionSpec,
+});
 
 export type DashboardWorkspaceListInput = z.infer<
 	typeof dashboardWorkspaceListInput

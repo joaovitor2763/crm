@@ -1,6 +1,5 @@
 "use client";
 
-import { Button } from "@crm/ui/components/button";
 import {
 	Card,
 	CardContent,
@@ -8,7 +7,6 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
-import { Field, FieldLabel } from "@crm/ui/components/field";
 import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import { Spinner } from "@crm/ui/components/spinner";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,6 +44,14 @@ export function WorkspaceSettings() {
 	);
 }
 
+/**
+ * One setting, saved the moment it changes.
+ *
+ * The previous version put the combobox in a page-wide card above a submit
+ * button that spent its life disabled — a grey button under a single field
+ * reads as something broken, not as "nothing to save". A currency default is
+ * a low-stakes, instantly-reversible choice; picking it *is* the intent.
+ */
 function WorkspaceSettingsForm({
 	currency: initialCurrency,
 }: {
@@ -66,45 +72,35 @@ function WorkspaceSettingsForm({
 		}),
 	);
 	return (
-		<Card>
+		<Card className="max-w-2xl">
 			<CardHeader>
 				<CardTitle>Workspace preferences</CardTitle>
 				<CardDescription>
-					The default currency used when a new commercial record does not
-					provide one.
+					Defaults every new commercial record starts from.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
-				<form
-					className="flex max-w-xl flex-col gap-4"
-					onSubmit={(event) => {
-						event.preventDefault();
-						save.mutate({ currency });
-					}}
-				>
-					<Field>
-						<FieldLabel>Account currency</FieldLabel>
-						<SearchCombobox
-							value={currency}
-							onValueChange={setCurrency}
-							options={[...CURRENCIES]}
-							placeholder="Choose currency"
-							searchPlaceholder="Search currencies…"
-							className="w-full"
-						/>
-					</Field>
-					<p className="text-muted-foreground text-xs">
-						Existing deals keep their saved currency. New records use this
-						account default.
-					</p>
-					<Button
-						type="submit"
-						className="w-fit"
-						disabled={save.isPending || currency === initialCurrency}
-					>
-						Save preferences
-					</Button>
-				</form>
+				<div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border p-4">
+					<div className="min-w-48">
+						<p className="font-medium text-sm">Account currency</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							Existing deals keep their saved currency; new records use this
+							default.
+						</p>
+					</div>
+					<SearchCombobox
+						value={currency}
+						onValueChange={(next) => {
+							setCurrency(next);
+							if (next && next !== initialCurrency)
+								save.mutate({ currency: next });
+						}}
+						options={[...CURRENCIES]}
+						placeholder="Choose currency"
+						searchPlaceholder="Search currencies…"
+						className="w-56"
+					/>
+				</div>
 			</CardContent>
 		</Card>
 	);

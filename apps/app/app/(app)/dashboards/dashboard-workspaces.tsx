@@ -5,6 +5,7 @@ import ArrowLeft from "@carbon/icons-react/es/ArrowLeft";
 import ArrowsVertical from "@carbon/icons-react/es/ArrowsVertical";
 import Locked from "@carbon/icons-react/es/Locked";
 import OverflowMenuHorizontal from "@carbon/icons-react/es/OverflowMenuHorizontal";
+import SettingsAdjust from "@carbon/icons-react/es/SettingsAdjust";
 import TrashCan from "@carbon/icons-react/es/TrashCan";
 import UserMultiple from "@carbon/icons-react/es/UserMultiple";
 import { Button } from "@crm/ui/components/button";
@@ -16,6 +17,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
+import { DateRangePicker } from "@crm/ui/components/date-range-picker";
 import {
 	Dialog,
 	DialogContent,
@@ -39,6 +41,7 @@ import {
 import { Field, FieldLabel } from "@crm/ui/components/field";
 import { Icon } from "@crm/ui/components/icon";
 import { Input } from "@crm/ui/components/input";
+import { SearchCombobox } from "@crm/ui/components/search-combobox";
 import {
 	Select,
 	SelectContent,
@@ -48,6 +51,8 @@ import {
 } from "@crm/ui/components/select";
 import { Spinner } from "@crm/ui/components/spinner";
 import { StatusIndicator } from "@crm/ui/components/status-indicator";
+import { Switch } from "@crm/ui/components/switch";
+import { formatMoneyCompact, formatPercent } from "@crm/ui/lib/format";
 import { cn } from "@crm/ui/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -56,9 +61,21 @@ import {
 	parseAsStringLiteral,
 	useQueryState,
 } from "nuqs";
-import { type DragEvent, useDeferredValue, useState } from "react";
+import {
+	type DragEvent,
+	type PointerEvent as ReactPointerEvent,
+	useDeferredValue,
+	useRef,
+	useState,
+} from "react";
 import { toast } from "sonner";
-import { BarTrend } from "@/components/dashboard-charts";
+import {
+	AreaTrend,
+	BarTrend,
+	DonutStat,
+	FunnelChart,
+	RadialStat,
+} from "@/components/dashboard-charts";
 import { useTRPC } from "@/lib/trpc/client";
 import {
 	type AnalyticsView,
@@ -66,7 +83,10 @@ import {
 	chartRows,
 	formatMetric,
 } from "../studio/studio-analytics-data";
-import type { DashboardSpec } from "../studio/studio-dashboard-definition-data";
+import {
+	type DashboardSpec,
+	DEFAULT_DASHBOARD_SPEC,
+} from "../studio/studio-dashboard-definition-data";
 import { studioMutationOptions } from "../studio/studio-trpc";
 
 type Widget = {
@@ -74,6 +94,8 @@ type Widget = {
 	title: string;
 	description: string | null;
 	width: number;
+	height: number;
+	spec: DashboardSpec;
 };
 type Workspace = {
 	id: string;
@@ -168,10 +190,32 @@ export function DashboardWorkspaces() {
 			unknown,
 			{
 				dashboardId: string;
-				widgets: Array<{ id: string; position: number; width: number }>;
+				widgets: Array<{
+					id: string;
+					position: number;
+					width: number;
+					height?: number;
+				}>;
 			}
 		>(trpc.dashboard.updateWidgetLayout, {
 			onSuccess: refresh,
+			onError: (error) => toast.error(error.message),
+		}),
+	);
+	const updateWidget = useMutation(
+		studioMutationOptions<
+			unknown,
+			{
+				id: string;
+				title?: string;
+				description?: string | null;
+				spec?: DashboardSpec;
+			}
+		>(trpc.dashboard.updateWidget, {
+			onSuccess: async () => {
+				await refresh();
+				toast.success("Widget updated.");
+			},
 			onError: (error) => toast.error(error.message),
 		}),
 	);
@@ -213,15 +257,7 @@ export function DashboardWorkspaces() {
 				addOpen={addOpen}
 				setAddOpen={setAddOpen}
 				onBack={() => setDashboardId("")}
-				onAdd={(template) =>
-					add.mutate({
-						dashboardId,
-						title: template.name,
-						description: template.description,
-						spec: template.spec,
-						width: template.spec.layout.w,
-					})
-				}
+				onAdd={(input) => add.mutate({ dashboardId, ...input })}
 				onMove={(widgetId, direction) => {
 					const widgets = [...(workspace.data.widgets as unknown as Widget[])];
 					const index = widgets.findIndex((widget) => widget.id === widgetId);
@@ -258,23 +294,32 @@ export function DashboardWorkspaces() {
 						})),
 					});
 				}}
-				onResize={(widgetId, width) =>
+				onResize={(widgetId, size) =>
 					updateLayout.mutate({
 						dashboardId,
 						widgets: (workspace.data.widgets as unknown as Widget[]).map(
 							(widget, position) => ({
 								id: widget.id,
 								position,
-								width: widget.id === widgetId ? width : widget.width,
+								width:
+									widget.id === widgetId
+										? (size.width ?? widget.width)
+										: widget.width,
+								height:
+									widget.id === widgetId
+										? (size.height ?? widget.height)
+										: widget.height,
 							}),
 						),
 					})
 				}
+				onSaveWidget={(input) => updateWidget.mutate(input)}
 				onRemove={(id) => remove.mutate({ id })}
 				onArchive={() => archive.mutate({ id: dashboardId })}
 				busy={
 					add.isPending ||
 					updateLayout.isPending ||
+					updateWidget.isPending ||
 					remove.isPending ||
 					archive.isPending
 				}
@@ -477,6 +522,7 @@ function DashboardCanvas({
 	onMove,
 	onReorder,
 	onResize,
+	onSaveWidget,
 	onRemove,
 	onArchive,
 	busy,
@@ -486,15 +532,27 @@ function DashboardCanvas({
 	addOpen: boolean;
 	setAddOpen: (open: boolean) => void;
 	onBack: () => void;
-	onAdd: (template: Template) => void;
+	onAdd: (input: {
+		title: string;
+		description: string | null;
+		spec: DashboardSpec;
+		width: number;
+	}) => void;
 	onMove: (id: string, direction: -1 | 1) => void;
 	onReorder: (id: string, targetId: string) => void;
-	onResize: (id: string, width: number) => void;
+	onResize: (id: string, size: { width?: number; height?: number }) => void;
+	onSaveWidget: (input: {
+		id: string;
+		title?: string;
+		description?: string | null;
+		spec?: DashboardSpec;
+	}) => void;
 	onRemove: (id: string) => void;
 	onArchive: () => void;
 	busy: boolean;
 }) {
 	const [draggingId, setDraggingId] = useState<string | null>(null);
+	const [dragOverId, setDragOverId] = useState<string | null>(null);
 	const [archiveOpen, setArchiveOpen] = useState(false);
 	return (
 		<div className="flex flex-col gap-5">
@@ -550,39 +608,57 @@ function DashboardCanvas({
 			</div>
 			{workspace.widgets.length ? (
 				<div
-					className="grid grid-cols-1 gap-3 lg:grid-cols-12"
+					className="relative grid grid-cols-1 gap-3 lg:grid-cols-12"
 					aria-busy={busy}
 				>
+					{/* The grid a widget is about to land on, visible only while one
+					    is in the air. */}
+					{draggingId ? (
+						<div
+							aria-hidden
+							className="pointer-events-none absolute inset-0 z-0 hidden gap-3 lg:grid lg:grid-cols-12"
+						>
+							{["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"].map(
+								(column) => (
+									<div
+										key={column}
+										className="border border-border/70 border-dashed bg-muted/30"
+									/>
+								),
+							)}
+						</div>
+					) : null}
 					{workspace.widgets.map((widget, index) => (
 						<WorkspaceWidget
 							key={widget.id}
 							widget={widget}
 							canEdit={workspace.canEdit}
-							className={
-								widget.width >= 12
-									? "lg:col-span-12"
-									: widget.width >= 9
-										? "lg:col-span-9"
-										: widget.width >= 6
-											? "lg:col-span-6"
-											: "lg:col-span-3"
-							}
 							onMoveUp={() => onMove(widget.id, -1)}
 							onMoveDown={() => onMove(widget.id, 1)}
 							moveUpDisabled={index === 0}
 							moveDownDisabled={index === workspace.widgets.length - 1}
 							dragging={draggingId === widget.id}
+							dropTarget={dragOverId === widget.id && draggingId !== widget.id}
 							onDragStart={(event) => {
 								setDraggingId(widget.id);
 								event.dataTransfer.effectAllowed = "move";
 								event.dataTransfer.setData("text/plain", widget.id);
 							}}
-							onDragEnd={() => setDraggingId(null)}
+							onDragEnd={() => {
+								setDraggingId(null);
+								setDragOverId(null);
+							}}
 							onDragOver={(event) => {
 								if (draggingId && draggingId !== widget.id) {
 									event.preventDefault();
 									event.dataTransfer.dropEffect = "move";
+									setDragOverId(widget.id);
 								}
+							}}
+							onDragLeave={() => {
+								setDragOverId((current) =>
+									current === widget.id ? null : current,
+								);
 							}}
 							onDrop={(event) => {
 								event.preventDefault();
@@ -592,9 +668,12 @@ function DashboardCanvas({
 									onReorder(sourceId, widget.id);
 								}
 								setDraggingId(null);
+								setDragOverId(null);
 							}}
-							onResize={(width) => onResize(widget.id, width)}
+							onResize={(size) => onResize(widget.id, size)}
+							onSave={(input) => onSaveWidget({ id: widget.id, ...input })}
 							onRemove={() => onRemove(widget.id)}
+							busy={busy}
 						/>
 					))}
 				</div>
@@ -614,33 +693,16 @@ function DashboardCanvas({
 					) : null}
 				</Empty>
 			)}
-			<Dialog open={addOpen} onOpenChange={setAddOpen}>
-				<DialogContent className="sm:max-w-2xl">
-					<DialogHeader>
-						<DialogTitle>Add a widget</DialogTitle>
-						<DialogDescription>
-							Choose a governed metric template. You can rearrange and resize it
-							after adding.
-						</DialogDescription>
-					</DialogHeader>
-					<div className="grid max-h-[60vh] gap-2 overflow-y-auto sm:grid-cols-2">
-						{templates.map((template) => (
-							<button
-								key={template.key}
-								type="button"
-								disabled={busy}
-								className="border p-3 text-left hover:bg-muted/50"
-								onClick={() => onAdd(template)}
-							>
-								<p className="font-medium text-sm">{template.name}</p>
-								<p className="mt-1 text-muted-foreground text-xs">
-									{template.description}
-								</p>
-							</button>
-						))}
-					</div>
-				</DialogContent>
-			</Dialog>
+			{addOpen ? (
+				<WidgetComposerDialog
+					templates={templates}
+					open={addOpen}
+					onOpenChange={setAddOpen}
+					onSubmit={(input) => onAdd({ ...input, width: 6 })}
+					submitLabel="Add to dashboard"
+					busy={busy}
+				/>
+			) : null}
 			<Dialog open={archiveOpen} onOpenChange={setArchiveOpen}>
 				<DialogContent showCloseButton={false}>
 					<DialogHeader>
@@ -664,54 +726,401 @@ function DashboardCanvas({
 	);
 }
 
+/** The column spans the canvas grid can actually render. */
+const WIDGET_SPANS = [3, 6, 9, 12] as const;
+
+function snapSpan(cols: number): number {
+	let best: number = WIDGET_SPANS[0];
+	for (const span of WIDGET_SPANS) {
+		if (Math.abs(span - cols) < Math.abs(best - cols)) best = span;
+	}
+	return best;
+}
+
+function spanClass(width: number) {
+	return width >= 12
+		? "lg:col-span-12"
+		: width >= 9
+			? "lg:col-span-9"
+			: width >= 6
+				? "lg:col-span-6"
+				: "lg:col-span-3";
+}
+
+/** One grid row of widget height, in pixels of plot. */
+const ROW_PX = 52;
+const HEIGHT_ROWS = { min: 2, max: 10 } as const;
+
+type WidgetSlice = { key: string; label: string; value: number; color: string };
+
+/** The first dataset as labelled slices, colored from the chart cycle. */
+function widgetSlices(view: AnalyticsView): WidgetSlice[] {
+	const labels = view.chart.data.labels ?? [];
+	const data = view.chart.data.datasets[0]?.data ?? [];
+	return labels.map((label, index) => ({
+		key: `slice-${index}`,
+		label: String(label),
+		value: Number(data[index] ?? 0),
+		color: `var(--chart-${(index % 5) + 1})`,
+	}));
+}
+
+/**
+ * "Sales pipeline · Demo booked" seven times over is noise once every label
+ * shares the pipeline; keep the prefix only when it still distinguishes rows.
+ */
+function trimSharedPrefix(slices: WidgetSlice[]): WidgetSlice[] {
+	const separator = " · ";
+	const first = slices[0]?.label ?? "";
+	const cut = first.indexOf(separator);
+	if (cut < 0 || slices.length < 2) return slices;
+	const prefix = first.slice(0, cut + separator.length);
+	if (!slices.every((slice) => slice.label.startsWith(prefix))) return slices;
+	return slices.map((slice) => ({
+		...slice,
+		label: slice.label.slice(prefix.length),
+	}));
+}
+
+/**
+ * The categorical legend under a widget plot — a quiet table, not recharts'
+ * centered chip row. Axis labels overlap long before the reader gives up on a
+ * list, so wide categories live here and the axis stays hidden.
+ */
+function WidgetLegend({
+	slices,
+	formatValue = formatMetric,
+}: {
+	slices: WidgetSlice[];
+	formatValue?: (value: number | string) => string;
+}) {
+	return (
+		<ul className="flex flex-col px-1">
+			{slices.slice(0, 10).map((slice) => (
+				<li
+					key={slice.key}
+					className="flex items-center gap-2 border-t py-1.5 text-xs first:border-t-0"
+				>
+					<span
+						aria-hidden
+						className="size-1.5 shrink-0"
+						style={{ backgroundColor: slice.color }}
+					/>
+					<span className="min-w-0 flex-1 truncate">{slice.label}</span>
+					<span className="shrink-0 font-medium tabular-nums">
+						{formatValue(slice.value)}
+					</span>
+				</li>
+			))}
+		</ul>
+	);
+}
+
+type WidgetOptions = {
+	legend?: boolean;
+	stacked?: boolean;
+	/** Which field of the view's rows to plot; the dataset's default otherwise. */
+	valueField?: "deals" | "won" | "valueCents" | "conversionRate";
+};
+
+/** What a breakdown row can put on the Y axis, and how to read it back. */
+const VALUE_FIELDS = [
+	{ value: "deals", label: "Deal count" },
+	{ value: "won", label: "Deals won" },
+	{ value: "valueCents", label: "Deal value (sum)" },
+	{ value: "conversionRate", label: "Win rate" },
+] as const;
+
+function valueFieldFormatter(
+	field: WidgetOptions["valueField"],
+): (value: number | string) => string {
+	if (field === "valueCents")
+		return (value) => formatMoneyCompact(Number(value));
+	if (field === "conversionRate")
+		return (value) => formatPercent(Number(value));
+	return formatMetric;
+}
+
+/**
+ * One rendered view, drawn as whatever the spec asked for. Shared between the
+ * widgets on the canvas and the live preview in the add-widget builder so the
+ * two can never disagree about what "Funnel" looks like.
+ */
+function WidgetChart({
+	view,
+	visualization,
+	options,
+	height,
+	wide = true,
+}: {
+	view: AnalyticsView;
+	visualization: string;
+	options: WidgetOptions;
+	height: number;
+	/** Whether the plot has room for centered axis ticks. */
+	wide?: boolean;
+}) {
+	// A chosen row field (deal value, win rate…) replaces the dataset's default
+	// measure — the rows carry every cut the engine computed, so switching the
+	// Y axis is a client-side re-read, not another query.
+	const valueField = options.valueField;
+	const fieldRows =
+		valueField && view.rows.some((row) => typeof row[valueField] === "number")
+			? view.rows
+			: null;
+	const slices = trimSharedPrefix(
+		fieldRows && valueField
+			? fieldRows.map((row, index) => ({
+					key: `slice-${index}`,
+					label: String(row.label ?? ""),
+					value: Number(row[valueField] ?? 0),
+					color: `var(--chart-${(index % 5) + 1})`,
+				}))
+			: widgetSlices(view),
+	);
+	const formatValue = fieldRows
+		? valueFieldFormatter(valueField)
+		: formatMetric;
+	const cartesianData = fieldRows
+		? slices.map((slice) => ({ label: slice.label, value: slice.value }))
+		: chartRows(view);
+	const cartesianConfig = fieldRows
+		? {
+				value: {
+					label:
+						VALUE_FIELDS.find((field) => field.value === valueField)?.label ??
+						"Value",
+					color: "var(--chart-1)",
+				},
+			}
+		: chartConfig(view);
+	const hasData = slices.some((slice) => slice.value !== 0);
+	// Room for readable centered ticks, or hand the labels to the legend list.
+	const axisFits =
+		wide &&
+		slices.length <= 4 &&
+		slices.every((slice) => slice.label.length <= 16);
+	const showLegendList =
+		options.legend !== false &&
+		["bar", "doughnut", "pie", "radial", "funnel"].includes(visualization) &&
+		!axisFits;
+
+	if (!hasData) {
+		return (
+			<div
+				className="flex items-center justify-center text-muted-foreground text-sm"
+				style={{ height }}
+			>
+				No data in this window. Try a wider date range or another pipeline.
+			</div>
+		);
+	}
+
+	const plot =
+		visualization === "funnel" ? (
+			<FunnelChart
+				data={[...slices]
+					.sort((left, right) => right.value - left.value)
+					.map((slice) => ({
+						label: slice.label,
+						value: slice.value,
+						color: slice.color,
+					}))}
+				showLabels={false}
+				showValues={false}
+				labelLayout="grouped"
+				formatValue={(value) => formatValue(value)}
+				style={{ maxHeight: height, aspectRatio: "auto", height }}
+			/>
+		) : visualization === "doughnut" || visualization === "pie" ? (
+			<DonutStat data={slices} height={height} formatValue={formatValue} />
+		) : visualization === "radial" ? (
+			<RadialStat data={slices} height={height} formatValue={formatValue} />
+		) : visualization === "line" || visualization === "area" ? (
+			<AreaTrend
+				data={cartesianData}
+				config={cartesianConfig}
+				xKey="label"
+				height={height}
+				showXAxis={axisFits || view.key === "timeSeries"}
+				showLegend={options.legend === true && view.key === "timeSeries"}
+				stacked={options.stacked === true}
+				formatValue={formatValue}
+			/>
+		) : (
+			<BarTrend
+				data={cartesianData}
+				config={cartesianConfig}
+				xKey="label"
+				height={height}
+				showXAxis={axisFits}
+				showLegend={false}
+				stacked={options.stacked === true}
+				formatValue={formatValue}
+			/>
+		);
+
+	return (
+		<>
+			{plot}
+			{showLegendList ? (
+				<WidgetLegend slices={slices} formatValue={formatValue} />
+			) : null}
+		</>
+	);
+}
+
 function WorkspaceWidget({
 	widget,
 	canEdit,
-	className,
 	onMoveUp,
 	onMoveDown,
 	moveUpDisabled,
 	moveDownDisabled,
 	dragging,
+	dropTarget,
 	onDragStart,
 	onDragEnd,
 	onDragOver,
+	onDragLeave,
 	onDrop,
 	onResize,
+	onSave,
 	onRemove,
+	busy,
 }: {
 	widget: Widget;
 	canEdit: boolean;
-	className?: string;
 	onMoveUp: () => void;
 	onMoveDown: () => void;
 	moveUpDisabled: boolean;
 	moveDownDisabled: boolean;
 	dragging: boolean;
+	dropTarget: boolean;
 	onDragStart: (event: DragEvent<HTMLElement>) => void;
 	onDragEnd: () => void;
 	onDragOver: (event: DragEvent<HTMLElement>) => void;
+	onDragLeave: () => void;
 	onDrop: (event: DragEvent<HTMLElement>) => void;
-	onResize: (width: number) => void;
+	onResize: (size: { width?: number; height?: number }) => void;
+	onSave: (input: {
+		title?: string;
+		description?: string | null;
+		spec?: DashboardSpec;
+	}) => void;
 	onRemove: () => void;
+	busy: boolean;
 }) {
 	const trpc = useTRPC();
 	const rendered = useQuery(
 		trpc.dashboard.renderWidget.queryOptions({ id: widget.id }),
 	);
 	const view = rendered.data?.view as AnalyticsView | undefined;
+	const [editOpen, setEditOpen] = useState(false);
+
+	const spec = widget.spec;
+	const options = (spec?.options ?? {}) as WidgetOptions;
+	// "bar" is the enum default the old bowtie template shipped with; a bowtie
+	// that never chose a shape gets the funnel it was named after.
+	const visualization =
+		spec?.metric === "macroBowtie" && spec.visualization === "bar"
+			? "funnel"
+			: (spec?.visualization ?? "bar");
+	const chartHeight = Math.max(widget.height, HEIGHT_ROWS.min) * ROW_PX;
+
+	const cardRef = useRef<HTMLDivElement>(null);
+	// The size shown while a handle is mid-drag; committed on release.
+	const [preview, setPreview] = useState<{
+		width: number;
+		height: number;
+	} | null>(null);
+	const resizeStart = useRef<{
+		axis: "x" | "y";
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		colPx: number;
+	} | null>(null);
+
+	const beginResize =
+		(axis: "x" | "y") => (event: ReactPointerEvent<HTMLElement>) => {
+			const card = cardRef.current;
+			if (!card) return;
+			// The card is draggable for reordering; a resize must not also start a
+			// drag, and the pointer stays ours even when it leaves the handle.
+			event.preventDefault();
+			event.stopPropagation();
+			event.currentTarget.setPointerCapture(event.pointerId);
+			resizeStart.current = {
+				axis,
+				x: event.clientX,
+				y: event.clientY,
+				width: widget.width,
+				height: widget.height,
+				colPx: card.offsetWidth / widget.width,
+			};
+		};
+	const moveResize = (event: ReactPointerEvent<HTMLElement>) => {
+		const start = resizeStart.current;
+		if (!start) return;
+		if (start.axis === "x") {
+			const cols = start.width + (event.clientX - start.x) / start.colPx;
+			setPreview({ width: snapSpan(cols), height: start.height });
+		} else {
+			const rows = Math.round(
+				start.height + (event.clientY - start.y) / ROW_PX,
+			);
+			setPreview({
+				width: start.width,
+				height: Math.min(Math.max(rows, HEIGHT_ROWS.min), HEIGHT_ROWS.max),
+			});
+		}
+	};
+	const endResize = () => {
+		const start = resizeStart.current;
+		resizeStart.current = null;
+		if (
+			start &&
+			preview &&
+			(preview.width !== widget.width || preview.height !== widget.height)
+		) {
+			onResize({ width: preview.width, height: preview.height });
+		}
+		setPreview(null);
+	};
+
+	const previewHeight = preview?.height ?? widget.height;
+	const plotHeight =
+		preview !== null
+			? Math.max(previewHeight, HEIGHT_ROWS.min) * ROW_PX
+			: chartHeight;
+	const plot = view ? (
+		<WidgetChart
+			view={view}
+			visualization={visualization}
+			options={options}
+			height={plotHeight}
+			wide={(preview?.width ?? widget.width) >= 6}
+		/>
+	) : null;
+
 	return (
 		<Card
+			ref={cardRef}
 			className={cn(
-				"min-w-0 transition-opacity",
+				"group/widget relative z-10 min-w-0 bg-background transition-opacity",
 				canEdit && "cursor-grab active:cursor-grabbing",
 				dragging && "opacity-50",
-				className,
+				dropTarget && "ring-1 ring-ring",
+				preview !== null && "select-none ring-1 ring-ring",
+				spanClass(preview?.width ?? widget.width),
 			)}
-			draggable={canEdit}
+			draggable={canEdit && preview === null}
 			onDragStart={onDragStart}
 			onDragEnd={onDragEnd}
 			onDragOver={onDragOver}
+			onDragLeave={onDragLeave}
 			onDrop={onDrop}
 		>
 			<CardHeader>
@@ -732,6 +1141,9 @@ function WorkspaceWidget({
 								</Button>
 							</DropdownMenuTrigger>
 							<DropdownMenuContent align="end">
+								<DropdownMenuItem onClick={() => setEditOpen(true)}>
+									<Icon icon={SettingsAdjust} /> Edit widget
+								</DropdownMenuItem>
 								<DropdownMenuItem disabled={moveUpDisabled} onClick={onMoveUp}>
 									<Icon icon={ArrowsVertical} /> Move earlier
 								</DropdownMenuItem>
@@ -740,15 +1152,6 @@ function WorkspaceWidget({
 									onClick={onMoveDown}
 								>
 									<Icon icon={ArrowsVertical} /> Move later
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => onResize(3)}>
-									Quarter width
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => onResize(6)}>
-									Half width
-								</DropdownMenuItem>
-								<DropdownMenuItem onClick={() => onResize(12)}>
-									Full width
 								</DropdownMenuItem>
 								<DropdownMenuItem variant="destructive" onClick={onRemove}>
 									<Icon icon={TrashCan} /> Remove
@@ -760,18 +1163,14 @@ function WorkspaceWidget({
 			</CardHeader>
 			<CardContent>
 				{rendered.isLoading ? (
-					<div className="flex h-56 items-center justify-center">
+					<div
+						className="flex items-center justify-center"
+						style={{ height: plotHeight }}
+					>
 						<Spinner />
 					</div>
 				) : view ? (
-					<BarTrend
-						data={chartRows(view)}
-						config={chartConfig(view)}
-						xKey="label"
-						height={230}
-						showXAxis={view.chart.data.labels.length < 10}
-						formatValue={formatMetric}
-					/>
+					plot
 				) : (
 					<p
 						role="alert"
@@ -781,6 +1180,487 @@ function WorkspaceWidget({
 					</p>
 				)}
 			</CardContent>
+			{canEdit ? (
+				<>
+					<button
+						type="button"
+						aria-label={`Resize ${widget.title} width`}
+						draggable={false}
+						onPointerDown={beginResize("x")}
+						onPointerMove={moveResize}
+						onPointerUp={endResize}
+						onPointerCancel={endResize}
+						onDragStart={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						className="-right-1.5 absolute inset-y-0 z-10 hidden w-3 cursor-col-resize items-center justify-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
+					>
+						<span className="h-8 w-1 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
+					</button>
+					<button
+						type="button"
+						aria-label={`Resize ${widget.title} height`}
+						draggable={false}
+						onPointerDown={beginResize("y")}
+						onPointerMove={moveResize}
+						onPointerUp={endResize}
+						onPointerCancel={endResize}
+						onDragStart={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						className="-bottom-1.5 absolute inset-x-0 z-10 hidden h-3 cursor-row-resize items-center justify-center opacity-0 transition-opacity focus-visible:opacity-100 group-hover/widget:opacity-100 lg:flex"
+					>
+						<span className="h-1 w-8 bg-border transition-colors group-hover/widget:bg-muted-foreground/50" />
+					</button>
+				</>
+			) : null}
+			{editOpen ? (
+				<WidgetComposerDialog
+					initial={{
+						title: widget.title,
+						description: widget.description,
+						spec: widget.spec,
+					}}
+					open={editOpen}
+					onOpenChange={setEditOpen}
+					busy={busy}
+					submitLabel="Save widget"
+					onSubmit={(input) => {
+						onSave(input);
+						setEditOpen(false);
+					}}
+				/>
+			) : null}
 		</Card>
+	);
+}
+
+const VISUALIZATIONS = [
+	{ value: "bar", label: "Bars" },
+	{ value: "line", label: "Line" },
+	{ value: "area", label: "Area" },
+	{ value: "doughnut", label: "Donut" },
+	{ value: "pie", label: "Pie" },
+	{ value: "radial", label: "Radial" },
+	{ value: "funnel", label: "Funnel" },
+] as const;
+
+const GRAINS = [
+	{ value: "day", label: "Day" },
+	{ value: "week", label: "Week" },
+	{ value: "month", label: "Month" },
+	{ value: "quarter", label: "Quarter" },
+] as const;
+
+const METRICS: Array<{ value: DashboardSpec["metric"]; label: string }> = [
+	{ value: "conversionRate", label: "Pipeline created vs. won" },
+	{ value: "conversionTime", label: "Time to convert" },
+	{ value: "stageRate", label: "Stage conversion rates" },
+	{ value: "stageTime", label: "Time in each stage" },
+	{ value: "breakdown", label: "Deals by dimension" },
+	{ value: "macroBowtie", label: "Funnel across pipelines" },
+];
+
+const BREAKDOWN_DIMENSIONS: Array<{
+	value: DashboardSpec["groupBy"][number];
+	label: string;
+}> = [
+	{ value: "channel", label: "Channel" },
+	{ value: "owner", label: "Owner" },
+	{ value: "utmSource", label: "UTM source" },
+	{ value: "utmMedium", label: "UTM medium" },
+	{ value: "utmCampaign", label: "UTM campaign" },
+	{ value: "utmTerm", label: "UTM term" },
+	{ value: "utmContent", label: "UTM content" },
+	{ value: "dealAttribute", label: "Deal attribute" },
+];
+
+/**
+ * The one editor a widget ever gets, whether it exists yet or not.
+ *
+ * Adding and editing used to be different dialogs — a rich builder with a live
+ * preview for new widgets, a blind form for existing ones — which meant the
+ * moment a chart needed adjusting, the preview vanished. This is the HubSpot
+ * shape instead: every control on the left, the actual chart re-rendering on
+ * the right, same component both ways in.
+ */
+function WidgetComposerDialog({
+	templates,
+	initial,
+	open,
+	onOpenChange,
+	onSubmit,
+	submitLabel,
+	busy,
+}: {
+	/** Offered as starting points; omit when editing an existing widget. */
+	templates?: Template[];
+	initial?: { title: string; description: string | null; spec: DashboardSpec };
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	onSubmit: (input: {
+		title: string;
+		description: string | null;
+		spec: DashboardSpec;
+	}) => void;
+	submitLabel: string;
+	busy: boolean;
+}) {
+	const trpc = useTRPC();
+	const pipelines = useQuery(
+		trpc.pipelines.list.queryOptions({ includeArchived: false }),
+	);
+	const baseSpec = initial?.spec ?? DEFAULT_DASHBOARD_SPEC;
+	const baseOptions = (baseSpec.options ?? {}) as WidgetOptions;
+
+	const [title, setTitle] = useState(initial?.title ?? "");
+	const [description, setDescription] = useState(initial?.description ?? "");
+	const [metric, setMetric] = useState<DashboardSpec["metric"]>(
+		baseSpec.metric,
+	);
+	const [dimension, setDimension] = useState<DashboardSpec["groupBy"][number]>(
+		baseSpec.groupBy.find((candidate) =>
+			BREAKDOWN_DIMENSIONS.some((option) => option.value === candidate),
+		) ?? "channel",
+	);
+	const [attributeKey, setAttributeKey] = useState(
+		baseSpec.filters.find((filter) => filter.key === "attributeKey")?.value ??
+			"",
+	);
+	const [visualization, setVisualization] = useState<string>(
+		baseSpec.metric === "macroBowtie" && baseSpec.visualization === "bar"
+			? "funnel"
+			: baseSpec.visualization,
+	);
+	const [legend, setLegend] = useState(baseOptions.legend !== false);
+	const [valueField, setValueField] = useState<
+		NonNullable<WidgetOptions["valueField"]>
+	>(baseOptions.valueField ?? "deals");
+	const [pipelineId, setPipelineId] = useState(
+		baseSpec.filters.find((filter) => filter.key === "pipelineId")?.value ??
+			"all",
+	);
+	const [window, setWindow] = useState<{ from: string; to: string }>({
+		from: baseSpec.timeRange.from?.slice(0, 10) ?? "",
+		to: baseSpec.timeRange.to?.slice(0, 10) ?? "",
+	});
+	const [grain, setGrain] = useState<string>(baseSpec.timeRange.grain);
+
+	const metricLabel =
+		METRICS.find((option) => option.value === metric)?.label ?? "New widget";
+
+	const applyTemplate = (key: string) => {
+		const template = templates?.find((candidate) => candidate.key === key);
+		if (!template) return;
+		const spec = template.spec;
+		setTitle(template.name);
+		setDescription(template.description);
+		setMetric(spec.metric);
+		const analyticsDimension = spec.groupBy.find((candidate) =>
+			BREAKDOWN_DIMENSIONS.some((option) => option.value === candidate),
+		);
+		if (analyticsDimension) setDimension(analyticsDimension);
+		setAttributeKey(
+			spec.filters.find((filter) => filter.key === "attributeKey")?.value ?? "",
+		);
+		setVisualization(
+			spec.metric === "macroBowtie" && spec.visualization === "bar"
+				? "funnel"
+				: spec.visualization,
+		);
+		setPipelineId(
+			spec.filters.find((filter) => filter.key === "pipelineId")?.value ??
+				"all",
+		);
+		setWindow({
+			from: spec.timeRange.from?.slice(0, 10) ?? "",
+			to: spec.timeRange.to?.slice(0, 10) ?? "",
+		});
+		setGrain(spec.timeRange.grain);
+	};
+
+	const needsAttributeKey =
+		metric === "breakdown" && dimension === "dealAttribute" && !attributeKey;
+
+	const spec: DashboardSpec = {
+		...baseSpec,
+		metric,
+		groupBy:
+			metric === "breakdown"
+				? [dimension]
+				: metric === "macroBowtie" || metric === "conversionRate"
+					? ["pipeline", "stage"]
+					: [],
+		filters: [
+			...(pipelineId !== "all"
+				? [
+						{
+							key: "pipelineId" as const,
+							operator: "eq" as const,
+							value: pipelineId,
+						},
+					]
+				: []),
+			...(metric === "breakdown" &&
+			dimension === "dealAttribute" &&
+			attributeKey
+				? [
+						{
+							key: "attributeKey" as const,
+							operator: "eq" as const,
+							value: attributeKey,
+						},
+					]
+				: []),
+		],
+		visualization: visualization as DashboardSpec["visualization"],
+		timeRange: {
+			...baseSpec.timeRange,
+			from: window.from || undefined,
+			to: window.to || undefined,
+			grain: grain as DashboardSpec["timeRange"]["grain"],
+		},
+		options: {
+			...baseSpec.options,
+			legend,
+			valueField: metric === "breakdown" ? valueField : undefined,
+		},
+	};
+
+	// One render per settled spec, not one per keystroke.
+	const deferredSpec = useDeferredValue(JSON.stringify(spec));
+	const preview = useQuery({
+		...trpc.dashboard.previewWidget.queryOptions({
+			spec: JSON.parse(deferredSpec) as DashboardSpec,
+		}),
+		enabled: open && !needsAttributeKey,
+		placeholderData: (previous) => previous,
+	});
+	const previewView = preview.data?.view as AnalyticsView | undefined;
+
+	return (
+		<Dialog open={open} onOpenChange={onOpenChange}>
+			<DialogContent className="sm:max-w-4xl">
+				<DialogHeader>
+					<DialogTitle>
+						{initial ? "Edit widget" : "Build a widget"}
+					</DialogTitle>
+					<DialogDescription>
+						Pick what to measure and how to draw it — the preview updates as you
+						go.
+					</DialogDescription>
+				</DialogHeader>
+				<div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+					<div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1">
+						{templates?.length ? (
+							<Field>
+								<FieldLabel>Start from</FieldLabel>
+								<SearchCombobox
+									value=""
+									onValueChange={applyTemplate}
+									options={templates.map((template) => ({
+										value: template.key,
+										label: template.name,
+										description: template.description,
+									}))}
+									placeholder="A template (optional)"
+									searchPlaceholder="Search templates…"
+									className="w-full"
+								/>
+							</Field>
+						) : null}
+						<Field>
+							<FieldLabel htmlFor="composer-title">Title</FieldLabel>
+							<Input
+								id="composer-title"
+								value={title}
+								placeholder={metricLabel}
+								onChange={(event) => setTitle(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="composer-description">
+								Description
+							</FieldLabel>
+							<Input
+								id="composer-description"
+								value={description}
+								onChange={(event) => setDescription(event.target.value)}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel>Measure</FieldLabel>
+							<SearchCombobox
+								value={metric}
+								onValueChange={(value) =>
+									setMetric(value as DashboardSpec["metric"])
+								}
+								options={METRICS.map((option) => ({ ...option }))}
+								searchPlaceholder="Search measures…"
+								className="w-full"
+							/>
+						</Field>
+						{metric === "breakdown" ? (
+							<>
+								<Field>
+									<FieldLabel>Break down by</FieldLabel>
+									<SearchCombobox
+										value={dimension}
+										onValueChange={(value) =>
+											setDimension(value as DashboardSpec["groupBy"][number])
+										}
+										options={BREAKDOWN_DIMENSIONS.map((option) => ({
+											...option,
+										}))}
+										searchPlaceholder="Search dimensions…"
+										className="w-full"
+									/>
+								</Field>
+								<Field>
+									<FieldLabel>Value</FieldLabel>
+									<SearchCombobox
+										value={valueField}
+										onValueChange={(value) =>
+											setValueField(
+												value as NonNullable<WidgetOptions["valueField"]>,
+											)
+										}
+										options={VALUE_FIELDS.map((option) => ({ ...option }))}
+										searchPlaceholder="Search values…"
+										className="w-full"
+									/>
+								</Field>
+							</>
+						) : null}
+						{metric === "breakdown" && dimension === "dealAttribute" ? (
+							<Field>
+								<FieldLabel htmlFor="composer-attribute">
+									Attribute key
+								</FieldLabel>
+								<Input
+									id="composer-attribute"
+									value={attributeKey}
+									placeholder="e.g. segment"
+									onChange={(event) => setAttributeKey(event.target.value)}
+								/>
+							</Field>
+						) : null}
+						<Field>
+							<FieldLabel>Chart type</FieldLabel>
+							<SearchCombobox
+								value={visualization}
+								onValueChange={setVisualization}
+								options={VISUALIZATIONS.map((option) => ({ ...option }))}
+								searchPlaceholder="Search chart types…"
+								className="w-full"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel>Pipeline</FieldLabel>
+							<SearchCombobox
+								value={pipelineId}
+								onValueChange={setPipelineId}
+								options={[
+									{ value: "all", label: "All pipelines" },
+									...(pipelines.data ?? []).map((pipeline) => ({
+										value: pipeline.id,
+										label: pipeline.name,
+									})),
+								]}
+								searchPlaceholder="Search pipelines…"
+								className="w-full"
+							/>
+						</Field>
+						<Field>
+							<FieldLabel htmlFor="composer-window">Date window</FieldLabel>
+							<DateRangePicker
+								id="composer-window"
+								value={window}
+								onChange={setWindow}
+							/>
+						</Field>
+						<Field>
+							<FieldLabel>Frequency</FieldLabel>
+							<Select value={grain} onValueChange={setGrain}>
+								<SelectTrigger className="w-full">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{GRAINS.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</Field>
+						<label
+							htmlFor="composer-legend"
+							className="flex items-center justify-between gap-3 border p-3 text-sm"
+						>
+							<span>
+								Legend
+								<span className="block text-muted-foreground text-xs">
+									List the categories with their values under the chart
+								</span>
+							</span>
+							<Switch
+								id="composer-legend"
+								checked={legend}
+								onCheckedChange={setLegend}
+							/>
+						</label>
+					</div>
+					<div className="flex min-h-72 flex-col border p-4">
+						{needsAttributeKey ? (
+							<div className="flex flex-1 items-center justify-center text-muted-foreground text-sm">
+								Enter the deal attribute key to preview this cut.
+							</div>
+						) : preview.isLoading ? (
+							<div className="flex flex-1 items-center justify-center">
+								<Spinner />
+							</div>
+						) : previewView ? (
+							<div className="flex flex-1 flex-col justify-center">
+								<WidgetChart
+									view={previewView}
+									visualization={visualization}
+									options={{ legend }}
+									height={260}
+								/>
+							</div>
+						) : (
+							<div className="flex flex-1 items-center justify-center text-destructive text-xs">
+								{preview.error?.message ?? "Preview is unavailable."}
+							</div>
+						)}
+					</div>
+				</div>
+				<DialogFooter>
+					<Button
+						type="button"
+						variant="outline"
+						onClick={() => onOpenChange(false)}
+					>
+						Cancel
+					</Button>
+					<Button
+						type="button"
+						disabled={busy || needsAttributeKey}
+						onClick={() =>
+							onSubmit({
+								title: title.trim() || metricLabel,
+								description: description.trim() || null,
+								spec,
+							})
+						}
+					>
+						{submitLabel}
+					</Button>
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }

@@ -8,6 +8,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@crm/ui/components/card";
+import { DateRangePicker } from "@crm/ui/components/date-range-picker";
 import { Field, FieldLabel } from "@crm/ui/components/field";
 import { Input } from "@crm/ui/components/input";
 import {
@@ -219,32 +220,19 @@ export function StudioDashboardDefinitionEditor({
 				</div>
 				<div className="grid gap-3 md:grid-cols-3">
 					<Field>
-						<FieldLabel htmlFor="dashboard-from">From</FieldLabel>
-						<Input
-							type="date"
-							id="dashboard-from"
-							value={dateValue(spec.timeRange.from)}
-							onChange={(event) =>
+						<FieldLabel htmlFor="dashboard-window">Date window</FieldLabel>
+						<DateRangePicker
+							id="dashboard-window"
+							value={{
+								from: dateValue(spec.timeRange.from),
+								to: dateValue(spec.timeRange.to),
+							}}
+							onChange={(next) =>
 								updateSpec({
 									timeRange: {
 										...spec.timeRange,
-										from: event.target.value || undefined,
-									},
-								})
-							}
-						/>
-					</Field>
-					<Field>
-						<FieldLabel htmlFor="dashboard-to">To</FieldLabel>
-						<Input
-							type="date"
-							id="dashboard-to"
-							value={dateValue(spec.timeRange.to)}
-							onChange={(event) =>
-								updateSpec({
-									timeRange: {
-										...spec.timeRange,
-										to: event.target.value || undefined,
+										from: next.from || undefined,
+										to: next.to || undefined,
 									},
 								})
 							}

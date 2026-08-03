@@ -24,7 +24,11 @@ export const dashboardStatus = z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]);
 export const dashboardVisualization = z.enum([
 	"bar",
 	"line",
+	"area",
 	"doughnut",
+	"pie",
+	"radial",
+	"funnel",
 	"table",
 	"kpi",
 ]);
