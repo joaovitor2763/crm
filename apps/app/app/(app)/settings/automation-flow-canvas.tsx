@@ -153,6 +153,9 @@ function WorkflowCanvasSurface({
 		);
 		onChange(nextSteps, nextLayout);
 		onSelect(step.id);
+		requestAnimationFrame(
+			() => void flow.fitView({ padding: 0.2, duration: 250 }),
+		);
 	};
 
 	const onNodesChange = (changes: NodeChange<WorkflowFlowNode>[]) => {
