@@ -1089,6 +1089,9 @@ function WorkspaceWidget({
 				height: widget.height,
 				colPx: card.offsetWidth / widget.width,
 			};
+			// Locks the size preview on immediately so the card stops being
+			// draggable before the browser can promote this gesture to a drag.
+			setPreview({ width: widget.width, height: widget.height });
 		};
 	const moveResize = (event: ReactPointerEvent<HTMLElement>) => {
 		const start = resizeStart.current;
@@ -1138,7 +1141,7 @@ function WorkspaceWidget({
 		<Card
 			ref={cardRef}
 			className={cn(
-				"group/widget relative z-10 min-w-0 bg-background transition-opacity",
+				"group/widget relative z-10 min-w-0 transition-opacity",
 				canEdit && "cursor-grab active:cursor-grabbing",
 				dragging && "opacity-50",
 				dropTarget && "ring-1 ring-ring",
@@ -1146,7 +1149,15 @@ function WorkspaceWidget({
 				spanClass(preview?.width ?? widget.width),
 			)}
 			draggable={canEdit && preview === null}
-			onDragStart={onDragStart}
+			onDragStart={(event) => {
+				// A resize gesture must never become a reorder drag; the ref is
+				// set synchronously on the handle's pointerdown, the state isn't.
+				if (resizeStart.current) {
+					event.preventDefault();
+					return;
+				}
+				onDragStart(event);
+			}}
 			onDragEnd={onDragEnd}
 			onDragOver={onDragOver}
 			onDragLeave={onDragLeave}
